@@ -424,6 +424,9 @@ def generate_dynamic_tag(config, base_tag="default"):
         which_sel = get_nested(config, "model/which_selection", None)
         if _is_active(which_sel):
             parts.append(f"sel-{which_sel}")
+        b_min = get_nested(config, f"io/PV_main/{which_run}/b_min", None)
+        if _is_active(b_min):
+            parts.append(f"bmin{_tag_number(b_min)}")
         mag_min = get_nested(config, "model/mag_min_TRGB", None)
         if (_is_active(mag_min)
                 and float(mag_min) != DEFAULT_TRGBH0_EDD_MAG_MIN):
