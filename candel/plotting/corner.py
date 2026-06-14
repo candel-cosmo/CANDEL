@@ -97,9 +97,9 @@ def name2label(name):
         "mag_lim_TRGB_width": r"$\sigma_{\rm sel}$",
         "nu_cz": r"$\nu$",
         "mu_N4258": r"$\mu_{\rm N4258}$",
+        "log10_D_c": r"$\log_{10} D_c$",
         "D_c": r"$D_c$",
         "D_A": r"$D_A$",
-        "eta": r"$\eta$",
         "log_MBH": r"$\log M_{\rm BH}$",
         "M_BH": r"$M_{\rm BH}$",
         "i0": r"$i_0$",
@@ -202,9 +202,9 @@ def name2labelgetdist(name):
         "mag_lim_TRGB_width": r"\sigma_{\rm sel}",
         "nu_cz": r"\nu",
         "H0": r"H_0~\left[\mathrm{km}\,\mathrm{s}^{-1}\,\mathrm{Mpc}^{-1}\right]",  # noqa
+        "log10_D_c": r"\log_{10} D_c",
         "D_c": r"D_c",
         "D_A": r"D_A",
-        "eta": r"\eta",
         "log_MBH": r"\log M_{\rm BH}",
         "M_BH": r"M_{\rm BH}",
         "i0": r"i_0",
@@ -247,7 +247,7 @@ def name2labelgetdist(name):
 
 def sort_params(keys):
     order = [
-        "H0", "D_c", "D_A", "log_MBH", "M_BH", "eta", "dv_sys",
+        "H0", "log10_D_c", "D_c", "log_MBH", "dv_sys",
         "sigma_pec", "D_lim", "D_width", "x0", "y0", "i0", "Omega0",
         "di_dr", "dOmega_dr", "d2i_dr2", "d2Omega_dr2",
         "sigma_x_floor", "sigma_y_floor", "sigma_v_sys", "sigma_v_hv",
