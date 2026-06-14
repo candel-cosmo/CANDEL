@@ -59,8 +59,8 @@ def _estimate_r_ang(model, gcfg, init_params):
     r_lo, r_hi = model.r_ang_range(D_A)
     r_lo, r_hi = float(r_lo), float(r_hi)
 
-    eta = float(init_params["eta"])
-    M_BH = 10.0 ** (eta + np.log10(D_A) - 7.0)
+    log_MBH = float(init_params["log_MBH"])
+    M_BH = 10.0 ** (log_MBH - 7.0)
     sin_i = abs(np.sin(np.deg2rad(float(init_params["i0"]))))
 
     r_est = np.full(model.n_spots, np.sqrt(r_lo * r_hi))
