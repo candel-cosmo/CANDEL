@@ -16,6 +16,7 @@ TRGBH0_MANTICORE_BIAS = "double_powerlaw"
 TRGBH0_MAIN_MANTICORE_BIAS = TRGBH0_MANTICORE_BIAS
 TRGBH0_CARRICK_BETA_LOC = 0.461
 TRGBH0_CARRICK_BETA_SCALE = 0.013
+TRGBH0_EDD_B_MIN = 10.0
 TRGBH0_EDD_MAG_MIN = 22.1
 TRGBH0_EDD_MAG_LIM_LOW = 22.101
 TRGBH0_EDD_MAG_LIM_HIGH = 29.0
@@ -202,6 +203,13 @@ def _ch0_selection(selection):
 
 def _trgbh0_selection(selection):
     return {"model/which_selection": selection}
+
+
+def _trgbh0_edd_b_cut():
+    return {
+        "io/PV_main/EDD_TRGB/b_min": TRGBH0_EDD_B_MIN,
+        "io/PV_main/EDD_TRGB_grouped/b_min": TRGBH0_EDD_B_MIN,
+    }
 
 
 def _with_root(root_output):
@@ -553,6 +561,19 @@ def _trgbh0_selection_datasets(pv_models, selections=("TRGB_magnitude",)):
     ]
 
 
+def _trgbh0_edd_selection_datasets(
+        pv_models, selections=("TRGB_magnitude",)):
+    return [
+        {
+            **_trgbh0_edd_b_cut(),
+            **pv_model,
+            **_trgbh0_selection(selection),
+        }
+        for pv_model in pv_models
+        for selection in selections
+    ]
+
+
 def _trgbh0_main_datasets():
     selections = ("TRGB_magnitude",)
     main_pv_models = [
@@ -681,11 +702,11 @@ def _trgbh0_main_datasets():
         },
     ]
     return (
-        _trgbh0_selection_datasets(main_pv_models, selections)
-        + _trgbh0_selection_datasets(extra_pv_models, selections)
+        _trgbh0_edd_selection_datasets(main_pv_models, selections)
+        + _trgbh0_edd_selection_datasets(extra_pv_models, selections)
         + _trgbh0_cchp_subset_datasets()
         + _trgbh0_distance_only_datasets()
-        + _trgbh0_selection_datasets(
+        + _trgbh0_edd_selection_datasets(
             carrick_double_powerlaw_models, selections)
     )
 
@@ -693,6 +714,7 @@ def _trgbh0_main_datasets():
 def _trgbh0_distance_only_datasets():
     return [
         {
+            **_trgbh0_edd_b_cut(),
             "model/use_TRGB_host_redshift": False,
             "model/use_reconstruction": False,
             "model/use_density_dependent_sigma_v": False,
@@ -713,6 +735,7 @@ def _trgbh0_manticore_cola_mas_field_datasets(mas_values):
     for mas in mas_values:
         for field in range(80):
             datasets.append({
+                **_trgbh0_edd_b_cut(),
                 "model/use_reconstruction": True,
                 "model/use_density_dependent_sigma_v": False,
                 "model/cz_likelihood": "gaussian",
