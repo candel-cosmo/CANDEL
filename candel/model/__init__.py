@@ -32,7 +32,7 @@ from .model_PV_FP import FPModel                                                
 from .model_H0_CH0 import CH0Model                                              # noqa
 from .model_H0_TRGB import TRGBModel                                            # noqa
 from .dev.model_H0_2MTF import EDD2MTFModel                                     # noqa
-from .model_H0_maser import MaserDiskModel, JointMaserModel                     # noqa
+from .model_H0_maser import MaserDiskModel                                     # noqa
 from .mwcepheids import MWCepheidModel                                          # noqa
 from .interp import LOSInterpolator                                             # noqa
 from .integration import (ln_simpson, ln_simpson_uniform,                       # noqa
