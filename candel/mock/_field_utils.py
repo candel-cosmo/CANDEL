@@ -15,7 +15,6 @@
 """Shared utilities for mock generation and posterior predictive checks."""
 import numpy as np
 
-from ..field.field_interp import build_regular_interpolator
 from ..model.pv_utils import validate_galaxy_bias
 from ..util import (cartesian_to_radec, fprint, galactic_to_radec,
                     radec_to_cartesian)
@@ -169,20 +168,52 @@ def compute_r_max_selection(mag_lim, M_abs, sigma_int, e_mag,
     return r_max
 
 
-def build_field_pool(field_loader, r_sphere, pool_size, gen,
-                     rmin_h=0.1, density_divisor=None, verbose=True):
-    """Pre-sample 3D positions and evaluate density/velocity in one batch.
+def _validated_smoothing_scale(scale, cellsize, label):
+    """Return an optional smoothing scale validated against the voxel size."""
+    if scale is None:
+        return None
+    scale = float(scale)
+    if not np.isfinite(scale) or scale < 0.0:
+        raise ValueError(f"`{label}` must be finite and non-negative.")
+    if scale == 0.0:
+        return None
+    if scale <= cellsize:
+        raise ValueError(
+            f"`{label}` must exceed the field voxel size {cellsize:g} "
+            f"Mpc/h; got {scale:g} Mpc/h.")
+    return scale
 
-    Returns dict with keys: r_h, rho, v_los, RA, dec, rhat_icrs, delta_max.
-    """
+
+def build_field_pool_evaluator(field_loader, density_divisor=None,
+                               field_smoothing_scale=None,
+                               velocity_field_smoothing_scale=None,
+                               verbose=True):
+    """Load field products once and build interpolators for PPC pools."""
     obs = field_loader.observer_pos
     coord_frame = field_loader.coordinate_frame
 
     eps = 1e-4
-    fprint("loading density field for pool...", verbose=verbose)
+    from ..field.field_interp import (apply_gaussian_smoothing,
+                                      build_regular_interpolator)
+
+    fprint("loading density field once for pool evaluator...",
+           verbose=verbose)
     density_raw = field_loader.load_density()
+    cellsize = float(field_loader.boxsize) / density_raw.shape[0]
+    field_smoothing_scale = _validated_smoothing_scale(
+        field_smoothing_scale, cellsize, "field_smoothing_scale")
+    velocity_field_smoothing_scale = _validated_smoothing_scale(
+        velocity_field_smoothing_scale, cellsize,
+        "velocity_field_smoothing_scale")
     if density_divisor is not None:
         density_raw = density_raw / density_divisor
+    if field_smoothing_scale is not None:
+        fprint("applying Gaussian smoothing to density with scale "
+               f"{field_smoothing_scale:.1f} Mpc/h.",
+               verbose=verbose)
+        density_raw = apply_gaussian_smoothing(
+            density_raw.astype(np.float32, copy=False),
+            field_smoothing_scale, field_loader.boxsize, make_copy=True)
     density_log = np.log(density_raw + eps).astype(np.float32)
     f_density = build_regular_interpolator(
         density_log, field_loader.boxsize,
@@ -190,14 +221,58 @@ def build_field_pool(field_loader, r_sphere, pool_size, gen,
     delta_max = float(density_raw.max()) - 1
     del density_raw, density_log
 
-    fprint("loading velocity field for pool...", verbose=verbose)
+    fprint("loading velocity field once for pool evaluator...",
+           verbose=verbose)
     velocity_3d = field_loader.load_velocity()
     f_vel = []
     for i in range(3):
+        v_comp = velocity_3d[i]
+        if velocity_field_smoothing_scale is not None:
+            if i == 0:
+                fprint("applying Gaussian smoothing to velocity with scale "
+                       f"{velocity_field_smoothing_scale:.1f} Mpc/h.",
+                       verbose=verbose)
+            v_comp = apply_gaussian_smoothing(
+                v_comp.astype(np.float32, copy=False),
+                velocity_field_smoothing_scale, field_loader.boxsize,
+                make_copy=True)
         f_vel.append(build_regular_interpolator(
-            velocity_3d[i], field_loader.boxsize,
+            v_comp, field_loader.boxsize,
             fill_value=np.float32(0)))
     del velocity_3d
+
+    return {
+        "observer_pos": obs,
+        "coordinate_frame": coord_frame,
+        "f_density": f_density,
+        "f_vel": tuple(f_vel),
+        "delta_max": delta_max,
+        "eps": eps,
+    }
+
+
+def build_field_pool(field_loader, r_sphere, pool_size, gen,
+                     rmin_h=0.1, density_divisor=None,
+                     field_smoothing_scale=None,
+                     velocity_field_smoothing_scale=None,
+                     field_evaluator=None, verbose=True):
+    """Pre-sample 3D positions and evaluate density/velocity in one batch.
+
+    Returns dict with keys: r_h, rho, v_los, RA, dec, rhat_icrs, delta_max.
+    """
+    if field_evaluator is None:
+        field_evaluator = build_field_pool_evaluator(
+            field_loader, density_divisor=density_divisor,
+            field_smoothing_scale=field_smoothing_scale,
+            velocity_field_smoothing_scale=velocity_field_smoothing_scale,
+            verbose=verbose)
+
+    obs = field_evaluator["observer_pos"]
+    coord_frame = field_evaluator["coordinate_frame"]
+    f_density = field_evaluator["f_density"]
+    f_vel = field_evaluator["f_vel"]
+    eps = field_evaluator["eps"]
+    delta_max = field_evaluator["delta_max"]
 
     # Sample positions uniformly in sphere
     n_cube = int(pool_size * 2.0)
@@ -214,20 +289,20 @@ def build_field_pool(field_loader, r_sphere, pool_size, gen,
     r_h = np.linalg.norm(xyz, axis=1)
 
     # Evaluate density
-    fprint(f"evaluating density at {len(xyz)} positions...", verbose=verbose)
+    fprint(f"evaluating density/velocity at {len(xyz)} positions...",
+           verbose=verbose)
     pos_box = (xyz + obs[None, :]).astype(np.float32)
     rho_log = f_density(pos_box)
     rho = np.exp(rho_log) - eps
     np.clip(rho, eps, None, out=rho)
 
     # Evaluate radial velocity
-    fprint("evaluating velocity...", verbose=verbose)
     rhat = xyz / r_h[:, None]
     v_los = np.zeros(len(xyz), dtype=np.float32)
     for i in range(3):
         v_los += f_vel[i](pos_box) * rhat[:, i]
 
-    del f_density, f_vel, pos_box
+    del pos_box
 
     # Convert to ICRS
     RA, dec = field_xyz_to_radec(xyz, r_h, coord_frame)
