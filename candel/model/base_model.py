@@ -633,6 +633,7 @@ class H0ModelBase(ModelBase):
         "density_3d_fields", "log_r_3d", "mu_at_h1_3d",
         "log_volume_weight_3d", "zcosmo_3d", "vrad_3d_fields",
         "rhat_x_3d", "rhat_y_3d", "rhat_z_3d",
+        "galactic_ell_3d", "galactic_b_3d",
     )
 
     def __init__(self, config_path, data):
@@ -748,6 +749,8 @@ class H0ModelBase(ModelBase):
             raise ValueError(
                 "`model.selection_integral_geometry` must be 'sphere' "
                 "or 'cube'.")
+        self.selection_integral_b_min = (
+            self._selection_integral_b_min_from_config(config))
         factor = get_nested(
             config, "model/selection_integral_supersample_factor", 1)
         if isinstance(factor, bool) or int(factor) != factor:
@@ -800,6 +803,11 @@ class H0ModelBase(ModelBase):
                     "using trilinear interpolation.")
             else:
                 fprint("3D selection integral supersampling disabled.")
+        if (self.use_reconstruction
+                and self.selection_integral_b_min is not None):
+            fprint(
+                "3D volume Galactic latitude mask enabled: "
+                f"|b| >= {self.selection_integral_b_min:g} deg.")
 
         # Robust velocity-error modelling options
         self.cz_likelihood = get_nested(
@@ -810,6 +818,31 @@ class H0ModelBase(ModelBase):
                 "Expected 'gaussian' or 'student_t'.")
         if self.cz_likelihood != "gaussian":
             fprint(f"cz_likelihood set to {self.cz_likelihood}")
+
+    @staticmethod
+    def _validate_selection_integral_b_min(b_min, source):
+        """Validate an optional Galactic latitude cut in degrees."""
+        if b_min is None:
+            return None
+        b_min = float(b_min)
+        if b_min < 0.0 or b_min > 90.0:
+            raise ValueError(f"`{source}` must be in [0, 90] deg.")
+        if np.isclose(b_min, 0.0):
+            return None
+        return b_min
+
+    def _selection_integral_b_min_from_config(self, config):
+        """Read the sky mask from the same run-level key as the data cut."""
+        which_run = get_nested(config, "model/which_run", None)
+        if which_run is not None:
+            source = f"io/PV_main/{which_run}/b_min"
+            b_min = get_nested(config, source, None)
+            if b_min is not None:
+                return self._validate_selection_integral_b_min(b_min, source)
+
+        source = "model/selection_integral_b_min"
+        b_min = get_nested(config, source, None)
+        return self._validate_selection_integral_b_min(b_min, source)
 
     def _load_selection_thresholds(self, active_map, spec):
         config = self.config
@@ -1066,9 +1099,51 @@ class H0ModelBase(ModelBase):
         return (self.log_prior_distance(self.r_sel_range) + LOG_4PI
                 )[None, None, :]
 
+    def _selection_3d_sin_galactic_latitude(self):
+        """Return sin(b) for each 3D volume point."""
+        if hasattr(self, "galactic_b_3d"):
+            return jnp.sin(jnp.deg2rad(self.galactic_b_3d))
+
+        missing = [
+            key for key in ("rhat_x_3d", "rhat_y_3d", "rhat_z_3d")
+            if not hasattr(self, key)
+        ]
+        if missing:
+            raise ValueError(
+                "The 3D volume Galactic latitude mask requires "
+                "`galactic_b_3d` or `rhat_x_3d`, `rhat_y_3d`, and "
+                "`rhat_z_3d` in the loaded volume data; missing "
+                f"{', '.join(missing)}.")
+
+        x = self.rhat_x_3d
+        y = self.rhat_y_3d
+        z = self.rhat_z_3d
+        frame = str(self.coordinate_frame_3d).lower()
+        if frame == "galactic":
+            return z
+        if frame == "icrs":
+            row = jnp.asarray(_R_ICRS_TO_GAL[2])
+        elif frame == "supergalactic":
+            row = jnp.asarray((_R_ICRS_TO_GAL @ _R_ICRS_TO_SUPERGAL.T)[2])
+        else:
+            raise ValueError(
+                f"3D selection integrals do not support coordinate frame "
+                f"'{self.coordinate_frame_3d}'.")
+        return row[0] * x + row[1] * y + row[2] * z
+
+    def _selection_3d_log_sky_mask(self):
+        """Log indicator for the configured 3D Galactic latitude mask."""
+        b_min = getattr(self, "selection_integral_b_min", None)
+        if b_min is None:
+            return 0.0
+        sin_b_min = jnp.sin(jnp.deg2rad(jnp.asarray(b_min)))
+        sin_b = self._selection_3d_sin_galactic_latitude()
+        return jnp.where(jnp.abs(sin_b) >= sin_b_min, 0.0, -jnp.inf)
+
     def _selection_3d_log_measure(self, H0):
         """Voxel log measure for 3D selection integrals."""
-        return self._volume_log_cell_weight_phys(H0)
+        return (self._volume_log_cell_weight_phys(H0)
+                + self._selection_3d_log_sky_mask())
 
     def _vol_sel_galaxy_bias(self, density_3d, bias_params):
         """Apply galaxy bias to a 3D density field."""
