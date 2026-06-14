@@ -17,7 +17,8 @@ matplotlib.use("Agg")
 
 import candel
 import tomli_w
-from candel.mock import generate_trgb_ppc, plot_trgb_ppc
+from candel.mock import (
+    generate_trgb_ppc, plot_trgb_ppc, plot_trgb_ppc_distance)
 from trgbh0_plot_style import OUTPUT_DIR, ROOT, TRGBH0_TABLE_RESULTS
 
 
@@ -41,13 +42,27 @@ DEFAULT_POSTERIORS = {
     ),
 }
 DEFAULT_OUTPUTS = {
-    "carrick": OUTPUT_DIR / "trgbh0_edd_trgb_carrick_gaussian_ppc.png",
-    "none": OUTPUT_DIR / "trgbh0_edd_trgb_nofield_gaussian_ppc.png",
-    "manticore": OUTPUT_DIR / "trgbh0_edd_trgb_manticore_gaussian_ppc.png",
+    "carrick": OUTPUT_DIR / "trgbh0_edd_trgb_carrick_gaussian_ppc.pdf",
+    "none": OUTPUT_DIR / "trgbh0_edd_trgb_nofield_gaussian_ppc.pdf",
+    "manticore": OUTPUT_DIR / "trgbh0_edd_trgb_manticore_gaussian_ppc.pdf",
 }
 
 SEED = 42
 DEFAULT_FIELD_INDEX = 0
+RULE_WIDTH = 72
+
+
+def print_rule(char="="):
+    """Print a terminal separator."""
+    print(char * RULE_WIDTH, flush=True)
+
+
+def print_section(title):
+    """Print a visually separated terminal section title."""
+    print()
+    print_rule()
+    print(title, flush=True)
+    print_rule()
 
 
 def _set_nested(config, path, value):
@@ -82,7 +97,7 @@ def default_output(mode, field_index):
         return (
             OUTPUT_DIR
             / f"trgbh0_edd_trgb_manticore_field{field_index:02d}_"
-              "gaussian_ppc.png"
+              "gaussian_ppc.pdf"
         )
     return DEFAULT_OUTPUTS[mode]
 
@@ -101,6 +116,9 @@ def configure_mode(config, mode, manticore_root=None):
         _set_nested(config, "model/use_reconstruction", True)
         _set_nested(config, "model/which_bias", "double_powerlaw")
         _set_nested(config, "model/field_3d_smoothing_scale", 4.0)
+        _set_nested(config, "model/velocity_3d_smoothing_scale", 0.0)
+        _set_nested(config, "model/priors/beta",
+                    {"dist": "delta", "value": 1.0})
         _set_nested(config, "io/PV_main/EDD_TRGB/reconstruction",
                     "ManticoreLocalCOLA")
         _set_nested(config,
@@ -152,7 +170,7 @@ def parse_args():
               "result where available, otherwise the Carrick fiducial."))
     parser.add_argument(
         "--output", type=Path, default=None,
-        help="Output PNG path.")
+        help="Output figure path.")
     parser.add_argument(
         "--n-ppc", type=int, default=None,
         help="Number of PPC galaxies. Defaults to config ppc_factor.")
@@ -162,6 +180,10 @@ def parse_args():
     parser.add_argument(
         "--manticore-root", type=Path, default=None,
         help="Root containing ManticoreLocalCOLA MAS subdirectories.")
+    parser.add_argument(
+        "--b-min", type=float, default=None,
+        help=("Apply the same lower |Galactic latitude| cut, in degrees, "
+              "to the observed EDD TRGB hosts and PPC sky positions."))
     parser.add_argument("--seed", type=int, default=SEED)
     parser.add_argument(
         "--no-progress", action="store_true",
@@ -188,11 +210,25 @@ def main():
         raise SystemExit(f"error: {exc}") from exc
     if args.ppc_factor is not None:
         _set_nested(config, "model/ppc_factor", args.ppc_factor)
+    if args.b_min is not None:
+        _set_nested(config, "io/PV_main/EDD_TRGB/b_min", args.b_min)
 
     data = load_observed_data(config)
     posterior = args.posterior or default_posterior(args.mode, field_index)
     output = args.output or default_output(args.mode, field_index)
+    print_section("EDD TRGB PPC")
+    print(f"mode         : {args.mode}", flush=True)
+    print(f"field_index  : {field_index}", flush=True)
+    print(f"b_min        : {args.b_min}", flush=True)
+    print(f"posterior    : {posterior}", flush=True)
+    print(f"output       : {output}", flush=True)
+    print_rule("-")
+    print(f"Loading posterior samples from: {posterior}", flush=True)
     samples = candel.read_samples("", str(posterior))
+    if "nu_cz" in samples:
+        _set_nested(config, "model/cz_likelihood", "student_t")
+        print("cz_likelihood: student_t (detected nu_cz samples)",
+              flush=True)
 
     ppc = generate_trgb_ppc(
         samples,
@@ -205,15 +241,27 @@ def main():
     )
 
     output.parent.mkdir(parents=True, exist_ok=True)
-    stats = plot_trgb_ppc(ppc, str(output))
+    stats = plot_trgb_ppc(ppc, str(output), mnras=True)
+    distance_output = output.with_name(
+        f"{output.stem}_distance_distribution{output.suffix}")
+    distance_stats = plot_trgb_ppc_distance(
+        ppc, str(distance_output), mnras=True)
 
-    print(f"mode={args.mode}")
-    print(f"field_index={field_index}")
-    print(f"posterior={posterior}")
-    print(f"Wrote {output}")
-    print(f"n_obs={len(ppc['mag_obs'])}, n_ppc={len(ppc['mag_sim'])}")
-    print(f"KS mag p={stats['ks_mag_pvalue']:.4g}")
-    print(f"KS cz p={stats['ks_cz_pvalue']:.4g}")
+    print_section("EDD TRGB PPC result")
+    print(f"mode                      : {args.mode}")
+    print(f"field_index               : {field_index}")
+    print(f"posterior                 : {posterior}")
+    print(f"wrote                     : {output}")
+    print(f"wrote                     : {distance_output}")
+    print(f"n_obs                     : {len(ppc['mag_obs'])}")
+    print(f"n_ppc                     : {len(ppc['mag_sim'])}")
+    print("retained distance median  : "
+          f"{distance_stats['r_median']:.3g} Mpc "
+          f"[{distance_stats['r_p16']:.3g}, "
+          f"{distance_stats['r_p84']:.3g}]")
+    print(f"KS mag p                  : {stats['ks_mag_pvalue']:.4g}")
+    print(f"KS cz p                   : {stats['ks_cz_pvalue']:.4g}")
+    print_rule()
 
 
 if __name__ == "__main__":
