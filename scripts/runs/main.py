@@ -227,66 +227,9 @@ if __name__ == "__main__":
                 args.config, trgb_data, csp_data)
             candel.run_H0_inference(model, )
         elif which_run == "maser_disk":
-            import tempfile
-            import tomli_w
-
-            maser_cfg = get_nested(config, "io/maser_data", {})
-            root = maser_cfg.get("root", "data/Megamaser")
-            galaxy = get_nested(config, "model/galaxy", "CGCG074-064")
-            all_galaxies = get_nested(config, "model/galaxies", {})
-
-            if galaxy == "joint":
-                galaxy_names = list(all_galaxies.keys())
-                fprint(f"selected joint maser disk model "
-                       f"({len(galaxy_names)} galaxies: "
-                       f"{', '.join(galaxy_names)}).")
-                data_list = [
-                    candel.pvdata.load_megamaser_spots(
-                        root, g,
-                        v_sys_obs=all_galaxies[g]["v_sys_obs"])
-                    for g in galaxy_names]
-                if args.max_spots is not None:
-                    data_list = [downsample_spots(d, args.max_spots)
-                                 for d in data_list]
-                config["io"]["fname_output"] = "results/Maser/joint.hdf5"
-
-                tmp = tempfile.NamedTemporaryFile(
-                    mode="wb", suffix=".toml", delete=False)
-                tomli_w.dump(config, tmp)
-                tmp.close()
-                model = candel.model.JointMaserModel(
-                    tmp.name, data_list)
-            else:
-                fprint(f"selected maser disk model for {galaxy}.")
-                gal_cfg = all_galaxies.get(galaxy, {})
-                for key in ("fit_di_dr", "sample_accel_det", "use_selection"):
-                    if key in gal_cfg:
-                        config["model"][key] = gal_cfg[key]
-                gal_priors = gal_cfg.get("priors", {})
-                for pname, pval in gal_priors.items():
-                    config["model"]["priors"][pname] = pval
-
-                # Per-galaxy init_values override global init settings.
-                gal_init = gal_cfg.get("init_values", None)
-                if gal_init is not None:
-                    config["inference"]["init_values"] = gal_init
-                    fprint(f"using per-galaxy init_values for {galaxy}.")
-
-                config["io"]["fname_output"] = (
-                    f"results/Maser/{galaxy}.hdf5")
-
-                tmp = tempfile.NamedTemporaryFile(
-                    mode="wb", suffix=".toml", delete=False)
-                tomli_w.dump(config, tmp)
-                tmp.close()
-                data = candel.pvdata.load_megamaser_spots(
-                    root, galaxy,
-                    v_sys_obs=gal_cfg["v_sys_obs"])
-                if args.max_spots is not None:
-                    data = downsample_spots(data, args.max_spots)
-                model = candel.model.MaserDiskModel(tmp.name, data)
-
-            candel.run_H0_inference(model)
+            raise RuntimeError(
+                "The config-driven megamaser NumPyro runner has been "
+                "removed. Use scripts/megamaser/run_maser_blackjax.py.")
         else:
             data = candel.pvdata.load_PV_dataframes(args.config)
 
