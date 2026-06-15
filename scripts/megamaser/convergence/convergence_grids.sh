@@ -1,8 +1,8 @@
 #!/bin/bash -l
-# Mode 2 (union-of-local+global r + quadrature phi) grid convergence
+# Conditional-r (union-of-local+global r + quadrature phi) grid convergence
 # test for the five MCP galaxies. Compares the production log-L
 # against a chunked brute-force log-uniform r × full-2π phi reference
-# (float32, see [convergence.mode2_reference]).
+# (float64, see [convergence.conditional_r_reference]).
 
 QUEUE="gpulong"
 GPUTYPE=""
@@ -13,7 +13,7 @@ while [[ $# -gt 0 ]]; do
         -h|--help)
             echo "Usage: bash $0 [-q QUEUE] [--gputype TYPE] [ARGS...]"
             echo ""
-            echo "Tests the Mode 2 per-spot union (local sinh + global"
+            echo "Tests the per-spot union (local sinh + global"
             echo "log-uniform) r-grid + shared trapezoidal phi grid, for"
             echo "circular physics. Sweeps per galaxy:"
             echo "  1. (n_r_local, n_r_global) joint variation, phi defaults."
@@ -38,7 +38,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --ref-spot-batch N     spot-axis chunk for the brute-force"
             echo "                         reference; raise to cut JAX dispatch"
             echo "                         overhead, lower if OOM. Defaults to"
-            echo "                         [convergence.mode2_reference].spot_batch"
+            echo "                         [convergence.conditional_r_reference].spot_batch"
             echo "                         (currently 4 ≈ 9.6 GB peak)."
             echo ""
             echo "Examples:"

@@ -1,8 +1,8 @@
 """
-Mode 2 (r + phi marginal) grid convergence test.
+Conditional-r plus phi grid convergence test.
 
-For each galaxy (Mode 2 union grid: per-spot sinh centred on the
-posterior peak ∪ shared log-uniform global grid), build the model at
+For each galaxy (per-spot sinh grid centred on the conditional peak plus
+shared log-uniform global grid), build the model at
 several (n_r_local, n_r_global, n_phi_hv_high, n_phi_hv_low, n_phi_sys)
 settings and compare the production ll_disk against a float32
 brute-force reference on a uniform (r-log, phi-full-2π) grid at the
@@ -24,7 +24,7 @@ import tomli
 
 from candel import get_nested
 from candel.model.maser_convergence import (
-    bruteforce_ll_mode2, build_model, resolve_grid_for_galaxy)
+    bruteforce_ll_conditional_r, build_model, resolve_grid_for_galaxy)
 
 CONFIG_PATH = "scripts/megamaser/config_maser.toml"
 ALL_GALAXIES = ["CGCG074-064", "NGC5765b", "NGC6264", "NGC6323", "UGC3789"]
@@ -52,7 +52,7 @@ K_EXTRAS = []
 
 
 def build_test_settings(default, K_def):
-    """Build the Mode 2 sweep around the config default.
+    """Build the conditional-r sweep around the config default.
 
     Block A ("joint"): the config default itself.
     Block B ("r"):     vary (n_r_local, n_r_global), phi/K pinned at default.
@@ -100,14 +100,13 @@ def _ll_test(m_t, phys_args, phys_kw, spot_batch):
 
 
 def _time_production(m_prod, phys_args, phys_kw, spot_batch, attempts):
-    """Time the production-grid likelihood under `jax.jit` — matches the
-    numpyro NUTS path, which wraps the model density in jit.
+    """Time the production-grid likelihood under `jax.jit`.
 
     First call compiles + executes (counted as compile time); the next
     `attempts` calls hit the XLA cache and reflect true per-step cost.
     Without the jit, calls re-dispatch every primitive eagerly and the
     measured time is dominated by Python/XLA dispatch — irrelevant to
-    NUTS wall-clock.
+    sampler wall-clock.
     """
     fn = jax.jit(
         lambda pa, pk: _ll_test_array(m_prod, pa, pk, spot_batch))
@@ -136,7 +135,8 @@ def main():
              "n_phi) combination OOMs on a small GPU (default: 16).")
     parser.add_argument(
         "--ref-spot-batch", type=int, default=None,
-        help="Override [convergence.mode2_reference] spot_batch. Larger "
+        help="Override [convergence.conditional_r_reference] spot_batch. "
+             "Larger "
              "values cut JAX dispatch overhead in the brute-force "
              "reference at the cost of a (spot_batch · r_chunk · n_phi) "
              "× dtype live intermediate. Default: use config value.")
@@ -155,12 +155,12 @@ def main():
     with open(CONFIG_PATH, "rb") as f:
         master_cfg = tomli.load(f)
     galaxies_cfg = master_cfg["model"]["galaxies"]
-    ref_cfg = dict(master_cfg["convergence"]["mode2_reference"])
+    ref_cfg = dict(master_cfg["convergence"]["conditional_r_reference"])
     if args.ref_spot_batch is not None:
         ref_cfg["spot_batch"] = int(args.ref_spot_batch)
 
     print("=" * 90)
-    print("Mode 2 grid convergence")
+    print("Conditional-r grid convergence")
     print(f"Reference (ll): {ref_cfg['n_r']} r (log-uniform) × "
           f"{ref_cfg['n_phi']} phi (uniform 2π), "
           f"r-chunk={ref_cfg['r_chunk']}, "
@@ -178,20 +178,22 @@ def main():
         print(f"Galaxy: {galaxy}")
         print(f"{'─' * 70}")
         # Per-galaxy production grid (per-galaxy block → generic [model]).
-        default = resolve_grid_for_galaxy(master_cfg, galaxy, "mode2")
+        default = resolve_grid_for_galaxy(
+            master_cfg, galaxy, "conditional_r")
         test_settings = build_test_settings(default, K_def)
         print(f"  production grid: n_r_local={default['n_r_local']}, "
               f"n_r_global={default['n_r_global']}, "
               f"n_phi=({default['n_hv_high']}, {default['n_hv_low']}, "
               f"{default['n_sys']}), K_sigma={K_def}")
         print(f"  test settings: {len(test_settings)} combinations")
-        model_ref = build_model(galaxy, master_cfg, mode="mode2")
+        model_ref = build_model(galaxy, master_cfg)
         phys_args, phys_kw, diag = _phys_from_init(
             model_ref, galaxies_cfg, galaxy)
         print(f"  D_A={diag['D_A']:.2f} Mpc, n_spots={model_ref.n_spots}")
 
         print("  Computing brute-force reference ll...", flush=True)
-        ll_ref = bruteforce_ll_mode2(model_ref, phys_args, phys_kw, ref_cfg)
+        ll_ref = bruteforce_ll_conditional_r(
+            model_ref, phys_args, phys_kw, ref_cfg)
         print(f"  Reference ll_disk = {ll_ref:.4f}")
 
         hdr = (f"  {'tag':>5} {'nr_loc':>7} {'nr_glb':>7} {'K':>5} "
@@ -201,7 +203,7 @@ def main():
         best_delta = float("inf")
         best_setting = None
         for setting in test_settings:
-            m_t = build_model(galaxy, master_cfg, mode="mode2",
+            m_t = build_model(galaxy, master_cfg,
                               n_r_local=setting["n_r_local"],
                               n_r_global=setting["n_r_global"],
                               n_phi_hv_high=setting["n_hv_high"],
@@ -231,7 +233,7 @@ def main():
             print(f"  Production-grid timing (jit, n={args.timing_attempts}, "
                   f"spot_batch={args.spot_batch}):")
             for refine in (True, False):
-                m_prod = build_model(galaxy, master_cfg, mode="mode2",
+                m_prod = build_model(galaxy, master_cfg,
                                      refine_r_center=refine)
                 compile_time, timings = _time_production(
                     m_prod, phys_args, phys_kw,
