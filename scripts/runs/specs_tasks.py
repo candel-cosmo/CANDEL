@@ -701,6 +701,47 @@ def _trgbh0_main_datasets():
             "model/priors/beta": _trgbh0_carrick_beta_prior(),
         },
     ]
+    carrick_vext_monopole_models = [
+        {
+            "model/use_reconstruction": True,
+            "model/use_density_dependent_sigma_v": False,
+            "model/cz_likelihood": "gaussian",
+            "model/which_Vext_monopole": "constant",
+            "model/mag_min_TRGB": TRGBH0_EDD_MAG_MIN,
+            "model/priors/mag_lim_TRGB": (
+                _trgbh0_edd_mag_lim_uninformative_prior()),
+            "inference/init_maxiter": 0,
+            "io/PV_main/EDD_TRGB/reconstruction": "Carrick2015",
+            "model/priors/beta": _trgbh0_carrick_beta_prior(),
+        },
+        {
+            "model/use_reconstruction": True,
+            "model/use_density_dependent_sigma_v": False,
+            "model/cz_likelihood": "student_t",
+            "model/which_Vext_monopole": "constant",
+            "model/mag_min_TRGB": TRGBH0_EDD_MAG_MIN,
+            "model/priors/mag_lim_TRGB": (
+                _trgbh0_edd_mag_lim_uninformative_prior()),
+            "model/priors/nu_cz": _nu_cz_student_t_prior(),
+            "io/PV_main/EDD_TRGB/reconstruction": "Carrick2015",
+            "model/priors/beta": _trgbh0_carrick_beta_prior(),
+        },
+    ]
+    carrick_joint_selection_models = [
+        {
+            "model/use_reconstruction": True,
+            "model/use_density_dependent_sigma_v": False,
+            "model/cz_likelihood": "gaussian",
+            "model/mag_min_TRGB": TRGBH0_EDD_MAG_MIN,
+            "model/cz_lim_selection": 3300.0,
+            "model/cz_lim_selection_width": 300.0,
+            "model/priors/mag_lim_TRGB": (
+                _trgbh0_edd_mag_lim_uninformative_prior()),
+            "inference/init_maxiter": 0,
+            "io/PV_main/EDD_TRGB/reconstruction": "Carrick2015",
+            "model/priors/beta": _trgbh0_carrick_beta_prior(),
+        },
+    ]
     return (
         _trgbh0_edd_selection_datasets(main_pv_models, selections)
         + _trgbh0_edd_selection_datasets(extra_pv_models, selections)
@@ -708,6 +749,11 @@ def _trgbh0_main_datasets():
         + _trgbh0_distance_only_datasets()
         + _trgbh0_edd_selection_datasets(
             carrick_double_powerlaw_models, selections)
+        + _trgbh0_edd_selection_datasets(
+            carrick_vext_monopole_models, selections)
+        + _trgbh0_edd_selection_datasets(
+            carrick_joint_selection_models,
+            selections=("TRGB_magnitude_redshift",))
     )
 
 
@@ -1671,7 +1717,7 @@ TASK_SPECS = {
             **_with_root(f"{TRGBH0_ROOT}/table"),
         },
         "datasets": _trgbh0_main_datasets(),
-        "expected_tasks": 18,
+        "expected_tasks": 21,
     },
     "TRGBH0_single": {
         "description": (
