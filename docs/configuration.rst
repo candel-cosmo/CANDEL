@@ -68,7 +68,7 @@ and the physical model:
 - ``name``: The name of the PV model class (e.g., ``"TFR"``, ``"SN"``, ``"PantheonPlus"``, ``"FP"``).
 - ``which_run``: For non-PV runners, specifies the pipeline to run
   (``"CH0"``, ``"CCHP"``, ``"EDD_TRGB"``, ``"EDD_TRGB_grouped"``,
-  ``"CCHP_CSP"``, ``"MWCepheids"``, or ``"maser_disk"``).
+  ``"CCHP_CSP"``, or ``"MWCepheids"``).
 - ``Om``: Matter density parameter :math:`\Omega_m`.
 - ``use_reconstruction``: Boolean, whether to use a reconstructed density/velocity field.
 - ``which_selection``: Type of selection function to apply (e.g., ``"TRGB_magnitude"``, ``"redshift"``, or ``"none"``).
