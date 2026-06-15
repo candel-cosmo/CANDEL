@@ -16,18 +16,18 @@ B_MIN_TAG="${B_MIN//./p}"
 mkdir -p "$OUTDIR"
 
 # No reconstruction: Vext-only Gaussian cz likelihood.
-# "$PYTHON" "$SCRIPT_DIR/make_edd_trgb_ppc.py" \
-#     --mode none \
-#     --b-min "$B_MIN" \
-#     --ppc-factor "$PPC_FACTOR" \
-#     --output "$OUTDIR/trgbh0_edd_trgb_vext_only_bmin${B_MIN_TAG}_gaussian_ppc.pdf"
-
-# # Carrick2015 reconstruction: Gaussian cz likelihood.
 "$PYTHON" "$SCRIPT_DIR/make_edd_trgb_ppc.py" \
-    --mode carrick \
+    --mode none \
     --b-min "$B_MIN" \
     --ppc-factor "$PPC_FACTOR" \
-    --output "$OUTDIR/trgbh0_edd_trgb_carrick_bmin${B_MIN_TAG}_gaussian_ppc.pdf"
+    --output "$OUTDIR/trgbh0_edd_trgb_vext_only_bmin${B_MIN_TAG}_gaussian_ppc.pdf"
+
+# # Carrick2015 reconstruction: Gaussian cz likelihood.
+# "$PYTHON" "$SCRIPT_DIR/make_edd_trgb_ppc.py" \
+#     --mode carrick \
+#     --b-min "$B_MIN" \
+#     --ppc-factor "$PPC_FACTOR" \
+#     --output "$OUTDIR/trgbh0_edd_trgb_carrick_bmin${B_MIN_TAG}_gaussian_ppc.pdf"
 
 # Carrick2015 reconstruction: Student-t cz likelihood.
 # "$PYTHON" "$SCRIPT_DIR/make_edd_trgb_ppc.py" \
