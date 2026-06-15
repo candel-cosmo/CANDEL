@@ -35,6 +35,9 @@ STEP_FRACTION=0.015
 STATUS_INTERVAL=10000000
 FIT_DATA=""
 PLOT_PARAMS=""
+FIX_PARAMS=""
+FIX_CIRCULAR=false
+LINEAR_WARP=false
 DRY=false
 WORKER=false
 STREAM_CHAIN_OUTPUT=false
@@ -87,6 +90,9 @@ Options:
                             wrapper-chosen ~1% cadence)
   --fit-data TTTT           Fit x,y,v,a flags, e.g. TTTT or TTFT
   --plot-params CSV         Parameters to include in global_corner.png
+  --fix-params CSV          Reid global parameter names to freeze
+  --fix-circular            Freeze eccentricity/periapsis globals
+  --linear-warp             Freeze quadratic warp globals
   --stream-chain-output     Also stream per-chain Reid stdout to batch log
   --dry                     Print submit command without submitting
   -h, --help
@@ -119,6 +125,9 @@ while [[ $# -gt 0 ]]; do
         --status-interval) STATUS_INTERVAL="$2"; shift 2 ;;
         --fit-data) FIT_DATA="$2"; shift 2 ;;
         --plot-params) PLOT_PARAMS="$2"; shift 2 ;;
+        --fix-params) FIX_PARAMS="$2"; shift 2 ;;
+        --fix-circular) FIX_CIRCULAR=true; shift ;;
+        --linear-warp) LINEAR_WARP=true; shift ;;
         --stream-chain-output) STREAM_CHAIN_OUTPUT=true; shift ;;
         --dry) DRY=true; shift ;;
         -h|--help) usage; exit 0 ;;
@@ -209,6 +218,9 @@ if $WORKER; then
         [[ -n "$H0_HIGH" ]] && cmd+=(--h0-high "$H0_HIGH")
         [[ -n "$FIT_DATA" ]] && cmd+=(--fit-data "$FIT_DATA")
         [[ -n "$PLOT_PARAMS" ]] && cmd+=(--plot-params "$PLOT_PARAMS")
+        [[ -n "$FIX_PARAMS" ]] && cmd+=(--fix-params "$FIX_PARAMS")
+        $FIX_CIRCULAR && cmd+=(--fix-circular)
+        $LINEAR_WARP && cmd+=(--linear-warp)
 
         printf "%s\n" "${cmd[*]}" > "$chain_dir/command.txt"
         (
@@ -307,6 +319,9 @@ cmd=(
 [[ -n "$H0_HIGH" ]] && cmd+=(--h0-high "$H0_HIGH")
 [[ -n "$FIT_DATA" ]] && cmd+=(--fit-data "$FIT_DATA")
 [[ -n "$PLOT_PARAMS" ]] && cmd+=(--plot-params "$PLOT_PARAMS")
+[[ -n "$FIX_PARAMS" ]] && cmd+=(--fix-params "$FIX_PARAMS")
+$FIX_CIRCULAR && cmd+=(--fix-circular)
+$LINEAR_WARP && cmd+=(--linear-warp)
 $STREAM_CHAIN_OUTPUT && cmd+=(--stream-chain-output)
 
 dry_flag=()
