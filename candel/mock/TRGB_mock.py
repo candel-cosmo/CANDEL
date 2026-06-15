@@ -61,16 +61,21 @@ DEFAULT_ANCHORS = {
 SELECTION_TAIL_SIGMA = 5.0
 
 
-def _apply_selection(mag_obs, mag_min, mag_lim, mag_lim_width, gen):
-    """Return boolean selection mask."""
+def _apply_selection(mag_obs, mag_min, mag_lim, mag_lim_width, gen,
+                     cz_obs=None, cz_lim=None, cz_lim_width=None):
+    """Return boolean selection mask (magnitude window x optional cz cut)."""
     n = len(mag_obs)
+    if mag_lim is None and cz_lim is None:
+        return np.ones(n, dtype=bool)
+    p_sel = np.ones(n)
     if mag_lim is not None:
         p_sel = norm.cdf((mag_lim - mag_obs) / mag_lim_width)
         if mag_min is not None:
             p_sel -= norm.cdf((mag_min - mag_obs) / mag_lim_width)
-        p_sel = np.clip(p_sel, 0.0, 1.0)
-        return gen.random(n) < p_sel
-    return np.ones(n, dtype=bool)
+    if cz_lim is not None:
+        p_sel = p_sel * norm.cdf((cz_lim - cz_obs) / cz_lim_width)
+    p_sel = np.clip(p_sel, 0.0, 1.0)
+    return gen.random(n) < p_sel
 
 
 def _gen_field_path(nsamples, h, beta, rmin, rmax, e_mag, e_czcmb,
@@ -79,7 +84,8 @@ def _gen_field_path(nsamples, h, beta, rmin, rmax, e_mag, e_czcmb,
                     sigma_int, sigma_v, Vext,
                     mag_min, mag_lim, mag_lim_width,
                     which_bias, bias_params,
-                    field_loader, r2mu, r2z, gen, verbose):
+                    field_loader, r2mu, r2z, gen, verbose,
+                    cz_lim=None, cz_lim_width=None):
     """Sample TRGB hosts from a field, or from unit density if absent.
 
     With a 3D density field, galaxies are sampled using accept/reject with the
@@ -212,7 +218,9 @@ def _gen_field_path(nsamples, h, beta, rmin, rmax, e_mag, e_czcmb,
         cz_obs = gen.normal(cz_true, sigma_cz_tot)
 
         # Apply selection
-        sel = _apply_selection(mag_obs, mag_min, mag_lim, mag_lim_width, gen)
+        sel = _apply_selection(mag_obs, mag_min, mag_lim, mag_lim_width, gen,
+                               cz_obs=cz_obs, cz_lim=cz_lim,
+                               cz_lim_width=cz_lim_width)
 
         collected["RA"].append(RA[sel])
         collected["dec"].append(dec[sel])
@@ -265,6 +273,7 @@ def gen_TRGB_mock(nsamples=480, Om=0.3, e_mag=0.05, e_czcmb=10.0,
                   rmin=0.5, rmax=40.0,
                   mag_min=22.1,
                   mag_lim=25.0, mag_lim_width=0.75,
+                  cz_lim=None, cz_lim_width=None,
                   which_bias="linear",
                   true_params=None, anchors=None,
                   colour_mean=None, colour_std=None,
@@ -280,6 +289,7 @@ def gen_TRGB_mock(nsamples=480, Om=0.3, e_mag=0.05, e_czcmb=10.0,
 
     Selection (optional):
       - mag_min, mag_lim: finite sigmoid window in observed TRGB magnitude
+      - cz_lim: upper sigmoid cut in observed cz (joint mag + redshift)
 
     Returns
     -------
@@ -319,7 +329,8 @@ def gen_TRGB_mock(nsamples=480, Om=0.3, e_mag=0.05, e_czcmb=10.0,
         sigma_int, sigma_v, Vext,
         mag_min, mag_lim, mag_lim_width,
         which_bias, bias_params,
-        field_loader, r2mu, r2z, gen, verbose)
+        field_loader, r2mu, r2z, gen, verbose,
+        cz_lim=cz_lim, cz_lim_width=cz_lim_width)
     n_parent = collected.pop("n_parent")
 
     # --- Anchor observations ---
