@@ -1,6 +1,13 @@
 # CANDEL
 
-**CANDEL** is a framework for calibrating distance indicators in the local Universe.
+**A GPU-accelerated, hierarchical Bayesian framework for the local distance ladder.**
+
+[![Documentation](https://readthedocs.org/projects/candel/badge/?version=latest)](https://candel.readthedocs.io/en/latest/)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
+[![Powered by JAX](https://img.shields.io/badge/powered%20by-JAX-orange.svg)](https://github.com/jax-ml/jax)
+
+CANDEL forward-models the local distance ladder end to end and infers cosmology directly from the data. A single likelihood spans megamaser disk geometry, Cepheid and TRGB calibrations, Type Ia supernovae, the Tully--Fisher relation, and the Fundamental Plane, and jointly constrains the Hubble constant $H_0$, the peculiar-velocity amplitude $\beta$, and external bulk flows $\mathbf{V}_\mathrm{ext}$. Inference is fully Bayesian, gradient-based, and runs on a single GPU or scales across a cluster.
 
 **Documentation:** [candel.readthedocs.io](https://candel.readthedocs.io/en/latest/)
 
@@ -12,15 +19,15 @@ When a reconstructed density and velocity field is supplied, CANDEL jointly cali
 
 CANDEL runs locally for small samples or scales to computing clusters with GPU support (one GPU per chain). It includes cluster submission helpers and batch job generation tools for launching large parameter-grid runs from a frozen copy of the code.
 
-### Highlights
-- Forward modelling of the full distance ladder with JAX and NumPyro.
-- Joint calibration of distance-indicator relations and the underlying density/velocity field.
-- Analytical marginalisation of latent observables where Gaussian conjugacy allows, reducing sampler dimensionality.
-- Multiple galaxy-bias models: linear ($1 + b_1 \delta$), quadratic ($1 + b_1 \delta + b_2 \delta^2$), power-law ($\rho^\alpha$), and double power-law.
-- Density-dependent velocity dispersion $\sigma_v(\delta)$ via a sigmoid in log-density, allowing different dispersions in underdense and overdense regions.
-- Redshift-to-real-space mapping of observed redshifts given a calibrated velocity field.
-- Peculiar-velocity covariance matrices from CAMB power spectra.
-- HPC-friendly tooling: batch config generation, queue submission scripts, GPU auto-detection, and precomputed line-of-sight field generation.
+### Key capabilities
+- **Full-ladder forward modelling** in JAX and NumPyro, from geometric maser anchors to peculiar-velocity tracers.
+- **Joint field-and-calibration inference:** distance-indicator relations and the underlying density/velocity field are constrained simultaneously, rather than calibrated in separate steps.
+- **Reduced sampler dimensionality:** latent observables are marginalised analytically wherever Gaussian conjugacy allows, with Gauss--Hermite quadrature otherwise.
+- **Flexible galaxy-bias models:** linear ($1 + b_1 \delta$), quadratic ($1 + b_1 \delta + b_2 \delta^2$), power-law ($\rho^\alpha$), and double power-law.
+- **Density-dependent velocity dispersion** $\sigma_v(\delta)$ via a sigmoid in log-density, separating underdense and overdense regions.
+- **Redshift-to-real-space mapping** of observed redshifts given a calibrated velocity field.
+- **Peculiar-velocity covariance matrices** from CAMB power spectra.
+- **HPC-ready tooling:** batch config generation, queue submission scripts, GPU auto-detection, and precomputed line-of-sight field generation.
 
 ## Supported distance indicators and catalogues
 
@@ -96,21 +103,21 @@ Megamaser jobs use the unified runner above; Gibbs is the default sampler.
 - **Nested Slice Sampling (NSS):** Bayesian evidence computation via a self-contained reimplementation of the NSS algorithm ([Yallup et al. 2026](https://arxiv.org/abs/2601.23252)) in `candel/inference/nested.py`. No external nested-sampling dependency required.
 - **Sobol + Adam MAP:** Multi-start MAP optimisation using Sobol quasi-random initialisation and Adam gradient descent. Configured via the `[optimise]` section of the TOML config.
 
-## Publications
+## Results
 
-Here are some recent works that have used CANDEL:
+CANDEL underpins a series of recent analyses:
 
-1. *The Velocity Field Olympics: Assessing velocity field reconstructions with direct distance tracers*; Stiskalek et al. (2025)
-  [arXiv:2502.00121](https://arxiv.org/abs/2502.00121)
+- **A 1.8 per cent measurement of $H_0$ from Cepheids alone**, using a rigorous selection-function treatment of the SH0ES calibration sample.
+  Stiskalek et al. (2025), [arXiv:2509.09665](https://arxiv.org/abs/2509.09665)
 
-2. *1.8 per cent measurement of H₀ from Cepheids alone*; Stiskalek et al. (2025)
-  [arXiv:2509.09665](https://arxiv.org/abs/2509.09665)
+- **No evidence for $H_0$ anisotropy** in Tully--Fisher or supernova distances, constraining directional departures from isotropic expansion.
+  Stiskalek et al. (2025), [arXiv:2509.14997](https://arxiv.org/abs/2509.14997)
 
-3. *No evidence for H₀ anisotropy from Tully--Fisher or supernova distances*; Stiskalek et al. (2025)
-  [arXiv:2509.14997](https://arxiv.org/abs/2509.14997)
+- **$S_8$ from Tully--Fisher, Fundamental Plane, and supernova distances agrees with Planck**, from joint calibration of the velocity field and distance indicators.
+  Stiskalek (2025), [arXiv:2509.20235](https://arxiv.org/abs/2509.20235)
 
-4. *S₈ from Tully--Fisher, fundamental plane, and supernova distances agree with Planck*; Stiskalek (2025)
-  [arXiv:2509.20235](https://arxiv.org/abs/2509.20235)
+- **The Velocity Field Olympics:** a systematic comparison of velocity-field reconstructions against direct distance tracers.
+  Stiskalek et al. (2025), [arXiv:2502.00121](https://arxiv.org/abs/2502.00121)
 
 ## Installation
 ```
