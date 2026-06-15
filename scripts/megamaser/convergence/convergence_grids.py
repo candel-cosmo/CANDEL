@@ -86,7 +86,7 @@ def build_test_settings(default, K_def):
 
 def _ll_test_array(m_t, phys_args, phys_kw, spot_batch):
     """Production-grid log-likelihood as a JAX scalar (no host transfer)."""
-    groups = m_t._build_r_grids_mode2(
+    groups = m_t._build_conditional_r_grids(
         phys_args[2], phys_args[3], phys_args[4], phys_args[16],
         phys_args[8], phys_args[15],
         phys_args=phys_args, phys_kw=phys_kw)
