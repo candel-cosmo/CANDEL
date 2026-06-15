@@ -29,7 +29,8 @@ from h5py import File
 from jax import numpy as jnp
 
 from ..field.loader import field_allows_raw_product_reads, name2field_loader
-from ..model.pv_utils import galaxy_bias_density_mode
+from ..model.pv_utils import (_R_ICRS_TO_GAL, _R_ICRS_TO_SUPERGAL,
+                              galaxy_bias_density_mode)
 from ..util import fprint, get_nested
 from .field_cache import (_VOLUME_FIELD_CACHE_PREFIX, _ArrayShapeOnly,
                           _field_cache_dir_from_config,
@@ -59,6 +60,23 @@ def _smooth_field_gaussian(field, smooth_scale, boxsize, make_copy=False):
 def _field_cache_warmup_active():
     """Return whether a dedicated cache-warming command is running."""
     return os.environ.get("CANDEL_FIELD_CACHE_WARMUP", "0") == "1"
+
+
+def _h0_volume_b_min_from_config(config, label):
+    """Read the optional H0 volume Galactic latitude cut in degrees."""
+    source = f"io/PV_main/{label}/b_min"
+    b_min = get_nested(config, source, None)
+    if b_min is None:
+        source = "model/selection_integral_b_min"
+        b_min = get_nested(config, source, None)
+    if b_min is None:
+        return None
+    b_min = float(b_min)
+    if b_min < 0.0 or b_min > 90.0:
+        raise ValueError(f"`{source}` must be in [0, 90] deg.")
+    if np.isclose(b_min, 0.0):
+        return None
+    return b_min
 
 
 def _h0_volume_missing_cache_error(label, density_path,
@@ -553,6 +571,35 @@ def _expected_h0_volume_grid_from_loader(
     return np.exp(np.asarray(quad["log_r_3d"])).astype(np.float32), log_dV
 
 
+def _h0_volume_galactic_sky_from_rhat(rhat_fields, coordinate_frame):
+    """Return per-cell Galactic longitude and latitude in degrees."""
+    shape = np.shape(rhat_fields["rhat_x_3d"])
+    xyz = np.stack([
+        np.asarray(rhat_fields[label], dtype=np.float64).reshape(-1)
+        for label in ("rhat_x_3d", "rhat_y_3d", "rhat_z_3d")
+    ])
+    frame = str(coordinate_frame).lower()
+    if frame == "galactic":
+        gal = xyz
+    elif frame == "icrs":
+        gal = np.asarray(_R_ICRS_TO_GAL, dtype=np.float64) @ xyz
+    elif frame == "supergalactic":
+        rot = (np.asarray(_R_ICRS_TO_GAL, dtype=np.float64)
+               @ np.asarray(_R_ICRS_TO_SUPERGAL, dtype=np.float64).T)
+        gal = rot @ xyz
+    else:
+        raise ValueError(
+            f"H0 3D volume sky coordinates do not support coordinate frame "
+            f"{coordinate_frame!r}.")
+    gal = gal / np.linalg.norm(gal, axis=0, keepdims=True)
+    ell = np.rad2deg(np.arctan2(gal[1], gal[0])) % 360.0
+    b = np.rad2deg(np.arcsin(np.clip(gal[2], -1.0, 1.0)))
+    return {
+        "galactic_ell_3d": ell.reshape(shape).astype(np.float32),
+        "galactic_b_3d": b.reshape(shape).astype(np.float32),
+    }
+
+
 def _expected_h0_volume_max_radius_from_loader(
         loader, geometry, subcube_radius, supersample_factor,
         supersample_radius):
@@ -659,7 +706,8 @@ def _subsample_h0_volume_arrays(arrays, fraction, seed):
 
     out = dict(arrays)
     for key in ("r_3d", "log_volume_weight_3d",
-                "rhat_x_3d", "rhat_y_3d", "rhat_z_3d"):
+                "rhat_x_3d", "rhat_y_3d", "rhat_z_3d",
+                "galactic_ell_3d", "galactic_b_3d"):
         if key in out:
             out[key] = np.asarray(out[key]).reshape(-1)[idx]
     for key in ("rho_3d_fields", "vrad_3d_fields"):
@@ -723,7 +771,7 @@ def _h0_log_radius_from_r(r_3d, copy=True):
 def _h0_volume_runtime_result(
         rho_fields, r_3d, log_dV_3d, source_meta, mode, Om0,
         load_velocity, vrad_fields=None, log_volume_weight_3d=None,
-        rhat_fields=None, copy_inputs=True):
+        rhat_fields=None, sky_fields=None, copy_inputs=True):
     """Convert cached H0 volume arrays to the data dict used by models."""
     coord_frame = source_meta[0]["state"]["coordinate_frame"]
     log_r_3d = jnp.asarray(_h0_log_radius_from_r(r_3d, copy=copy_inputs))
@@ -747,14 +795,19 @@ def _h0_volume_runtime_result(
         result["log_volume_weight_3d"] = jnp.asarray(log_volume_weight_3d)
     if load_velocity:
         result["vrad_3d_fields"] = jnp.asarray(vrad_fields)
+    if rhat_fields is not None:
         for label in ("rhat_x_3d", "rhat_y_3d", "rhat_z_3d"):
             result[label] = jnp.asarray(rhat_fields[label])
+    if sky_fields is not None:
+        for label in ("galactic_ell_3d", "galactic_b_3d"):
+            result[label] = jnp.asarray(sky_fields[label])
     return result
 
 
 def _cached_h0_volume_result(
         cached, source_meta, mode, Om0, load_velocity,
-        voxel_subsample_fraction=1.0, voxel_subsample_seed=42):
+        voxel_subsample_fraction=1.0, voxel_subsample_seed=42,
+        store_rhat=False):
     """Convert cached H0 base fields to the data dict used by models."""
     cached, actual_fraction = _subsample_h0_volume_arrays(
         cached, voxel_subsample_fraction, voxel_subsample_seed)
@@ -763,6 +816,7 @@ def _cached_h0_volume_result(
             f"  applying random voxel subsample f={actual_fraction:.6g} "
             f"({np.size(cached['r_3d']):,} kept).")
     rhat_fields = None
+    sky_fields = None
     rho_fields = cached.pop("rho_3d_fields")
     r_3d = cached.pop("r_3d")
     log_dV_3d = cached.pop("log_dV_3d")
@@ -770,14 +824,21 @@ def _cached_h0_volume_result(
     vrad_fields = None
     if load_velocity:
         vrad_fields = cached.pop("vrad_3d_fields")
+    if load_velocity or store_rhat:
         rhat_fields = {
             label: cached.pop(label)
             for label in ("rhat_x_3d", "rhat_y_3d", "rhat_z_3d")
         }
+    if all(label in cached for label in ("galactic_ell_3d",
+                                         "galactic_b_3d")):
+        sky_fields = {
+            label: cached.pop(label)
+            for label in ("galactic_ell_3d", "galactic_b_3d")
+        }
     return _h0_volume_runtime_result(
         rho_fields, r_3d, log_dV_3d, source_meta, mode, Om0, load_velocity,
         vrad_fields=vrad_fields, log_volume_weight_3d=log_volume_weight_3d,
-        rhat_fields=rhat_fields, copy_inputs=False)
+        rhat_fields=rhat_fields, sky_fields=sky_fields, copy_inputs=False)
 
 
 def _load_volume_data_for_H0_mpi(
@@ -787,7 +848,7 @@ def _load_volume_data_for_H0_mpi(
         source_meta, mode, density_required, velocity_required,
         supersample_factor=1, supersample_radius=0.0,
         field_smoothing_scale=None, velocity_field_smoothing_scale=None,
-        max_radius=None):
+        max_radius=None, store_rhat=False):
     """Build one H0 volume cache file with fields split over MPI ranks."""
     rank = comm.Get_rank()
     size = comm.Get_size()
@@ -808,10 +869,14 @@ def _load_volume_data_for_H0_mpi(
         "rho_3d_fields", "r_3d", "log_dV_3d", "log_volume_weight_3d",
         "supersample_factor", "supersample_radius", "supersample_method",
     }
-    if load_velocity:
+    if load_velocity or store_rhat:
         part_keys.update({
-            "vrad_3d_fields", "rhat_x_3d", "rhat_y_3d", "rhat_z_3d",
+            "rhat_x_3d", "rhat_y_3d", "rhat_z_3d",
         })
+    if store_rhat:
+        part_keys.update({"galactic_ell_3d", "galactic_b_3d"})
+    if load_velocity:
+        part_keys.add("vrad_3d_fields")
     try:
         for k, nsim in enumerate(field_indices):
             if k % size != rank:
@@ -827,6 +892,7 @@ def _load_volume_data_for_H0_mpi(
                 cache_dir=None,
                 cache_enabled=False,
                 return_cache_fields=True,
+                store_rhat=store_rhat,
                 supersample_factor=supersample_factor,
                 supersample_radius=supersample_radius,
                 field_smoothing_scale=field_smoothing_scale,
@@ -915,8 +981,14 @@ def _load_volume_data_for_H0_mpi(
                     raise RuntimeError(
                         "MPI field-cache warmup found inconsistent "
                         "`log_volume_weight_3d` arrays across fields.")
-                if load_velocity:
+                if load_velocity or store_rhat:
                     for label in ("rhat_x_3d", "rhat_y_3d", "rhat_z_3d"):
+                        if not np.array_equal(arrays[label], first[label]):
+                            raise RuntimeError(
+                                "MPI field-cache warmup found inconsistent "
+                                f"`{label}` arrays across fields.")
+                if store_rhat:
+                    for label in ("galactic_ell_3d", "galactic_b_3d"):
                         if not np.array_equal(arrays[label], first[label]):
                             raise RuntimeError(
                                 "MPI field-cache warmup found inconsistent "
@@ -932,6 +1004,11 @@ def _load_volume_data_for_H0_mpi(
                 if "log_volume_weight_3d" in arrays:
                     density_cache_arrays["log_volume_weight_3d"] = (
                         arrays["log_volume_weight_3d"])
+                if store_rhat:
+                    for label in ("rhat_x_3d", "rhat_y_3d", "rhat_z_3d"):
+                        density_cache_arrays[label] = arrays[label]
+                    for label in ("galactic_ell_3d", "galactic_b_3d"):
+                        density_cache_arrays[label] = arrays[label]
                 _write_field_cache(
                     density_cache_path[out_idx],
                     f"H0 3D volume density field "
@@ -948,6 +1025,9 @@ def _load_volume_data_for_H0_mpi(
                     }
                     for label in ("rhat_x_3d", "rhat_y_3d", "rhat_z_3d"):
                         velocity_cache_arrays[label] = arrays[label]
+                    if store_rhat:
+                        for label in ("galactic_ell_3d", "galactic_b_3d"):
+                            velocity_cache_arrays[label] = arrays[label]
                     _write_field_cache(
                         velocity_cache_path[out_idx],
                         f"H0 3D volume velocity field "
@@ -1018,7 +1098,8 @@ def _load_volume_data_for_H0_mpi(
         cached = {**density_cached, **velocity_cached}
     return _cached_h0_volume_result(
         cached, source_meta, mode, Om0, load_velocity,
-        voxel_subsample_fraction, voxel_subsample_seed)
+        voxel_subsample_fraction, voxel_subsample_seed,
+        store_rhat=store_rhat)
 
 
 def _load_volume_data_for_H0(
@@ -1028,15 +1109,16 @@ def _load_volume_data_for_H0(
         cache_dir=None, cache_enabled=True, return_cache_fields=False,
         supersample_factor=1, supersample_radius=0.0,
         supersample_target_dx=None, field_smoothing_scale=None,
-        velocity_field_smoothing_scale=None):
+        velocity_field_smoothing_scale=None, store_rhat=False):
     """Load 3D voxel data for H0 selection integrals.
 
     Returns a dict to be merged into an H0-model data dict. The density field
     is stored as ``density_3d_fields`` with shape ``(n_fields, n_voxels)`` for
     spherical geometry or when voxel subsampling is enabled; unsubsampled
     cubic geometry keeps ``(n_fields, nx, ny, nz)``.
-    Velocity projections and line-of-sight unit vectors are included only when
-    ``load_velocity`` is True.
+    Velocity projections are included only when ``load_velocity`` is True.
+    Line-of-sight unit vectors are included when ``load_velocity`` or
+    ``store_rhat`` is True.
     """
     if geometry not in ("sphere", "cube"):
         raise ValueError(
@@ -1057,6 +1139,8 @@ def _load_volume_data_for_H0(
     mode = _volume_density_mode(galaxy_bias)
     rho_fields = []
     vrad_fields = [] if load_velocity else None
+    need_rhat = load_velocity or store_rhat
+    need_sky = store_rhat
     log_r_3d = None
     coord_frame = None
     obs_sub_ref = None
@@ -1160,10 +1244,16 @@ def _load_volume_data_for_H0(
         if ((geometry == "sphere" and subcube_radius is not None)
                 or use_supersampling):
             density_required.append("log_volume_weight_3d")
+        if store_rhat and not load_velocity:
+            density_required.extend((
+                "rhat_x_3d", "rhat_y_3d", "rhat_z_3d",
+                "galactic_ell_3d", "galactic_b_3d"))
         velocity_required = [
             "vrad_3d_fields", "r_3d", "log_dV_3d",
             "rhat_x_3d", "rhat_y_3d", "rhat_z_3d",
             *supersampling_required]
+        if store_rhat:
+            velocity_required.extend(("galactic_ell_3d", "galactic_b_3d"))
         raw_read_allowed = field_allows_raw_product_reads(field_name)
         density_cached = _read_h0_volume_cache_superset(
             cache_dir, density_cache_payload, "H0 3D volume density",
@@ -1183,7 +1273,8 @@ def _load_volume_data_for_H0(
         if cached is not None:
             return _cached_h0_volume_result(
                 cached, source_meta, mode, Om0, load_velocity,
-                voxel_subsample_fraction, voxel_subsample_seed)
+                voxel_subsample_fraction, voxel_subsample_seed,
+                store_rhat=store_rhat)
         if not raw_read_allowed and not _field_cache_warmup_active():
             density_attempt = density_cache_paths[:5]
             velocity_attempt = None
@@ -1208,7 +1299,7 @@ def _load_volume_data_for_H0(
                 field_smoothing_scale=field_smoothing_scale,
                 velocity_field_smoothing_scale=(
                     velocity_field_smoothing_scale),
-                max_radius=expected_max_r_3d)
+                max_radius=expected_max_r_3d, store_rhat=store_rhat)
     else:
         density_cache_paths = None
         velocity_cache_paths = None
@@ -1288,7 +1379,7 @@ def _load_volume_data_for_H0(
             quad_ref = _h0_volume_quadrature_geometry(
                 log_r_grid, disp_ref, r_sub_ref, dx, geometry,
                 subcube_radius, supersample_factor, supersample_radius,
-                store_rhat=load_velocity)
+                store_rhat=need_rhat)
             voxel_mask_ref = quad_ref["voxel_mask"]
             log_r_3d = quad_ref["log_r_3d"]
             log_volume_weight_3d = quad_ref["log_volume_weight_3d"]
@@ -1380,9 +1471,13 @@ def _load_volume_data_for_H0(
     r_3d = jnp.asarray(np.exp(np.asarray(log_r_3d)).astype(np.float32))
 
     rhat_fields = {}
-    if load_velocity:
+    if need_rhat:
         for i, label in enumerate(("rhat_x_3d", "rhat_y_3d", "rhat_z_3d")):
             rhat_fields[label] = quad_ref["rhat_fields"][i]
+    sky_fields = None
+    if need_sky:
+        sky_fields = _h0_volume_galactic_sky_from_rhat(
+            rhat_fields, coord_frame)
 
     if len(rho_fields) == 1:
         rho_fields = rho_fields[0][None, ...]
@@ -1406,9 +1501,12 @@ def _load_volume_data_for_H0(
         }
         if log_volume_weight_3d is not None:
             out["log_volume_weight_3d"] = log_volume_weight_3d
+        if need_rhat:
+            out.update(rhat_fields)
+        if need_sky:
+            out.update(sky_fields)
         if load_velocity:
             out["vrad_3d_fields"] = vrad_fields
-            out.update(rhat_fields)
         return out
 
     runtime_arrays = {
@@ -1418,9 +1516,12 @@ def _load_volume_data_for_H0(
     }
     if log_volume_weight_3d is not None:
         runtime_arrays["log_volume_weight_3d"] = log_volume_weight_3d
+    if need_rhat:
+        runtime_arrays.update(rhat_fields)
+    if need_sky:
+        runtime_arrays.update(sky_fields)
     if load_velocity:
         runtime_arrays["vrad_3d_fields"] = vrad_fields
-        runtime_arrays.update(rhat_fields)
     runtime_arrays, actual_fraction = _subsample_h0_volume_arrays(
         runtime_arrays, voxel_subsample_fraction, voxel_subsample_seed)
     if not np.isclose(actual_fraction, 1.0):
@@ -1429,17 +1530,23 @@ def _load_volume_data_for_H0(
             f"({np.size(runtime_arrays['r_3d']):,} kept).")
 
     runtime_rhat_fields = None
-    if load_velocity:
+    if need_rhat:
         runtime_rhat_fields = {
             label: runtime_arrays[label]
             for label in ("rhat_x_3d", "rhat_y_3d", "rhat_z_3d")
+        }
+    runtime_sky_fields = None
+    if need_sky:
+        runtime_sky_fields = {
+            label: runtime_arrays[label]
+            for label in ("galactic_ell_3d", "galactic_b_3d")
         }
     result = _h0_volume_runtime_result(
         runtime_arrays["rho_3d_fields"], runtime_arrays["r_3d"],
         runtime_arrays["log_dV_3d"], source_meta, mode, Om0, load_velocity,
         vrad_fields=runtime_arrays.get("vrad_3d_fields"),
         log_volume_weight_3d=runtime_arrays.get("log_volume_weight_3d"),
-        rhat_fields=runtime_rhat_fields)
+        rhat_fields=runtime_rhat_fields, sky_fields=runtime_sky_fields)
     if cache_enabled:
         for i, nsim in enumerate(field_indices):
             density_cache_arrays = {
@@ -1451,6 +1558,9 @@ def _load_volume_data_for_H0(
             if log_volume_weight_3d is not None:
                 density_cache_arrays["log_volume_weight_3d"] = (
                     log_volume_weight_3d)
+            if store_rhat:
+                density_cache_arrays.update(rhat_fields)
+                density_cache_arrays.update(sky_fields)
             _write_field_cache(
                 density_cache_paths[i],
                 f"H0 3D volume density field {int(nsim)}",
@@ -1462,6 +1572,8 @@ def _load_volume_data_for_H0(
                     "log_dV_3d": log_dV,
                     **supersampling_cache_arrays}
                 velocity_cache_arrays.update(rhat_fields)
+                if need_sky:
+                    velocity_cache_arrays.update(sky_fields)
                 _write_field_cache(
                     velocity_cache_paths[i],
                     f"H0 3D volume velocity field {int(nsim)}",
@@ -1521,6 +1633,8 @@ def _load_h0_volume_data_from_config(config, los_data_path, reconstruction,
         raise ValueError(
             "`model.selection_integral_geometry` must be 'sphere' or 'cube'.")
     load_vel = which_sel in velocity_selections
+    b_min = _h0_volume_b_min_from_config(config, label)
+    store_rhat = b_min is not None
     recon_main = get_nested(config, "io/reconstruction_main", {})
     field_kwargs = recon_main.get(reconstruction, {})
     if not field_kwargs:
@@ -1555,6 +1669,7 @@ def _load_h0_volume_data_from_config(config, los_data_path, reconstruction,
            f"supersample_target_dx={supersample_target_dx}, "
            f"field_smoothing_scale={field_smoothing_scale}, "
            f"velocity_field_smoothing_scale={velocity_field_smoothing_scale}, "
+           f"b_min={b_min}, "
            f"velocity={load_vel}).")
     if supersample_target_dx is not None and supersample_radius > 0.0:
         fprint(
@@ -1583,6 +1698,7 @@ def _load_h0_volume_data_from_config(config, los_data_path, reconstruction,
         geometry=geometry,
         cache_dir=cache_dir,
         cache_enabled=cache_enabled,
+        store_rhat=store_rhat,
         supersample_factor=supersample_factor,
         supersample_radius=supersample_radius,
         supersample_target_dx=supersample_target_dx,
