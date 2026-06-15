@@ -70,7 +70,7 @@ n_refine_steps = 32
 conditional_spot_batch = 16
 ```
 
-The `[convergence.fixed_r_reference]`, `[convergence.fixed_r_gradient_reference]`, and `[convergence.conditional_r_reference]` blocks are used only by the quadrature test scripts.
+The `[convergence.fixed_r_reference]` and `[convergence.fixed_r_gradient_reference]` blocks are used only by the quadrature test scripts.
 
 ## Numerical Diagnostics
 
@@ -78,7 +78,6 @@ Keep these scripts for checking the `phi` integrals and related gradients:
 
 ```bash
 python scripts/megamaser/convergence/convergence_phi_marginal.py --galaxies NGC6264 --no-grad
-python scripts/megamaser/convergence/convergence_grids.py --galaxies NGC6264 --timing-attempts 0
 python scripts/megamaser/convergence/check_conditional_r_grad_vs_numerical.py --galaxy NGC6264
 ```
 
