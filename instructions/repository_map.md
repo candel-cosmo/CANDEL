@@ -100,8 +100,8 @@ should not bake in local paths, queue names, Python executables, or outputs.
   `/mnt/users/rstiskalek/CANDEL/notebooks/paper_MWCepheids`.
 
 - `/mnt/users/rstiskalek/CANDEL/candel/model/model_H0_maser.py`
-  implements the warped megamaser disk likelihood, marginalization grids,
-  per-galaxy disk model, and `JointMaserModel`.
+  implements the warped megamaser disk likelihood and phi marginalisation
+  used by the BlackJAX collapsed-Gibbs sampler.
 
 - `/mnt/users/rstiskalek/CANDEL/candel/model/dev`
   holds experimental models such as EDD-2MTF and CCHP+CSP. Check whether a
@@ -166,8 +166,9 @@ should not bake in local paths, queue names, Python executables, or outputs.
   handle cluster/local submission plumbing.
 
 - `/mnt/users/rstiskalek/CANDEL/scripts/megamaser`
-  contains maser-specific runners, config, submission scripts, mock checks,
-  convergence diagnostics, and the toy joint-H0 combiner. Read
+  contains the BlackJAX megamaser runner, DE initialiser, config,
+  submission script, retained toy joint-H0 combiner, and quadrature
+  diagnostics. Read
   `/mnt/users/rstiskalek/CANDEL/instructions/maser_disk_jobs.md` and
   `/mnt/users/rstiskalek/CANDEL/scripts/megamaser/README.md` before changing
   this workflow.
