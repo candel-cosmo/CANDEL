@@ -83,16 +83,16 @@ python scripts/runs/generate_tasks.py build test
 
 **Megamaser disk model:**
 ```bash
-python scripts/megamaser/run_maser_blackjax.py NGC5765b
+python scripts/megamaser/run_maser.py NGC5765b
 bash scripts/megamaser/submit.sh -q cmbgpu --galaxy NGC5765b --sampler gibbs
 ```
 
-Megamaser jobs use the dedicated BlackJAX runner above.
+Megamaser jobs use the unified runner above; Gibbs is the default sampler.
 
 ### Inference methods
 
 - **NUTS** (default for the non-maser distance-indicator models): No-U-Turn Sampler via NumPyro. Robust, gradient-based.
-- **BlackJAX collapsed Gibbs:** dedicated megamaser disk sampler in `scripts/megamaser/run_maser_blackjax.py`.
+- **BlackJAX collapsed Gibbs:** dedicated megamaser disk sampler in `scripts/megamaser/run_maser.py`.
 - **Nested Slice Sampling (NSS):** Bayesian evidence computation via a self-contained reimplementation of the NSS algorithm ([Yallup et al. 2026](https://arxiv.org/abs/2601.23252)) in `candel/inference/nested.py`. No external nested-sampling dependency required.
 - **Sobol + Adam MAP:** Multi-start MAP optimisation using Sobol quasi-random initialisation and Adam gradient descent. Configured via the `[optimise]` section of the TOML config.
 
