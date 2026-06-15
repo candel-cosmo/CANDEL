@@ -12,11 +12,12 @@
 # You should have received a copy of the GNU General Public License along
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
-"""Brute-force reference kernels for maser disk model convergence checks.
+"""Brute-force reference kernels for maser disk quadrature diagnostics.
 
-Two kernels:
-- bruteforce_ll_mode2: full-2pi phi x log-r brute force (Mode 2 reference).
-- bruteforce_ll_mode1: full-2pi phi at a given r_ang (Mode 1 reference).
+Two numerical checks are kept here:
+- ``bruteforce_ll_conditional_r``: full-2pi phi x log-r brute-force
+  reference for the conditional-r diagnostic grid.
+- ``bruteforce_ll_fixed_r``: full-2pi phi reference at a fixed ``r_ang``.
 
 Both batch over the r-axis and the spot-axis so the intermediate fits on a
 12 GB GPU.
@@ -76,7 +77,7 @@ def _bruteforce_rchunk(
     return logsumexp(log_f + log_w_2d[None, :, :], axis=(-2, -1))
 
 
-def bruteforce_ll_mode2(model, phys_args, phys_kw, ref_cfg):
+def bruteforce_ll_conditional_r(model, phys_args, phys_kw, ref_cfg):
     """Total log-likelihood reference via chunked r × full-2π φ.
 
     ref_cfg: dict with keys n_r, n_phi, r_chunk, spot_batch.
@@ -137,7 +138,7 @@ def bruteforce_ll_mode2(model, phys_args, phys_kw, ref_cfg):
     return total
 
 
-def bruteforce_ll_mode1(model, phys_args, phys_kw, r_ang, ref_cfg):
+def bruteforce_ll_fixed_r(model, phys_args, phys_kw, r_ang, ref_cfg):
     """Per-type full-2π φ brute force at a fixed r_ang vector.
 
     r_ang: shape (n_spots,) in mas.
@@ -173,148 +174,6 @@ def bruteforce_ll_mode1(model, phys_args, phys_kw, r_ang, ref_cfg):
     return out
 
 
-def _production_ll_mode2(model, phys_args, phys_kw):
-    """Total ll_disk under the production Mode 2 phi/r marginal."""
-    D_A = phys_args[2]
-    M_BH = phys_args[3]
-    v_sys = phys_args[4]
-    i0 = phys_args[8]
-    var_v_hv = phys_args[15]
-    sigma_a_floor2 = phys_args[16]
-    groups = model._build_r_grids_mode2(
-        D_A, M_BH, v_sys, sigma_a_floor2, i0, var_v_hv,
-        phys_args=phys_args, phys_kw=phys_kw)
-    ll = model._eval_phi_marginal(groups, phys_args, phys_kw)
-    return float(jnp.sum(ll))
-
-
-def _production_ll_mode1(model, phys_args, phys_kw, r_ang):
-    """Per-type total ll_disk under the production Mode 1 phi marginal."""
-    groups = []
-    if model._n_sys > 0:
-        groups.append(
-            ("sys", model._idx_sys, r_ang[model._idx_sys], None))
-    if model._n_red > 0:
-        groups.append(
-            ("red", model._idx_red, r_ang[model._idx_red], None))
-    if model._n_blue > 0:
-        groups.append(
-            ("blue", model._idx_blue, r_ang[model._idx_blue], None))
-    ll = model._eval_phi_marginal(groups, phys_args, phys_kw)
-    return dict(
-        sys=float(jnp.sum(ll[model._idx_sys])),
-        red=float(jnp.sum(ll[model._idx_red])),
-        blue=float(jnp.sum(ll[model._idx_blue])),
-        total=float(jnp.sum(ll)))
-
-
-def _select_draws(samples, n_draws, seed):
-    """Pick `n_draws` random indices into the posterior. Returns (idx_list,
-    list-of-per-draw-sample-dicts) where each per-draw dict has no leading
-    draw axis."""
-    some_key = next(iter(samples))
-    n_total = int(np.asarray(samples[some_key]).shape[0])
-    rng = np.random.default_rng(seed)
-    idx = rng.choice(n_total, size=min(n_draws, n_total), replace=False)
-    idx = np.sort(idx)
-    draws = []
-    for i in idx:
-        d = {k: np.asarray(v)[i] for k, v in samples.items()}
-        draws.append(d)
-    return idx.tolist(), draws
-
-
-def check_convergence(model, samples, conv_cfg):
-    """Compare production vs brute-force at `n_draws` posterior samples.
-
-    Parameters
-    ----------
-    model : MaserDiskModel (built at the production grids).
-    samples : dict from NUTS/NSS, each value with a leading draw axis.
-    conv_cfg : the [convergence] config dict.
-
-    Returns a dict with fields:
-        mode, n_draws, draw_idx, deltas, mean, std,
-        ll_prod, ll_ref, per_type (mode1 only), ref_cfg, wall_seconds.
-    """
-    import time
-    n_draws = int(conv_cfg.get("n_draws", 8))
-    seed = int(conv_cfg.get("seed", 0))
-    idx, draws = _select_draws(samples, n_draws, seed)
-
-    mode = model.mode
-    t0 = time.time()
-    if mode == "mode2":
-        ref_cfg = conv_cfg["mode2_reference"]
-        ll_prod, ll_ref, deltas = [], [], []
-        for d in draws:
-            pa, pk, _ = model.phys_from_sample(d)
-            p = _production_ll_mode2(model, pa, pk)
-            r = bruteforce_ll_mode2(model, pa, pk, ref_cfg)
-            ll_prod.append(p)
-            ll_ref.append(r)
-            deltas.append(p - r)
-        result = dict(
-            mode=mode, n_draws=len(draws), draw_idx=idx,
-            ll_prod=ll_prod, ll_ref=ll_ref, deltas=deltas,
-            mean=float(np.mean(deltas)),
-            std=float(np.std(deltas, ddof=1)) if len(deltas) > 1 else 0.0,
-            ref_cfg=dict(ref_cfg),
-        )
-    elif mode == "mode1":
-        ref_cfg = conv_cfg["mode1_reference"]
-        if "r_ang" not in samples:
-            raise KeyError(
-                "Mode 1 convergence check expects 'r_ang' in samples.")
-        r_ang_all = np.asarray(samples["r_ang"])
-        per_type = dict(sys=[], red=[], blue=[], total=[])
-        for i, d in zip(idx, draws):
-            pa, pk, _ = model.phys_from_sample(d)
-            r_ang = jnp.asarray(r_ang_all[i])
-            prod = _production_ll_mode1(model, pa, pk, r_ang)
-            ref = bruteforce_ll_mode1(model, pa, pk, r_ang, ref_cfg)
-            for k in ("sys", "red", "blue", "total"):
-                per_type[k].append(prod[k] - ref[k])
-        deltas = per_type["total"]
-        result = dict(
-            mode=mode, n_draws=len(draws), draw_idx=idx,
-            deltas=deltas,
-            mean=float(np.mean(deltas)),
-            std=float(np.std(deltas, ddof=1)) if len(deltas) > 1 else 0.0,
-            per_type={k: dict(
-                mean=float(np.mean(v)),
-                std=float(np.std(v, ddof=1)) if len(v) > 1 else 0.0,
-                values=v) for k, v in per_type.items()},
-            ref_cfg=dict(ref_cfg),
-        )
-    else:
-        raise ValueError(f"Unsupported mode for convergence check: {mode}")
-
-    result["wall_seconds"] = time.time() - t0
-    return result
-
-
-def summarize(result):
-    """Print a human-readable block to stdout."""
-    mode = result["mode"]
-    print("=" * 70)
-    print(f"Convergence check - {mode}, {result['n_draws']} draws "
-          f"({result['wall_seconds']:.1f}s)")
-    print(f"  draw indices: {result['draw_idx']}")
-    deltas = result["deltas"]
-    delta_str = "  ".join(f"{d:+.3f}" for d in deltas)
-    print(f"  delta per draw [nats]: {delta_str}")
-    mean = result['mean']
-    std = result['std']
-    print(f"  mean +/- std: {mean:+.3f} +/- {std:.3f} nats")
-    if mode == "mode1":
-        for k in ("sys", "red", "blue"):
-            m = result["per_type"][k]["mean"]
-            s = result["per_type"][k]["std"]
-            print(f"    {k:>4}: {m:+.3f} +/- {s:.3f} nats")
-    print("=" * 70, flush=True)
-
-
 # -----------------------------------------------------------------------
 # Test-harness helpers (used by the sweep scripts in scripts/megamaser/).
 # They build a MaserDiskModel with per-call grid overrides so the sweep
@@ -326,11 +185,11 @@ def build_model(galaxy, master_cfg, **overrides):
 
     Any recognised [model] key may be passed (n_phi_hv_high, n_phi_hv_low,
     n_phi_sys, phi_hv_inner_deg, phi_hv_outer_deg, phi_sys_ranges_deg,
-    n_r_local, n_r_global, K_sigma, mode, refine_r_center,
-    mode2_spot_batch, ...).  Per-galaxy settings in
-    the config normally override globals; for the convergence tests we
-    want the GLOBAL values to win, so we temporarily strip the galaxy's
-    Mode-1 phi keys from the config copy passed to the model.
+    n_r_local, n_r_global, K_sigma, refine_r_center,
+    conditional_spot_batch, ...). Per-galaxy settings in the config normally
+    override globals; for the convergence tests we want the GLOBAL values to
+    win, so we temporarily strip the galaxy's grid keys from the config copy
+    passed to the model.
     """
     import os
     import tempfile
@@ -350,12 +209,9 @@ def build_model(galaxy, master_cfg, **overrides):
                 "phi_hv_inner_deg", "phi_hv_outer_deg",
                 "phi_sys_ranges_deg",
                 "n_r_local", "n_r_global", "K_sigma",
-                "mode",
                 "refine_r_center", "n_refine_steps",
-                "mode2_spot_batch"):
+                "conditional_spot_batch"):
         gblk.pop(key, None)
-        for suffix in ("_mode1", "_mode2"):
-            cfg["model"].pop(key + suffix, None)
 
     for k, v in overrides.items():
         cfg["model"][k] = v
@@ -376,24 +232,22 @@ def build_model(galaxy, master_cfg, **overrides):
     return model
 
 
-def resolve_grid_for_galaxy(master_cfg, galaxy, mode):
-    """Return the phi/r grid each galaxy actually uses in production.
+def resolve_grid_for_galaxy(master_cfg, galaxy, profile):
+    """Return the phi/r grid used by a diagnostic profile.
 
-    Mirrors the resolver in MaserDiskModel (per-galaxy override → mode-
-    suffixed [model] key for phi → generic [model] key) so the
-    convergence harness anchors on whatever the sampler would build for
-    this (galaxy, mode) pair, not the generic [model] phi default.
+    ``profile`` is a label used only by the convergence scripts. The current
+    config has one generic phi/r grid plus per-galaxy overrides, so both
+    retained profiles resolve through the same production-style hierarchy.
     """
-    if mode not in ("mode1", "mode2"):
-        raise ValueError(f"mode must be 'mode1' or 'mode2'; got {mode!r}")
+    if profile not in ("fixed_r", "conditional_r"):
+        raise ValueError(
+            "profile must be 'fixed_r' or 'conditional_r'; "
+            f"got {profile!r}")
     gal_cfg = master_cfg["model"]["galaxies"][galaxy]
 
     def _phi(key):
         if key in gal_cfg:
             return int(gal_cfg[key])
-        suffixed = get_nested(master_cfg, f"model/{key}_{mode}", None)
-        if suffixed is not None:
-            return int(suffixed)
         return int(get_nested(master_cfg, f"model/{key}"))
 
     def _r(key):
@@ -418,7 +272,7 @@ def resolve_grid_for_galaxy(master_cfg, galaxy, mode):
 # with use_quadratic_warp or use_ecc extend this list via
 # ``extend_grad_params``.
 GRAD_PARAMS_BASE = (
-    "H0", "D_c", "eta", "x0", "y0", "dv_sys",
+    "H0", "D_c", "log_MBH", "x0", "y0", "dv_sys",
     "i0", "di_dr", "Omega0", "dOmega_dr",
     "sigma_x_floor", "sigma_y_floor",
     "sigma_v_sys", "sigma_v_hv", "sigma_a_floor",
@@ -481,11 +335,10 @@ def jax_phys_from_sample(model, sample):
     H0_ref = float(get_nested(model.config, "model/H0_ref", 73.0))
     h = g("H0", H0_ref) / 100.0
     D_c = g("D_c")
-    eta = g("eta")
     z_cosmo = model.distance2redshift(
         jnp.atleast_1d(D_c), h=h).squeeze()
     D_A = D_c / (1.0 + z_cosmo)
-    M_BH = 10.0 ** (eta + jnp.log10(D_A) - 7.0)
+    M_BH = 10.0 ** (g("log_MBH") - 7.0)
     v_sys = model.v_sys_obs + g("dv_sys", 0.0)
 
     phys_args = (
@@ -524,93 +377,6 @@ def jax_phys_from_sample(model, sample):
     return phys_args, phys_kw
 
 
-# ---- Mode 2: production / reference summed-log-L ----
-
-def _ll_mode2_production(model, sample):
-    """Scalar sum of log-marginal likelihoods under the production
-    Mode 2 path. Closed-form seeds, Brent refinement and the union
-    grid are all applied as in sampling; only _r_grids positions are
-    stop_gradient'd by _build_r_grids_mode2."""
-    pa, pk = jax_phys_from_sample(model, sample)
-    D_A, M_BH, v_sys = pa[2], pa[3], pa[4]
-    i0 = pa[8]
-    var_v_hv = pa[15]
-    sigma_a_floor2 = pa[16]
-    groups = model._build_r_grids_mode2(
-        D_A, M_BH, v_sys, sigma_a_floor2, i0, var_v_hv,
-        phys_args=pa, phys_kw=pk)
-    ll = model._eval_phi_marginal(
-        groups, pa, pk, spot_batch=model._mode2_spot_batch)
-    return jnp.sum(ll)
-
-
-def _ll_mode2_reference(model, sample, n_r_ref, r_batch):
-    """Scalar sum of log-marginal likelihoods on a high-res log-uniform
-    r grid at the production phi grid.
-
-    Implementation: r-axis chunked for memory. Each chunk evaluates
-    the 2D integrand nhc(r_chunk, phi) and logsumexps over phi with
-    the pre-scaled log_w_r + log_w_phi weight sum; the resulting
-    per-spot log-integral partial is combined across chunks via
-    logsumexp. This keeps the backward-pass activations to a single
-    chunk's tape when wrapped in jax.checkpoint.
-    """
-    pa, pk = jax_phys_from_sample(model, sample)
-    D_A = pa[2]
-    # Match production's stop_gradient on r nodes and weights: production
-    # Mode 2 wraps both in stop_gradient in _build_r_grids_mode2 so HMC
-    # gradients flow only through the integrand, not through grid-
-    # construction. The AD reference must do the same so the D_c/H0
-    # gradient comparison isolates quadrature accuracy.
-    r_min, r_max = model.r_ang_range(D_A)
-    r_grid = jax.lax.stop_gradient(jnp.exp(jnp.linspace(
-        jnp.log(r_min), jnp.log(r_max), n_r_ref)))
-    log_w_r = jax.lax.stop_gradient(trapz_log_weights(r_grid))
-
-    total = jnp.zeros((), dtype=r_grid.dtype)
-    for type_key, idx in (
-            ("sys", model._idx_sys),
-            ("red", model._idx_red),
-            ("blue", model._idx_blue)):
-        n = int(idx.shape[0])
-        if n == 0:
-            continue
-        has_any_accel = model._group_has_any_accel(type_key)
-        pc = model._phi_concat[type_key]
-
-        def _chunk_partial(r_chunk, lw_chunk, pa, pk, idx=idx,
-                           has_any_accel=has_any_accel, pc=pc, n=n):
-            r_ang_2d = jnp.broadcast_to(
-                r_chunk[None, :], (n, r_chunk.shape[0]))
-            r_pre = model._r_precompute(
-                r_ang_2d, idx, *pa, **pk,
-                has_any_accel=has_any_accel)
-            nhc = model._phi_eval(r_pre, pc["sin_phi"], pc["cos_phi"])
-            w2d = (lw_chunk[None, :, None]
-                   + pc["log_w_phi"][None, None, :])
-            return logsumexp(nhc + w2d, axis=(-2, -1))  # (N,)
-
-        _chunk_ckpt = jax.checkpoint(_chunk_partial)
-
-        partials = []
-        for s in range(0, n_r_ref, r_batch):
-            r_chunk = r_grid[s:s + r_batch]
-            lw_chunk = log_w_r[s:s + r_batch]
-            partials.append(_chunk_ckpt(r_chunk, lw_chunk, pa, pk))
-        # Combine chunks via logsumexp (each is log ∫ over one r-chunk).
-        log_marg_unnorm = logsumexp(jnp.stack(partials, axis=0), axis=0)
-        # Add the per-spot lnorm just once (same for every chunk; we
-        # left it out above). Recompute the lnorm here from a trivial
-        # precompute at a dummy r value.
-        r_dummy = r_grid[:1]
-        r_pre0 = model._r_precompute(
-            jnp.broadcast_to(r_dummy[None, :], (n, 1)),
-            idx, *pa, **pk, has_any_accel=has_any_accel)
-        lnorm = r_pre0["lnorm"] + r_pre0["lnorm_a"]
-        total = total + jnp.sum(lnorm + log_marg_unnorm)
-    return total
-
-
 def grad_diff_report(grad_test, grad_ref, param_keys):
     """Compute max_abs and max_rel over a set of parameter keys."""
     max_abs = 0.0
@@ -631,10 +397,10 @@ def grad_diff_report(grad_test, grad_ref, param_keys):
     return dict(max_abs=max_abs, max_rel=max_rel, per_param=per_param)
 
 
-# ---- Mode 1: production / reference log-L at fixed r_ang ----
+# ---- Sampled-r production / reference log-L at fixed r_ang ----
 
-def _ll_mode1_production(model, sample, r_ang):
-    """Scalar sum of Mode-1 phi-marginalised log-L at fixed r_ang."""
+def _ll_fixed_r_production(model, sample, r_ang):
+    """Scalar sum of phi-marginalised log-L at fixed r_ang."""
     pa, pk = jax_phys_from_sample(model, sample)
     groups = []
     if model._n_sys > 0:
@@ -650,8 +416,8 @@ def _ll_mode1_production(model, sample, r_ang):
     return jnp.sum(ll)
 
 
-def _ll_mode1_reference(model, sample, r_ang, n_phi, spot_batch):
-    """Scalar sum of Mode-1 log-L using a full-2π uniform phi reference.
+def _ll_fixed_r_reference(model, sample, r_ang, n_phi, spot_batch):
+    """Scalar sum of fixed-r log-L using a full-2π uniform phi reference.
 
     Spot-batched with jax.checkpoint on each batch's phi integration so
     reverse-mode tape memory stays at one batch's forward activations.
@@ -683,22 +449,22 @@ def _ll_mode1_reference(model, sample, r_ang, n_phi, spot_batch):
     return total
 
 
-def grad_mode1_production(model, sample, r_ang):
+def grad_fixed_r_production(model, sample, r_ang):
     """Returns (globals_grad_dict, r_ang_grad_vec)."""
     def f(s, r):
-        return _ll_mode1_production(model, s, r)
+        return _ll_fixed_r_production(model, s, r)
     g_glob, g_r = jax.grad(f, argnums=(0, 1))(sample, r_ang)
     return ({k: np.asarray(v) for k, v in g_glob.items()},
             np.asarray(g_r))
 
 
-def grad_mode1_reference(model, sample, r_ang, ref_cfg):
+def grad_fixed_r_reference(model, sample, r_ang, ref_cfg):
     """Returns (globals_grad_dict, r_ang_grad_vec) on the full-2π ref."""
     n_phi = int(ref_cfg["n_phi"])
     spot_batch = int(ref_cfg["spot_batch"])
 
     def f(s, r):
-        return _ll_mode1_reference(model, s, r, n_phi, spot_batch)
+        return _ll_fixed_r_reference(model, s, r, n_phi, spot_batch)
     g_glob, g_r = jax.grad(f, argnums=(0, 1))(sample, r_ang)
     return ({k: np.asarray(v) for k, v in g_glob.items()},
             np.asarray(g_r))
