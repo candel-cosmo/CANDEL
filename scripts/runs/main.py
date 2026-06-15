@@ -226,10 +226,6 @@ if __name__ == "__main__":
             model = candel.model.JointTRGBCSPModel(
                 args.config, trgb_data, csp_data)
             candel.run_H0_inference(model, )
-        elif which_run == "maser_disk":
-            raise RuntimeError(
-                "The config-driven megamaser NumPyro runner has been "
-                "removed. Use scripts/megamaser/run_maser_blackjax.py.")
         else:
             data = candel.pvdata.load_PV_dataframes(args.config)
 
