@@ -115,9 +115,10 @@ should not bake in local paths, queue names, Python executables, or outputs.
   fields, Mmiss kernels, galaxy bias, latent marginalization, log-space
   quadrature, and LOS interpolation.
 
-- `/mnt/users/rstiskalek/CANDEL/candel/model/optim1d.py` and
-  `/mnt/users/rstiskalek/CANDEL/candel/model/maser_convergence.py`
-  support one-dimensional numerical optimization and maser convergence checks.
+- `/mnt/users/rstiskalek/CANDEL/candel/model/optim1d.py`
+  supports one-dimensional numerical optimization.
+  Maser convergence checks live under
+  `/mnt/users/rstiskalek/CANDEL/scripts/megamaser/convergence/`.
 
 - `/mnt/users/rstiskalek/CANDEL/candel/inference`
   contains inference engines and postprocessing: NumPyro NUTS in
