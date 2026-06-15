@@ -554,7 +554,7 @@ class ModelBase(ABC):
                 return
         if which_sel not in (
                 "redshift", "SN_magnitude_redshift",
-                "SN_magnitude_or_redshift_Nmag"):
+                "SN_magnitude_or_redshift_Nmag", "TRGB_magnitude_redshift"):
             return
 
         num_dirs = get_nested(
@@ -1332,6 +1332,67 @@ class H0ModelBase(ModelBase):
         mu_3d = self.mu_at_h1_3d - 5 * jnp.log10(h)
         log_P_mag = log_prob_integrand_sel(
             mu_3d + M_abs, e_mag, mag_lim, mag_width)
+        log_cell_weight = self._selection_3d_log_measure(H0)
+        Vext_rad_3d = self._vol_sel_Vext_rad_3d(Vext, Vext_mono, h)
+        sigma_v = self._vol_sel_sigma_v_fields(sigma_v)
+
+        def _one(inputs):
+            density_3d, vrad_3d, sigma_v_3d = inputs
+            log_n = self._vol_sel_galaxy_bias(density_3d, bias_params)
+            Vpec = beta * vrad_3d + Vext_rad_3d
+            cz_pred = predict_cz(self.zcosmo_3d, Vpec)
+            log_P_cz = log_prob_integrand_sel(
+                cz_pred, sigma_v_3d, cz_lim, cz_width, nu_cz=nu_cz)
+            return logsumexp(
+                log_P_mag + log_P_cz + log_n + log_cell_weight)
+
+        return lax.map(
+            checkpoint(_one),
+            (self.density_3d_fields, self.vrad_3d_fields, sigma_v),
+            batch_size=self.volume_density_batch_size)
+
+    def _compute_no_recon_log_S_mag_window_cz(self, M_abs, e_mag, H0, sigma_v,
+                                              Vext, Vext_mono, mag_min,
+                                              mag_lim, mag_width,
+                                              cz_lim, cz_width, nu_cz=None):
+        """No-reconstruction magnitude window + redshift selection."""
+        h = H0 / 100
+        lp_r = self._selection_radial_log_measure(H0)
+        mu_grid = self.distance2distmod(self.r_sel_range, h=h)
+        zcosmo = self.distance2redshift(self.r_sel_range, h=h)
+        Vpec = self._no_recon_selection_Vpec(Vext, Vext_mono)
+        cz_r = predict_cz(zcosmo[None, None, :], Vpec)
+
+        sigma_v = jnp.asarray(sigma_v)
+        while sigma_v.ndim < cz_r.ndim:
+            sigma_v = sigma_v[None, ...]
+        sigma_v = jnp.broadcast_to(sigma_v, cz_r.shape)
+
+        log_prob = log_prob_integrand_window_sel(
+            (mu_grid + M_abs)[None, None, :],
+            e_mag, mag_min, mag_lim, mag_width)
+        log_prob += log_prob_integrand_sel(
+            cz_r, sigma_v, cz_lim, cz_width, nu_cz=nu_cz)
+        log_S = ln_simpson_precomputed(
+            lp_r + log_prob, self._simpson_log_w_sel, axis=-1)
+        # The Simpson rule above has already integrated over radius. The
+        # remaining axis is the isotropic angular average.
+        return logmeanexp(log_S, axis=-1).reshape(-1)
+
+    def _compute_volume_log_S_mag_window_cz(self, bias_params, M_abs, e_mag,
+                                            H0, sigma_v, beta, Vext, Vext_mono,
+                                            mag_min, mag_lim, mag_width,
+                                            cz_lim, cz_width, nu_cz=None):
+        """3D selection integral for a magnitude window + redshift cut."""
+        if not self.use_reconstruction:
+            return self._compute_no_recon_log_S_mag_window_cz(
+                M_abs, e_mag, H0, sigma_v, Vext, Vext_mono,
+                mag_min, mag_lim, mag_width, cz_lim, cz_width, nu_cz=nu_cz)
+
+        h = H0 / 100
+        mu_3d = self.mu_at_h1_3d - 5 * jnp.log10(h)
+        log_P_mag = log_prob_integrand_window_sel(
+            mu_3d + M_abs, e_mag, mag_min, mag_lim, mag_width)
         log_cell_weight = self._selection_3d_log_measure(H0)
         Vext_rad_3d = self._vol_sel_Vext_rad_3d(Vext, Vext_mono, h)
         sigma_v = self._vol_sel_sigma_v_fields(sigma_v)
