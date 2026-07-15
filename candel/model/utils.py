@@ -145,8 +145,20 @@ def student_t_logpdf_var(x, mean, var, nu):
 
 
 def smoothclip_nr(nr, tau):
-    """Smooth zero-clipping for the number density."""
-    return 0.5 * (nr + jnp.sqrt(nr**2 + tau**2))
+    """Smooth zero-clipping for the number density.
+
+    Mathematically ``0.5 * (nr + sqrt(nr**2 + tau**2))``, but the nr<=0 branch
+    is rewritten via the conjugate as
+    ``0.5 * tau**2 / (sqrt(nr**2+tau**2) - nr)``
+    (a sum of positives in the denominator). The naive form cancels
+    catastrophically for nr << 0 in float32: sqrt(nr**2+tau**2) rounds to |nr|,
+    the sum underflows to exactly 0, and the subsequent log(0) has a NaN
+    gradient. The double ``where`` keeps the unused branch finite under
+    autodiff.
+    """
+    s = jnp.sqrt(nr**2 + tau**2)
+    safe_den = jnp.where(nr > 0.0, 1.0, s - nr)
+    return jnp.where(nr > 0.0, 0.5 * (nr + s), 0.5 * tau**2 / safe_den)
 
 
 def sample_prior(name, distribution):

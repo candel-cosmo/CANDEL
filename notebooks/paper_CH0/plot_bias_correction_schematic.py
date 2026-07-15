@@ -26,8 +26,8 @@ def _heavy_imports():
     import matplotlib
     matplotlib.use("Agg")
 
-    import numpy as np
     import matplotlib.pyplot as plt
+    import numpy as np
 
 
 PLOTS_DIR = "/Users/rstiskalek/Projects/CANDEL/plots/paper_CH0"

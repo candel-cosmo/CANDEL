@@ -1634,7 +1634,9 @@ def _load_h0_volume_data_from_config(config, los_data_path, reconstruction,
             "`model.selection_integral_geometry` must be 'sphere' or 'cube'.")
     load_vel = which_sel in velocity_selections
     b_min = _h0_volume_b_min_from_config(config, label)
-    store_rhat = b_min is not None
+    store_rhat = (
+        b_min is not None
+        or bool(get_nested(config, "model/TRGB_sky_exposure/enabled", False)))
     recon_main = get_nested(config, "io/reconstruction_main", {})
     field_kwargs = recon_main.get(reconstruction, {})
     if not field_kwargs:

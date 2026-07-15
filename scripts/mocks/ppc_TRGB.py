@@ -8,7 +8,9 @@ import numpy as np
 
 import candel
 from candel import get_nested
-from candel.mock import generate_trgb_ppc, plot_trgb_ppc
+from candel.mock import (generate_trgb_ppc, plot_trgb_ppc,
+                         plot_trgb_ppc_distance, plot_trgb_ppc_sky,
+                         plot_trgb_ppc_sky_exposure)
 from candel.mock.ppc_trgb import _available_field_indices
 
 _WORKER_SAMPLES = None
@@ -70,12 +72,59 @@ def _run_field(args):
     n_ppc = _WORKER_N_PER_FIELD[i]
     ppc = generate_trgb_ppc(
         _WORKER_SAMPLES, _WORKER_DATA, _WORKER_CONFIG,
-        n_ppc=n_ppc, seed=_WORKER_SEED + i, field_index=field_index)
-    return {
-        "field_index": int(field_index),
-        "mag_sim": ppc["mag_sim"],
-        "cz_sim": ppc["cz_sim"],
-    }
+        n_ppc=n_ppc, seed=_WORKER_SEED + i, field_index=field_index,
+        n_workers=1)
+    ppc["field_index"] = int(field_index)
+    return ppc
+
+
+def _same_value(a, b):
+    if isinstance(a, dict) and isinstance(b, dict):
+        if a.keys() != b.keys():
+            return False
+        return all(_same_value(a[k], b[k]) for k in a)
+    try:
+        aa = np.asarray(a)
+        bb = np.asarray(b)
+    except (TypeError, ValueError):
+        return a == b
+    if aa.dtype.kind == "f" or bb.dtype.kind == "f":
+        return np.allclose(aa, bb)
+    return np.array_equal(aa, bb)
+
+
+def _merge_ppc_chunks(chunks):
+    keys = sorted(set().union(*(c.keys() for c in chunks)))
+    out = {}
+    for key in keys:
+        if key == "field_index":
+            continue
+        values = [c[key] for c in chunks if key in c]
+        if len(values) != len(chunks):
+            continue
+        if key.endswith("_sim"):
+            out[key] = np.concatenate([np.asarray(v) for v in values])
+        elif key.endswith("_obs"):
+            out[key] = np.asarray(values[0])
+        elif all(_same_value(values[0], v) for v in values[1:]):
+            out[key] = values[0]
+        elif key == "sky_exposure":
+            print("PPC warning: sky_exposure differs between fields; "
+                  "omitting aggregate exposure metadata.")
+    out["field_indices"] = np.asarray(
+        [c["field_index"] for c in chunks], dtype=np.int32)
+    return out
+
+
+def _npz_payload(ppc):
+    payload = {}
+    for key, value in ppc.items():
+        if isinstance(value, dict):
+            for subkey, subvalue in value.items():
+                payload[f"{key}_{subkey}"] = np.asarray(subvalue)
+        else:
+            payload[key] = np.asarray(value)
+    return payload
 
 
 def _generate_ppc(samples, data, config_path, n_ppc, seed, field_indices,
@@ -86,7 +135,8 @@ def _generate_ppc(samples, data, config_path, n_ppc, seed, field_indices,
 
     if n_ppc is None:
         config = candel.load_config(config_path, replace_los_prior=False)
-        n_ppc = get_nested(config, "model/ppc_factor", 10) * len(data["mag_obs"])
+        n_ppc = get_nested(config, "model/ppc_factor",
+                           10) * len(data["mag_obs"])
 
     counts = _split_counts(int(n_ppc), len(field_indices))
     n_workers = min(max(int(n_workers), 1), len(field_indices))
@@ -107,14 +157,7 @@ def _generate_ppc(samples, data, config_path, n_ppc, seed, field_indices,
             chunks = pool.map(
                 _run_field, list(enumerate(field_indices)))
 
-    return {
-        "mag_sim": np.concatenate([c["mag_sim"] for c in chunks]),
-        "cz_sim": np.concatenate([c["cz_sim"] for c in chunks]),
-        "mag_obs": np.asarray(data["mag_obs"]),
-        "cz_obs": np.asarray(data["czcmb"]),
-        "field_indices": np.asarray(
-            [c["field_index"] for c in chunks], dtype=np.int32),
-    }
+    return _merge_ppc_chunks(chunks)
 
 
 def main():
@@ -156,22 +199,33 @@ def main():
         samples, data, config_path, args.n_ppc, args.seed,
         field_indices, args.n_workers)
     stats = plot_trgb_ppc(ppc, output)
+    extra_outputs = []
+    output_root, output_ext = os.path.splitext(output)
+    output_ext = output_ext or ".png"
+    if "r_sim" in ppc:
+        distance_output = f"{output_root}_distance{output_ext}"
+        plot_trgb_ppc_distance(ppc, distance_output)
+        extra_outputs.append(distance_output)
+    if all(k in ppc for k in ("ra_sim", "dec_sim", "ra_obs", "dec_obs")):
+        sky_output = f"{output_root}_sky{output_ext}"
+        plot_trgb_ppc_sky(ppc, sky_output)
+        extra_outputs.append(sky_output)
+    if "sky_exposure" in ppc:
+        exposure_output = f"{output_root}_sky_exposure{output_ext}"
+        plot_trgb_ppc_sky_exposure(ppc, exposure_output)
+        extra_outputs.append(exposure_output)
     if args.save_npz is not None:
         npz_path = os.path.abspath(args.save_npz)
         os.makedirs(os.path.dirname(npz_path), exist_ok=True)
-        np.savez(
-            npz_path,
-            mag_sim=ppc["mag_sim"],
-            cz_sim=ppc["cz_sim"],
-            mag_obs=ppc["mag_obs"],
-            cz_obs=ppc["cz_obs"],
-            field_indices=ppc.get("field_indices", np.array([], dtype=int)))
+        np.savez(npz_path, **_npz_payload(ppc))
 
     print("TRGB PPC summary")
     print("================")
     print(f"posterior: {posterior}")
     print(f"config:    {config_path}")
     print(f"output:    {output}")
+    for extra_output in extra_outputs:
+        print(f"output:    {extra_output}")
     print(f"n_obs:     {len(ppc['mag_obs'])}")
     print(f"n_ppc:     {len(ppc['mag_sim'])}")
     if "field_indices" in ppc:

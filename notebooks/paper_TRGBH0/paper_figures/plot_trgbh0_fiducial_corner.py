@@ -1,7 +1,11 @@
 #!/usr/bin/env python
 """Plot the fiducial TRGBH0 posterior corner."""
-from pathlib import Path
 import sys
+from pathlib import Path
+
+from trgbh0_plot_style import OUTPUT_DIR, TRGBH0_TABLE_RESULTS
+
+from candel.plotting.corner import plot_corner_from_hdf5
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PLOT_DIR = next(path for path in SCRIPT_DIR.parents
@@ -10,16 +14,13 @@ for path in (SCRIPT_DIR, PLOT_DIR):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from candel.plotting.corner import plot_corner_from_hdf5
-from trgbh0_plot_style import OUTPUT_DIR, TRGBH0_TABLE_RESULTS
-
 
 RESULTS = TRGBH0_TABLE_RESULTS
 OUTDIR = OUTPUT_DIR
 
 FIDUCIAL = (
     RESULTS
-    / "EDD_TRGB_rhoSmoothR4_MAS-PCS_sel-TRGB_magnitude_ManticoreLocalCOLA_main.hdf5"
+    / "EDD_TRGB_rhoSmoothR4_MAS-PCS_sel-TRGB_magnitude_ManticoreLocalCOLA_main.hdf5"  # noqa: E501
 )
 
 CORNER_KEYS = [
@@ -51,7 +52,8 @@ def main():
     plot_corner_from_hdf5(
         FIDUCIAL,
         keys=CORNER_KEYS,
-        labels=[r"\texttt{ManticoreLocalCOLA}, $R_\rho=4\,h^{-1}\,\mathrm{Mpc}$"],
+        labels=[
+            r"\texttt{ManticoreLocalCOLA}, $R_\rho=4\,h^{-1}\,\mathrm{Mpc}$"],
         filled=False,
         fontsize=18,
         legend_fontsize=24,

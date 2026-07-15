@@ -13,21 +13,53 @@
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 """TRGB-calibrated H0 forward model for EDD TRGB distance indicators."""
+import healpy as hp
 import jax.numpy as jnp
 import numpy as np
 from jax import checkpoint, lax
 from jax.scipy.special import logsumexp
 from jax.scipy.stats import norm as norm_jax
 from numpyro import deterministic, factor, sample
-from numpyro.distributions import Normal, Uniform
+from numpyro.distributions import Dirichlet, Normal, Uniform
 
-from ..util import fprint, get_nested, replace_prior_with_delta
+from ..util import (fprint, get_nested, radec_to_galactic,
+                    replace_prior_with_delta)
 from .base_model import H0ModelBase
 from .integration import ln_simpson_precomputed
 from .pv_utils import (galaxy_bias_needs_log_rho, lp_galaxy_bias, rsample,
                        sample_galaxy_bias)
 from .utils import (log_prob_integrand_window_sel, logmeanexp,
                     normal_logpdf_var, predict_cz)
+
+
+def _validate_healpix_nside(nside):
+    """Return a validated HEALPix nside value."""
+    nside = int(nside)
+    if nside <= 0 or not hp.isnsideok(nside):
+        raise ValueError(
+            "`model/TRGB_sky_exposure/nside` must be a positive "
+            "HEALPix nside value.")
+    return nside
+
+
+def _sky_exposure_pixel_id_galactic_numpy(ell, b, nside=1):
+    """Assign Galactic coordinates to HEALPix sky-exposure pixels."""
+    nside = _validate_healpix_nside(nside)
+    ell = np.nan_to_num(np.asarray(ell), nan=0.0, posinf=0.0,
+                        neginf=0.0)
+    b = np.nan_to_num(np.asarray(b), nan=0.0, posinf=90.0,
+                      neginf=-90.0)
+    ell = np.remainder(ell, 360.0)
+    b = np.clip(b, -90.0, 90.0)
+    theta = np.clip(0.5 * np.pi - np.deg2rad(b), 0.0, np.pi)
+    phi = np.deg2rad(ell)
+    return hp.ang2pix(nside, theta, phi, nest=False).astype(np.int32)
+
+
+def _sky_exposure_pixel_id_numpy(ra, dec, nside=1):
+    """Assign ICRS sky positions to HEALPix sky-exposure pixels."""
+    ell, b = radec_to_galactic(ra, dec)
+    return _sky_exposure_pixel_id_galactic_numpy(ell, b, nside=nside)
 
 
 class TRGBModel(H0ModelBase):
@@ -64,7 +96,6 @@ class TRGBModel(H0ModelBase):
             "low": 0.001,
             "high": 1.0,
         })
-
         which_sel = get_nested(config, "model/which_selection", None)
         use_TRGB_host_redshift = get_nested(
             config, "model/use_TRGB_host_redshift", True)
@@ -169,6 +200,31 @@ class TRGBModel(H0ModelBase):
         if self.which_selection in (
                 "TRGB_magnitude", "TRGB_magnitude_redshift"):
             fprint(f"mag_min_TRGB set to {self.mag_min_TRGB}")
+        sky_exposure = get_nested(
+            self.config, "model/TRGB_sky_exposure", {})
+        self.use_TRGB_sky_exposure = bool(
+            sky_exposure.get("enabled", False)
+            if isinstance(sky_exposure, dict) else False)
+        if self.use_TRGB_sky_exposure:
+            if "nside" not in sky_exposure:
+                raise ValueError(
+                    "TRGB sky exposure requires "
+                    "`model/TRGB_sky_exposure/nside`.")
+            self.TRGB_sky_exposure_nside = _validate_healpix_nside(
+                sky_exposure["nside"])
+        else:
+            self.TRGB_sky_exposure_nside = 1
+        self.TRGB_sky_exposure_n_pix = int(
+            hp.nside2npix(self.TRGB_sky_exposure_nside))
+        self.TRGB_sky_exposure_kappa = float(
+            sky_exposure.get("kappa", 48.0)
+            if isinstance(sky_exposure, dict) else 48.0)
+        if self.use_TRGB_sky_exposure:
+            fprint(
+                "TRGB HEALPix angular exposure enabled: "
+                f"nside={self.TRGB_sky_exposure_nside}, "
+                f"n_pix={self.TRGB_sky_exposure_n_pix}, "
+                f"kappa={self.TRGB_sky_exposure_kappa:g}.")
 
     # ------------------------------------------------------------------
     #  Phase 2: data loading
@@ -210,6 +266,50 @@ class TRGBModel(H0ModelBase):
         if not self._has_trgb_colour:
             fprint("TRGB colour data not found; treating tip magnitudes as "
                    "pivot-standardized.")
+        if self.use_TRGB_sky_exposure:
+            if not hasattr(self, "RA_host") or not hasattr(self, "dec_host"):
+                raise ValueError(
+                    "TRGB sky exposure requires `RA_host` and `dec_host`.")
+            self._TRGB_sky_exposure_host_pix = jnp.asarray(
+                _sky_exposure_pixel_id_numpy(
+                    np.asarray(self.RA_host), np.asarray(self.dec_host),
+                    nside=self.TRGB_sky_exposure_nside),
+                dtype=jnp.int32)
+            if (not hasattr(self, "galactic_ell_3d")
+                    or not hasattr(self, "galactic_b_3d")):
+                raise ValueError(
+                    "TRGB sky exposure requires `galactic_ell_3d` and "
+                    "`galactic_b_3d` for the 3D selection integral.")
+            volume_pix = _sky_exposure_pixel_id_galactic_numpy(
+                np.asarray(self.galactic_ell_3d),
+                np.asarray(self.galactic_b_3d),
+                nside=self.TRGB_sky_exposure_nside)
+            self._TRGB_sky_exposure_volume_pix = jnp.asarray(
+                volume_pix, dtype=jnp.int32)
+            support_mask = np.ones(volume_pix.shape, dtype=bool)
+            if self.selection_integral_b_min is not None:
+                support_mask &= (
+                    np.abs(np.asarray(self.galactic_b_3d))
+                    >= self.selection_integral_b_min)
+            if hasattr(self, "log_volume_weight_3d"):
+                support_mask &= np.broadcast_to(
+                    np.isfinite(np.asarray(self.log_volume_weight_3d)),
+                    support_mask.shape)
+            support_pix = np.flatnonzero(np.bincount(
+                volume_pix[support_mask],
+                minlength=self.TRGB_sky_exposure_n_pix))
+            if len(support_pix) == 0:
+                raise ValueError(
+                    "TRGB sky exposure has no 3D selection-integral support "
+                    "after the sky mask.")
+            self.TRGB_sky_exposure_n_support = int(len(support_pix))
+            self._TRGB_sky_exposure_support_pix = jnp.asarray(
+                support_pix, dtype=jnp.int32)
+            host_pix = np.asarray(self._TRGB_sky_exposure_host_pix)
+            if np.any(~np.isin(host_pix, support_pix)):
+                raise ValueError(
+                    "Observed TRGB host falls in a sky-exposure pixel with "
+                    "no 3D selection-integral support.")
         fprint(f"loaded {self.num_hosts} TRGB host galaxies.")
 
     def _set_data_arrays(self, data):
@@ -357,6 +457,19 @@ class TRGBModel(H0ModelBase):
             raise ValueError(
                 f"Unknown `which_selection`: {self.which_selection}. "
                 f"Expected one of {allowed_selection}.")
+        if self.use_TRGB_sky_exposure:
+            if self.which_selection != "TRGB_magnitude":
+                raise NotImplementedError(
+                    "TRGB sky exposure currently supports only "
+                    "`which_selection='TRGB_magnitude'`.")
+            if not self.use_reconstruction:
+                raise NotImplementedError(
+                    "TRGB sky exposure currently requires a reconstructed "
+                    "3D selection integral.")
+            _validate_healpix_nside(self.TRGB_sky_exposure_nside)
+            if self.TRGB_sky_exposure_kappa <= 0:
+                raise ValueError(
+                    "`model/TRGB_sky_exposure/kappa` must be positive.")
         self._validate_active_selection_widths()
         self._validate_sn_data()
 
@@ -543,14 +656,24 @@ class TRGBModel(H0ModelBase):
             ll_observed_selection_host = log_prob_integrand_window_sel(
                 self.mag_obs, 0.0, self.mag_min_TRGB,
                 mag_lim, mag_width)
-            factor("ll_sel_per_object", jnp.sum(
-                ll_observed_selection_host))
 
             e_eff = jnp.sqrt(
                 self.e2_mag_median + sigma_int**2 + colour_sel_var)
-            log_S = self._compute_volume_log_S_mag_window(
-                bias_params, M_TRGB_sel, e_eff, H0,
-                self.mag_min_TRGB, mag_lim, mag_width)
+            if self.use_TRGB_sky_exposure:
+                log_S_pix = self._compute_volume_log_S_mag_window(
+                    bias_params, M_TRGB_sel, e_eff, H0,
+                    self.mag_min_TRGB, mag_lim, mag_width,
+                    return_pixels=True)
+                log_S, log_sky_ratio_host, _ = (
+                    self._sample_TRGB_sky_exposure(log_S_pix))
+                ll_observed_selection_host = (
+                    ll_observed_selection_host + log_sky_ratio_host)
+            else:
+                log_S = self._compute_volume_log_S_mag_window(
+                    bias_params, M_TRGB_sel, e_eff, H0,
+                    self.mag_min_TRGB, mag_lim, mag_width)
+            factor("ll_sel_per_object", jnp.sum(
+                ll_observed_selection_host))
 
         elif self.which_selection == "TRGB_magnitude_redshift":
             mag_lim = self._resolve_threshold("mag_lim_TRGB")
@@ -613,6 +736,39 @@ class TRGBModel(H0ModelBase):
             Vext_mono_host_grid=Vext_mono_host_grid,
             nu_cz=nu_cz)
 
+    def _compute_volume_log_S_mag_window(
+            self, bias_params, M_abs, e_mag, H0,
+            mag_min, mag_lim, mag_width, return_pixels=False):
+        """3D selection integral for the finite TRGB magnitude window."""
+        if return_pixels and not self.use_reconstruction:
+            raise NotImplementedError(
+                "TRGB sky exposure requires a reconstructed 3D selection "
+                "integral.")
+        if not self.use_reconstruction:
+            return super()._compute_volume_log_S_mag_window(
+                bias_params, M_abs, e_mag, H0,
+                mag_min, mag_lim, mag_width)
+
+        h = H0 / 100
+        mu_3d = self.mu_at_h1_3d - 5 * jnp.log10(h)
+        log_P_sel = log_prob_integrand_window_sel(
+            mu_3d + M_abs, e_mag, mag_min, mag_lim, mag_width)
+        log_cell_weight = self._selection_3d_log_measure(H0)
+        pix_3d = (
+            self._selection_3d_sky_exposure_pixel_id()
+            if return_pixels else None)
+
+        def _one(density_3d):
+            log_n = self._vol_sel_galaxy_bias(density_3d, bias_params)
+            log_values = log_P_sel + log_n + log_cell_weight
+            if return_pixels:
+                return self._logsumexp_by_sky_exposure_pixel(
+                    log_values, pix_3d)
+            return logsumexp(log_values)
+
+        return lax.map(checkpoint(_one), self.density_3d_fields,
+                       batch_size=self.volume_density_batch_size)
+
     # ------------------------------------------------------------------
     #  Distance marginalization path
     # ------------------------------------------------------------------
@@ -638,6 +794,58 @@ class TRGBModel(H0ModelBase):
 
         return lax.map(checkpoint(_one), self.density_3d_fields,
                        batch_size=self.volume_density_batch_size)
+
+    def _selection_3d_sky_exposure_pixel_id(self):
+        """HEALPix sky-exposure pixel id for each 3D volume cell."""
+        return self._TRGB_sky_exposure_volume_pix
+
+    def _logsumexp_by_sky_exposure_pixel(self, log_values, pix_3d):
+        """Sum log selection-integral contributions in each sky pixel."""
+        return jnp.stack([
+            logsumexp(jnp.where(pix_3d == k, log_values, -jnp.inf))
+            for k in range(self.TRGB_sky_exposure_n_pix)
+        ])
+
+    def _sample_TRGB_sky_exposure(self, log_S_pix):
+        """Sample angular exposure and return host and volume log weights.
+
+        `log_S_pix` has shape (num_fields, n_pix): one selection integral
+        per sky pixel per reconstruction field realization. `theta` is a
+        single survey-level angular exposure shared across realizations,
+        so its baseline fraction `q` is derived from the field-marginalized
+        (logsumexp over realizations) per-pixel selection, not one field.
+        """
+        log_S_pix_marginal = logsumexp(log_S_pix, axis=0)
+        log_S_total = logsumexp(log_S_pix_marginal)
+        support_pix = self._TRGB_sky_exposure_support_pix
+        q = jnp.exp(log_S_pix_marginal - log_S_total)
+        q = jnp.where(jnp.isfinite(q), q, 0.0)
+        tiny = jnp.finfo(q.dtype).tiny
+        q = q / jnp.clip(jnp.sum(q), tiny)
+        active_pix = q > 0.0
+        alpha = jnp.full(
+            (self.TRGB_sky_exposure_n_support,),
+            self.TRGB_sky_exposure_kappa
+            / self.TRGB_sky_exposure_n_support)
+        theta_support = sample(
+            "TRGB_sky_exposure_theta",
+            Dirichlet(alpha))
+        theta = jnp.zeros(self.TRGB_sky_exposure_n_pix)
+        theta = theta.at[support_pix].set(theta_support)
+        theta = jnp.where(active_pix, theta, 0.0)
+        theta = theta / jnp.clip(jnp.sum(theta), tiny)
+        log_theta = jnp.log(theta)
+        n_active = jnp.sum(active_pix)
+        deterministic("TRGB_sky_exposure_baseline_fraction", q)
+        deterministic("TRGB_sky_exposure_theta_full", theta)
+        deterministic(
+            "TRGB_sky_exposure_ratio",
+            theta * n_active)
+        return (
+            logsumexp(log_S_pix + log_theta[None, :], axis=-1),
+            log_theta[self._TRGB_sky_exposure_host_pix],
+            log_theta,
+        )
 
     def _call_marginalized(self, h, M_TRGB_host, e2_mag_host,
                            ll_colour_host, sigma_v, beta, bias_params,

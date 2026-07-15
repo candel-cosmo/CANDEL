@@ -4,8 +4,15 @@ import argparse
 import csv
 import math
 import os
-from pathlib import Path
+import shutil
 import sys
+from pathlib import Path
+
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import numpy as np
+from scipy.stats import ks_2samp
+from trgbh0_plot_style import OUTPUT_DIR, PAPER_RC, ROOT, TRGBH0_COLOURS
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PLOT_DIR = next(path for path in SCRIPT_DIR.parents
@@ -13,19 +20,11 @@ PLOT_DIR = next(path for path in SCRIPT_DIR.parents
 for path in (SCRIPT_DIR, PLOT_DIR):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
-import shutil
 
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/candel_mplconfig")
 
-import matplotlib as mpl
 
 mpl.use("Agg")
-import matplotlib.pyplot as plt
-import numpy as np
-from scipy.stats import ks_2samp
-
-from trgbh0_plot_style import OUTPUT_DIR, PAPER_RC, ROOT, TRGBH0_COLOURS
-
 
 OUTDIR = OUTPUT_DIR
 OUTNAME = "cchp_lsq_sn_population_comparison"
@@ -112,7 +111,7 @@ def _numeric_rows(rows):
         item["sample"] = row["sample"]
         item["host"] = row["host"]
         item["czcmb"] = item["zcmb"] * SPEED_OF_LIGHT
-        if all(math.isfinite(item[key]) for key in ("zcmb", "st", "Mmax", "BV")):
+        if all(math.isfinite(item[key]) for key in ("zcmb", "st", "Mmax", "BV")):  # noqa: E501
             out.append(item)
     return out
 
@@ -268,7 +267,8 @@ def main():
     plt.close(fig)
     alpha, beta = coeff[1], coeff[2]
     print(f"TRGB calibrator SNe with CSP observables: {len(calibrators)}")
-    print(f"Unique TRGB calibrator hosts: {len({row['galaxy'] for row in calibrators})}")
+    print(
+        f"Unique TRGB calibrator hosts: {len({row['galaxy'] for row in calibrators})}")  # noqa: E501
     print(f"LSQ SNe: {len(lsq)}")
     print(f"LSQ-fitted alpha={alpha:.4f}, beta={beta:.4f}")
     for out in outputs:

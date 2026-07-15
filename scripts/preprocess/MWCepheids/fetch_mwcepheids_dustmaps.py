@@ -7,7 +7,7 @@ Supported maps:
               inner Galaxy (|ell| < 100, |b| < 10)
 
 Usage:
-    python scripts/preprocess/MWCepheids/fetch_mwcepheids_dustmaps.py bayestar19
+    python scripts/preprocess/MWCepheids/fetch_mwcepheids_dustmaps.py bayestar19  # noqa: E501
     python scripts/preprocess/MWCepheids/fetch_mwcepheids_dustmaps.py marshall
     python scripts/preprocess/MWCepheids/fetch_mwcepheids_dustmaps.py --list
 """

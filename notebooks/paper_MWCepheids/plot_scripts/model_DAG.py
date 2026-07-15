@@ -2,9 +2,8 @@
 
 Manual TikZ layout. Sized for an MNRAS two-column figure.
 """
-from pathlib import Path
 import subprocess
-
+from pathlib import Path
 
 OUTPUT_DIR = Path(__file__).resolve().parent
 TEX_FILE = OUTPUT_DIR / "model_DAG.tex"
@@ -276,7 +275,7 @@ bb_bottom = -2.25
 tex = rf"""
 \documentclass[border=5pt]{{standalone}}
 \usepackage{{tikz}}
-\usetikzlibrary{{arrows.meta, backgrounds, decorations.pathreplacing, fit, shapes.geometric}}
+\usetikzlibrary{{arrows.meta, backgrounds, decorations.pathreplacing, fit, shapes.geometric}}  # noqa: E501
 \usepackage{{amsmath, amssymb}}
 
 \definecolor{{colglobal}}{{HTML}}{{4F6D7A}}
@@ -319,7 +318,7 @@ tex = rf"""
 \begin{{document}}
 \begin{{tikzpicture}}
 
-\useasboundingbox ({bb_left:.2f}, {bb_bottom:.2f}) rectangle ({bb_right:.2f}, {bb_top:.2f});
+\useasboundingbox ({bb_left:.2f}, {bb_bottom:.2f}) rectangle ({bb_right:.2f}, {bb_top:.2f});  # noqa: E501
 
 % ===== LEVEL LABELS =====
 {levels_block}
@@ -329,13 +328,13 @@ tex = rf"""
 
 % ===== PLATE =====
 \begin{{scope}}[on background layer]
-    \node[plate, fit=(OHdist)(Pdist)(posdist)(OHobs)(Pobs)(lbobs)(mobs)(piobs)(selected),
-          label={{[font=\scriptsize, anchor=north east]north east: Cepheid $i=1,\ldots,N_p$}}] {{}};
+    \node[plate, fit=(OHdist)(Pdist)(posdist)(OHobs)(Pobs)(lbobs)(mobs)(piobs)(selected),  # noqa: E501
+          label={{[font=\scriptsize, anchor=north east]north east: Cepheid $i=1,\ldots,N_p$}}] {{}};  # noqa: E501
 \end{{scope}}
 
 % ===== GLOBAL PARAMETER GROUP =====
 \draw[decorate, decoration={{brace, amplitude=4pt}}, draw=black!45]
-    (OHpop.north west) -- node[above=4pt, font=\scriptsize] (LambdaBrace) {{$\Lambda$}} (selcuts.north east);
+    (OHpop.north west) -- node[above=4pt, font=\scriptsize] (LambdaBrace) {{$\Lambda$}} (selcuts.north east);  # noqa: E501
 
 % ===== EDGES =====
 \begin{{scope}}[on background layer]

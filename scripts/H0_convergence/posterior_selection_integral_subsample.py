@@ -15,13 +15,22 @@ from __future__ import annotations
 
 import argparse
 import csv
-from functools import partial
 import os
-from pathlib import Path
 import sys
 import tomllib
+from functools import partial
+from pathlib import Path
 
 import h5py
+import jax
+import jax.numpy as jnp
+import matplotlib
+import numpy as np
+from jax.scipy.special import logsumexp
+
+from candel.cosmo.cosmography import Distance2Distmod, Distance2Redshift
+from candel.model.pv_utils import galaxy_bias_density_mode
+from candel.model.utils import log_prob_integrand_sel, predict_cz
 
 
 def ensure_gpu_ld_library_path() -> None:
@@ -43,24 +52,15 @@ def ensure_gpu_ld_library_path() -> None:
 ROOT = Path("/mnt/users/rstiskalek/CANDEL")
 ensure_gpu_ld_library_path()
 
-import jax
-import jax.numpy as jnp
-import matplotlib
-import numpy as np
-from jax.scipy.special import logsumexp
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
-from candel.cosmo.cosmography import Distance2Distmod, Distance2Redshift
-from candel.model.pv_utils import galaxy_bias_density_mode
-from candel.model.utils import log_prob_integrand_sel, predict_cz
-
-
 DEFAULT_POSTERIORS = {
-    "SN_magnitude": ROOT / "results/CH0/CH0_sel-SN_magnitude_manticore_2MPP_MULTIBIN_N256_DES_V2.hdf5",
-    "redshift": ROOT / "results/CH0/CH0_sel-redshift_manticore_2MPP_MULTIBIN_N256_DES_V2.hdf5",
-}
+    "SN_magnitude": ROOT /
+    "results/CH0/CH0_sel-SN_magnitude_manticore_2MPP_MULTIBIN_N256_DES_V2.hdf5",  # noqa: E501
+    "redshift": ROOT /
+    "results/CH0/CH0_sel-redshift_manticore_2MPP_MULTIBIN_N256_DES_V2.hdf5", }
 DEFAULT_DENSITY_CACHE = (
     ROOT / "data/field_cache/manticore_2MPP_MULTIBIN_N256_DES_V2/"
     "cache_sphere__field-0__r-100__ds-1__density.npz"
@@ -187,8 +187,10 @@ def load_field_cache(path: Path, selection: str, field_index: int,
     return out
 
 
-def sample_array(samples: dict[str, np.ndarray], key: str, idx: np.ndarray,
-                 default: float | tuple[float, ...] | None = None) -> jax.Array:
+def sample_array(
+        samples: dict[str, np.ndarray],
+        key: str, idx: np.ndarray, default: float | tuple[float, ...] |
+        None = None) -> jax.Array:
     if key in samples:
         return jnp.asarray(np.asarray(samples[key])[idx])
     if default is None:
@@ -428,7 +430,8 @@ def effective_sample_size(weights: np.ndarray) -> float:
     return float(1.0 / np.sum(np.square(weights)))
 
 
-def weighted_mean_std(x: np.ndarray, weights: np.ndarray) -> tuple[float, float]:
+def weighted_mean_std(
+        x: np.ndarray, weights: np.ndarray) -> tuple[float, float]:
     mean = float(np.sum(weights * x))
     var = float(np.sum(weights * np.square(x - mean)))
     return mean, float(np.sqrt(max(var, 0.0)))
@@ -704,7 +707,8 @@ def plot_h0_summary(rows: list[dict], path: Path) -> None:
         axes[1, col].plot(
             x[order], std_ratio[order], "o-", ms=3, color="C0")
         axes[0, col].set_title(selection)
-        axes[0, col].set_ylabel(r"$\langle H_0\rangle_f / \langle H_0\rangle_{f=1}$")
+        axes[0, col].set_ylabel(
+            r"$\langle H_0\rangle_f / \langle H_0\rangle_{f=1}$")
         axes[1, col].set_ylabel(r"$\sigma(H_0)_f / \sigma(H_0)_{f=1}$")
         axes[1, col].set_xlabel("voxel fraction f")
         axes[0, col].grid(alpha=0.25)
@@ -742,20 +746,31 @@ def main() -> None:
     p.add_argument("--redshift-posterior", type=Path,
                    default=DEFAULT_POSTERIORS["redshift"])
     p.add_argument("--density-cache", type=Path, default=DEFAULT_DENSITY_CACHE)
-    p.add_argument("--velocity-cache", type=Path, default=DEFAULT_VELOCITY_CACHE)
+    p.add_argument(
+        "--velocity-cache",
+        type=Path,
+        default=DEFAULT_VELOCITY_CACHE)
     p.add_argument("--field-index", type=int, default=0)
-    p.add_argument("--fractions", type=parse_fractions,
-                   default=parse_fractions("0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0"))
+    p.add_argument(
+        "--fractions",
+        type=parse_fractions,
+        default=parse_fractions("0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0"))
     p.add_argument("--num-resamples", type=int, default=1)
-    p.add_argument("--posterior-batch-size", type=int, default=32,
-                   help="Number of posterior samples per JIT-compiled GPU batch.")
+    p.add_argument(
+        "--posterior-batch-size",
+        type=int,
+        default=32,
+        help="Number of posterior samples per JIT-compiled GPU batch.")
     p.add_argument("--seed", type=int, default=20260506)
     p.add_argument("--bias-model",
                    choices=["auto", "unity", "linear", "double_powerlaw"],
                    default="auto")
     p.add_argument("--sn-selection-mag-error", type=float, default=0.13486865)
-    p.add_argument("--max-voxels", type=int, default=None,
-                   help="Optional smoke-test cap on voxels after loading field 0.")
+    p.add_argument(
+        "--max-voxels",
+        type=int,
+        default=None,
+        help="Optional smoke-test cap on voxels after loading field 0.")
     p.add_argument("--output-dir", type=Path,
                    default=ROOT / "scripts/H0_convergence/outputs")
     p.add_argument("--gpu-probe", action="store_true",
@@ -783,10 +798,13 @@ def main() -> None:
         "redshift", args.redshift_posterior, args.velocity_cache, args, rng))
 
     png_path = args.output_dir / "posterior_selection_integral_subsample.png"
-    h0_png_path = args.output_dir / "posterior_selection_integral_reweighted_h0.png"
-    h0_summary_path = args.output_dir / "posterior_selection_integral_reweighted_h0_summary.png"
-    h0_csv_path = args.output_dir / "posterior_selection_integral_reweighted_h0_summary.csv"
-    summary_txt_path = args.output_dir / "posterior_selection_integral_summary_tables.txt"
+    h0_png_path = args.output_dir / "posterior_selection_integral_reweighted_h0.png"  # noqa: E501
+    h0_summary_path = args.output_dir / \
+        "posterior_selection_integral_reweighted_h0_summary.png"
+    h0_csv_path = args.output_dir / \
+        "posterior_selection_integral_reweighted_h0_summary.csv"
+    summary_txt_path = args.output_dir / \
+        "posterior_selection_integral_summary_tables.txt"
     print_rows(rows)
     plot_rows(rows, png_path)
     plot_reweighted_h0(rows, h0_png_path)

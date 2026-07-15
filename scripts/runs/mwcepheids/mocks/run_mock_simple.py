@@ -18,12 +18,11 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-import numpy as np
-from mpi4py import MPI
-
 import mock_utils
+import numpy as np
 from mock_utils import (DEFAULT_CONFIGS, TRUE_VALS, likelihood_label,
                         parse_likelihood, run_one_mock)
+from mpi4py import MPI
 
 TASKS = [
     ("C22", "gaussian"),

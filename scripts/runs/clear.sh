@@ -1,9 +1,10 @@
 #!/bin/bash
 #
 # Remove generated artefacts from scripts/runs/.
-#   logs   — cluster job-output files (logs-*.{out,err}, python-*.{out,err})
+#   logs   — cluster job-output files (logs-*.{out,err}, logs-*.status.tsv,
+#            python-*.{out,err})
 #   tasks  — tasks_*.txt task lists and generated_configs/ tree produced
-#            by generate_tasks.py
+#            by generate_tasks.py, plus generated submission batch scripts
 #   all    — both of the above
 #
 # At least one target is required. Supports --dry to preview.
@@ -15,8 +16,8 @@ usage() {
 usage: $(basename "$0") <logs|tasks|all> [logs|tasks|all ...] [--dry]
 
 targets:
-  logs    remove logs-*.{out,err} and python-*.{out,err}
-  tasks   remove tasks_*.txt and generated_configs/
+  logs    remove logs-*.{out,err}, logs-*.status.tsv, and python-*.{out,err}
+  tasks   remove tasks_*.txt, generated_configs/, and generated batch scripts
   all     both
 
 options:
@@ -48,12 +49,9 @@ for t in "${targets[@]}"; do
         *)    expanded+=("$t") ;;
     esac
 done
-declare -A seen
 do_logs=false
 do_tasks=false
 for t in "${expanded[@]}"; do
-    [[ -n "${seen[$t]:-}" ]] && continue
-    seen[$t]=1
     case "$t" in
         logs)  do_logs=true ;;
         tasks) do_tasks=true ;;
@@ -80,11 +78,14 @@ if $do_logs; then
     shopt -s nullglob
     # Top-level logs:
     #   arc sbatch       -> logs-<jobid>.{out,err}
+    #   batched jobs     -> logs-<jobid>-batch_<range>.status.tsv
     #   glamdring legacy -> python-<jobid>.{out,err}
     # Plus any logs/ subdirectory that collects the same patterns.
     logs_files=("$run_dir"/logs-*.out "$run_dir"/logs-*.err \
+                "$run_dir"/logs-*.status.tsv \
                 "$run_dir"/python-*.out "$run_dir"/python-*.err \
                 "$run_dir"/logs/logs-*.out "$run_dir"/logs/logs-*.err \
+                "$run_dir"/logs/logs-*.status.tsv \
                 "$run_dir"/logs/python-*.out "$run_dir"/logs/python-*.err)
     shopt -u nullglob
     if (( ${#logs_files[@]} )); then
@@ -106,18 +107,23 @@ if $do_logs; then
 fi
 
 if $do_tasks; then
-    echo "[INFO] Clearing task lists + generated_configs/ from '$run_dir/'..."
+    echo "[INFO] Clearing task lists + generated scripts/configs from '$run_dir/'..."
     shopt -s nullglob
-    task_files=("$run_dir"/tasks_*.txt)
+    task_files=("$run_dir"/tasks_*.txt "$run_dir"/batch_*.sh)
     shopt -u nullglob
     if (( ${#task_files[@]} )); then
         rm_or_echo "${task_files[@]}"
     else
-        echo "  (no task files)"
+        echo "  (no task or batch files)"
     fi
     if [[ -d "$run_dir/generated_configs" ]]; then
         rmdir_or_echo "$run_dir/generated_configs"
     else
         echo "  (no generated_configs/ tree)"
+    fi
+    if [[ -d "$run_dir/generated_batch_scripts" ]]; then
+        rmdir_or_echo "$run_dir/generated_batch_scripts"
+    else
+        echo "  (no generated_batch_scripts/ tree)"
     fi
 fi

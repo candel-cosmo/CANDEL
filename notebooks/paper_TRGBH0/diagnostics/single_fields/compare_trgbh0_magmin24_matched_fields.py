@@ -1,11 +1,14 @@
 #!/usr/bin/env python
-"""Compare matched-field H0 posteriors for fiducial and mag_min_TRGB=24 cuts."""
+"""Compare matched-field H0 posteriors for fiducial and mag_min_TRGB=24 cuts."""  # noqa: E501
 
+import csv
+import sys
 from argparse import ArgumentParser
 from dataclasses import dataclass
-import csv
 from pathlib import Path
-import sys
+
+import h5py
+import matplotlib
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PLOT_DIR = next(path for path in SCRIPT_DIR.parents
@@ -14,13 +17,12 @@ for path in (SCRIPT_DIR, PLOT_DIR):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-import h5py
-import matplotlib
 
 matplotlib.use("Agg")
+import tomllib  # noqa: E402
+
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
-import tomllib  # noqa: E402
 from matplotlib.colors import Normalize  # noqa: E402
 
 try:
@@ -28,15 +30,8 @@ try:
 except ModuleNotFoundError:
     scienceplots = None
 
-from trgbh0_plot_style import (  # noqa: E402
-    FIGURE_DPI,
-    OUTPUT_DIR,
-    ROOT,
-    save_pdf_png,
-    set_paper_rc,
-    trgbh0_cmap,
-)
-
+from trgbh0_plot_style import (FIGURE_DPI, OUTPUT_DIR, ROOT,  # noqa: E402,F401
+                               save_pdf_png, set_paper_rc, trgbh0_cmap)
 
 FIDUCIAL_TASK_FILE = ROOT / "scripts" / "runs" / "tasks_TRGBH0_single.txt"
 MAGMIN24_TASK_FILE = (
@@ -147,7 +142,7 @@ def is_target_config(config, mag_min):
             ("io", "reconstruction_main", "ManticoreLocalCOLA", "which_MAS"),
     ) != "PCS":
         return False
-    if get_nested(model, ("cz_likelihood",), default="gaussian") != "student_t":
+    if get_nested(model, ("cz_likelihood",), default="gaussian") != "student_t":  # noqa: E501
         return False
     if get_nested(model, ("which_selection",)) != "TRGB_magnitude":
         return False
@@ -162,7 +157,7 @@ def is_target_config(config, mag_min):
     if not is_delta_beta_one(config):
         return False
     if not np.isclose(float(get_nested(model, ("mag_min_TRGB",), 22.1)),
-                     mag_min):
+                      mag_min):
         return False
     return True
 
@@ -188,7 +183,7 @@ def select_specs(task_file, mag_min):
         )
         if field in specs:
             raise ValueError(
-                f"Multiple task configs for field {field} and mag_min={mag_min}."
+                f"Multiple task configs for field {field} and mag_min={mag_min}."  # noqa: E501
             )
         specs[field] = spec
     return specs
@@ -338,7 +333,8 @@ def plot_comparison(records, out_pdf):
 
         norm = Normalize(
             vmin=float(np.min(fields)),
-            vmax=float(np.max(fields)) if len(fields) > 1 else float(fields[0] + 1),
+            vmax=float(np.max(fields)) if len(
+                fields) > 1 else float(fields[0] + 1),
         )
         cmap = trgbh0_cmap("trgbh0_magmin24")
         colours = cmap(norm(fields))

@@ -23,11 +23,9 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from candel.model.mwcepheids import (
-    compute_dist_sq_per_arm,
-    get_drimmel_arm_traces,
-    sample_disk_sightlines,
-)
+from candel.model.mwcepheids import (compute_dist_sq_per_arm,
+                                     get_drimmel_arm_traces,
+                                     sample_disk_sightlines)
 from candel.pvdata import CepheidData, to_mwcepheids_config
 from candel.util import load_config
 

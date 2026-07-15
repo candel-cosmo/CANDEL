@@ -17,13 +17,14 @@ from datetime import datetime
 from os.path import join
 from pathlib import Path
 
-import candel
 import numpy as np
-from candel import read_gof
 from h5py import File
 from jax import jit, vmap
 from quadax import cumulative_simpson
 from scipy.stats import norm
+
+import candel
+from candel import read_gof
 
 
 def compare_zeropoint_dipole_gof(fname, which, verbose=True):

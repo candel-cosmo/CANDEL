@@ -19,8 +19,8 @@ from the configuration file and runs the inference.
 This script is expected to be run either from the command line or from a shell
 submission script.
 """
+import os
 import subprocess
-import sys
 import threading
 import time
 from argparse import ArgumentParser
@@ -108,7 +108,7 @@ class GPUMonitor:
                     idxs = [int(i * (n - 1) / max(width - 1, 1))
                             for i in range(width)]
                 bar = "".join(
-                    "█" if values[min(i, n-1)] >= threshold else " "
+                    "█" if values[min(i, n - 1)] >= threshold else " "
                     for i in idxs)
                 lines.append(f"   {threshold:4.0f}% |{bar}|")
             t_total = int(self._times[-1])
@@ -119,7 +119,9 @@ class GPUMonitor:
             return "\n".join(lines)
 
         fprint("── GPU usage summary ────────────────────────────────────────")
-        fprint(f"   utilization : mean {mean_util:.0f}%,  peak {peak_util:.0f}%")
+        fprint(
+            f"   utilization : mean {mean_util:.0f}%,  "
+            f"peak {peak_util:.0f}%")
         fprint(f"   memory      : mean {mean_mem:.1f}%,  peak {peak_mem:.1f}%"
                f"  ({max(self._mem_used):.0f} / {mem_total:.0f} MiB)")
         fprint(_chart(self._util, 0, 100, "GPU utilization (%)"))
@@ -140,8 +142,8 @@ def insert_comment_at_top(path: str, label: str):
 
 
 _SPOT_ARRAY_KEYS = ("velocity", "x", "sigma_x", "y", "sigma_y",
-                     "a", "sigma_a", "accel_measured", "is_highvel",
-                     "phi_lo", "phi_hi")
+                    "a", "sigma_a", "accel_measured", "is_highvel",
+                    "phi_lo", "phi_hi")
 
 
 def downsample_spots(data, max_spots, seed=42):
@@ -173,6 +175,9 @@ if __name__ == "__main__":
     parser.add_argument("--host-devices", type=int,
                         help="NumPyro host device count (handled pre-import).")
     args = parser.parse_args()
+    if args.host_devices is not None:
+        os.environ.setdefault("CANDEL_PPC_N_WORKERS",
+                              str(args.host_devices))
 
     insert_comment_at_top(args.config, "started")
 
@@ -211,14 +216,28 @@ if __name__ == "__main__":
             candel.run_H0_inference(model, )
 
             # Posterior predictive check
-            if get_nested(config, "model/run_ppc", True):
-                from candel.mock.ppc_trgb import generate_trgb_ppc, plot_trgb_ppc
+            if model.num_fields > 1:
+                fprint(f"skipping posterior predictive check: "
+                       f"marginalizing over {model.num_fields} field "
+                       f"realizations.")
+            elif get_nested(config, "model/run_ppc", True):
+                from candel.mock.ppc_trgb import (generate_trgb_ppc,
+                                                  plot_trgb_ppc,
+                                                  plot_trgb_ppc_sky,
+                                                  plot_trgb_ppc_sky_exposure)
 
                 fprint("running posterior predictive check...")
                 samples = candel.read_samples("", fname_out)
                 ppc = generate_trgb_ppc(samples, data, args.config)
                 ppc_fname = fname_out.rsplit(".", 1)[0] + "_ppc.png"
                 plot_trgb_ppc(ppc, ppc_fname)
+                ppc_root = ppc_fname.rsplit(".", 1)[0]
+                if all(k in ppc for k in (
+                        "ra_sim", "dec_sim", "ra_obs", "dec_obs")):
+                    plot_trgb_ppc_sky(ppc, ppc_root + "_sky.png")
+                if "sky_exposure" in ppc:
+                    plot_trgb_ppc_sky_exposure(
+                        ppc, ppc_root + "_sky_exposure.png")
         elif which_run == "CCHP_CSP":
             fprint("selected `CCHP_CSP` joint TRGB-CSP model.")
             trgb_data = candel.pvdata.load_CCHP_from_config(args.config)
@@ -235,14 +254,15 @@ if __name__ == "__main__":
                    f"for data `{data_name}`")
 
             shared_param = get_nested(config, "inference/shared_params", None)
-            model = candel.model.name2model(model_name, shared_param, args.config)
+            model = candel.model.name2model(
+                model_name, shared_param, args.config)
 
             if isinstance(data, list):
                 if not isinstance(model, candel.model.JointPVModel):
                     raise TypeError(
-                        "You provided multiple datasets, but the selected model "
-                        f"`{model.__class__.__name__}` is not JointPVModel."
-                    )
+                        "You provided multiple datasets, but the selected "
+                        f"model `{model.__class__.__name__}` is not "
+                        "JointPVModel.")
                 if len(data) != len(model.submodels):
                     raise ValueError(
                         f"Number of datasets ({len(data)}) does not match "

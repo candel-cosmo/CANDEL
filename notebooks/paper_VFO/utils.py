@@ -14,11 +14,13 @@
 # 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 
-import numpy as np
-import candel
 from os.path import join
+
+import numpy as np
 from h5py import File
 from scipy.stats import norm
+
+import candel
 
 
 def simname2label(simname):
@@ -85,8 +87,6 @@ def simname2color(simname, gen=None):
         gen = np.random.default_rng()
 
     return gen.choice(defaults)
-
-
 
 
 def load_and_check_posteriors(files, samples, key):
@@ -181,7 +181,7 @@ def get_bulkflow(fname, simname, root_bf, convert_to_galactic=True,
     names_map = {
         "CB1": "csiborg1",
         "CB2": "csiborg2_main",
-        }
+    }
     f = np.load(join(
         root_bf, f"enclosed_mass_{names_map.get(simname, simname)}.npz"))
 

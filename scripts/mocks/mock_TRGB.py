@@ -21,7 +21,6 @@ from contextlib import redirect_stdout
 from datetime import datetime
 
 import matplotlib
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import tomli_w
@@ -33,7 +32,14 @@ from candel.mock.TRGB_mock import DEFAULT_ANCHORS, DEFAULT_TRUE_PARAMS
 from candel.model.pv_utils import GALAXY_BIAS_MODELS
 from candel.util import results_path
 
-REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+matplotlib.use("Agg")
+
+
+REPO_ROOT = os.path.abspath(
+    os.path.join(
+        os.path.dirname(__file__),
+        "..",
+        ".."))
 
 TRACKED_PARAMS = ["H0", "M_TRGB", "alpha_c", "c_star", "c_bar", "w_c",
                   "sigma_int", "sigma_v",
@@ -78,7 +84,11 @@ def _true_Vext_cartesian(true_params):
 
 def _expected_mpi_tasks_from_env():
     """Return scheduler-advertised MPI tasks, or 1 when not allocated."""
-    for name in ("SLURM_NTASKS", "SLURM_NPROCS", "PMI_SIZE", "OMPI_COMM_WORLD_SIZE"):
+    for name in (
+        "SLURM_NTASKS",
+        "SLURM_NPROCS",
+        "PMI_SIZE",
+            "OMPI_COMM_WORLD_SIZE"):
         value = os.environ.get(name)
         if value:
             try:
@@ -709,7 +719,7 @@ def run_sequential(config_info):
     os.makedirs(outdir, exist_ok=True)
 
     print(f"[INFO] Running {n_mocks} mocks sequentially (no MPI)")
-    print(f"[INFO] Injected true parameters:")
+    print("[INFO] Injected true parameters:")
     for p, v in config_info["true_params"].items():
         print(f"         {p:<15s} = {v}")
     print(f"[INFO] use_field = {config_info.get('use_field', False)}")
@@ -841,10 +851,10 @@ def run_single(seed, true_params, mock_kwargs, config_path,
                infer_selection=True, use_field=False, field_name=None,
                outdir=None, plot_only=False, fix_Vext=False,
                which_bias=None):
-    """Generate a single mock, optionally run inference, plot, and return data."""
-    print(f"{'='*60}")
+    """Generate a single mock, optionally run inference, plot, and return data."""  # noqa: E501
+    print(f"{'=' * 60}")
     print("Mock configuration")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     print(f"  seed            = {seed}")
     print(f"  nsamples        = {mock_kwargs.get('nsamples')}")
     print(f"  rmax            = {mock_kwargs.get('rmax')} Mpc")
@@ -859,7 +869,7 @@ def run_single(seed, true_params, mock_kwargs, config_path,
     print(f"  infer_selection = {infer_selection}")
     print(f"  fix_Vext        = {fix_Vext}")
     print(f"  plot_only       = {plot_only}")
-    print(f"\nInjected parameters:")
+    print("\nInjected parameters:")
     for p, v in true_params.items():
         print(f"  {p:<15s} = {v}")
     print()
@@ -895,10 +905,10 @@ def run_single(seed, true_params, mock_kwargs, config_path,
     tp["Vext_cos_theta"] = np.sin(np.deg2rad(_dec))
     n = len(data["mag_obs"])
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Mock TRGB catalog: {n} hosts")
     print(f"Parent population: {n_parent}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     print("\nObservable summary:")
     mag = data["mag_obs"]
@@ -932,7 +942,7 @@ def run_single(seed, true_params, mock_kwargs, config_path,
         finally:
             os.unlink(tmp)
 
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print("Standardised biases (posterior vs truth)")
         print("=" * 60)
         for param in TRACKED_PARAMS:
@@ -978,8 +988,13 @@ def run_single(seed, true_params, mock_kwargs, config_path,
     os.makedirs(outdir, exist_ok=True)
     fname = os.path.join(
         outdir,
-        "mock_TRGB_single_"
-        f"{_mode_tag(which_selection, use_field, field_name, infer_selection, fix_Vext)}.png")
+        "mock_TRGB_single_" f"{
+            _mode_tag(
+                which_selection,
+                use_field,
+                field_name,
+                infer_selection,
+                fix_Vext)}.png")
     fig.savefig(fname, dpi=150)
     print(f"\nSaved plot to {fname}")
     plt.close(fig)
@@ -1008,10 +1023,13 @@ def main():
                         help="Number of mock catalogs")
     parser.add_argument("--nsamples", type=int, default=480,
                         help="Number of mock hosts per catalog")
-    parser.add_argument("--config", type=str,
-                        default=os.path.join(
-                            REPO_ROOT, "scripts/runs/configs/config_EDD_TRGB.toml"),
-                        help="Base config for inference settings")
+    parser.add_argument(
+        "--config",
+        type=str,
+        default=os.path.join(
+            REPO_ROOT,
+            "scripts/runs/configs/config_EDD_TRGB.toml"),
+        help="Base config for inference settings")
     parser.add_argument("--outdir",
                         default=results_path("results/mocks_TRGB"),
                         help="Output directory")
@@ -1246,7 +1264,7 @@ def main():
             print(f"[INFO] timeout = {args.timeout}s"
                   if args.timeout > 0 else "[INFO] timeout = none")
             skip_params = {"beta", "b1"} if not args.use_field else set()
-            print(f"[INFO] Injected true parameters:")
+            print("[INFO] Injected true parameters:")
             for p, v in true_params.items():
                 if p not in skip_params:
                     print(f"         {p:<15s} = {v}")

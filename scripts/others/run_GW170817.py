@@ -7,7 +7,7 @@ Implements:
   3. Density-weighted distance prior (Malmquist bias correction)
 
 Usage:
-  python run_GW170817.py                  # Quick test (injection, few live points)
+  python run_GW170817.py                  # Quick test (injection, few live points)  # noqa: E501
   python run_GW170817.py --real-data      # Use GWOSC strain (slow download)
   python run_GW170817.py --nlive 1000     # Production settings
 """
@@ -91,7 +91,7 @@ ROQ_BASIS_SEGLEN = 128.0   # segment length of the ROQ basis [s]
 # ---------------------------------------------------------------------------
 
 def build_jetfit_gmm(n_samples=50000, seed=42):
-    """Build a synthetic GMM approximating the JetFit (D_L, theta_obs) posterior.
+    """Build a synthetic GMM approximating the JetFit (D_L, theta_obs) posterior.  # noqa: E501
 
     Based on Palmese et al. 2024 (arXiv:2305.19914):
       theta_obs = 0.53 +0.05/-0.03 rad  (~30.4 deg)
@@ -126,7 +126,8 @@ def build_jetfit_gmm(n_samples=50000, seed=42):
 
     samples = rng.multivariate_normal(mean, cov, size=n_samples)
     # Enforce physical bounds
-    mask = (samples[:, 0] > 0) & (samples[:, 1] > 0) & (samples[:, 1] < np.pi / 2)
+    mask = (samples[:, 0] > 0) & (samples[:, 1]
+                                  > 0) & (samples[:, 1] < np.pi / 2)
     samples = samples[mask]
 
     # Use 12 components as in Palmese et al.
@@ -142,7 +143,7 @@ def load_or_build_jetfit_gmm(data_dir):
     if os.path.exists(gmm_path):
         d = np.load(gmm_path, allow_pickle=True)
         gmm = GaussianMixture(n_components=int(d["n_components"]),
-                               covariance_type="full")
+                              covariance_type="full")
         gmm.means_ = d["means"]
         gmm.covariances_ = d["covariances"]
         gmm.weights_ = d["weights"]
@@ -248,9 +249,8 @@ class PsiMarginalizedLikelihood(GWplusEMLikelihood):
         # Zero where PSD is inf/zero (out-of-band); drop Nyquist
         integrand = np.zeros(n_freq - 1, dtype=complex)
         valid = (psd_array[:-1] > 0) & np.isfinite(psd_array[:-1])
-        integrand[valid] = (
-            np.conj(h_pol[:-1][valid]) * data[:-1][valid] / psd_array[:-1][valid]
-        )
+        integrand[valid] = (np.conj(h_pol[:-1][valid]) *
+                            data[:-1][valid] / psd_array[:-1][valid])
         # FFT gives sum at each time bin; normalise by 4/T
         return 4.0 / duration * np.fft.fft(integrand)
 
@@ -321,9 +321,11 @@ class PsiMarginalizedLikelihood(GWplusEMLikelihood):
                 psd_eff[~ifo.frequency_mask] = np.inf
 
                 A_arrays.append(
-                    self._matched_filter_fft(hp_shifted, data_full, psd_eff, dur))
+                    self._matched_filter_fft(
+                        hp_shifted, data_full, psd_eff, dur))
                 B_arrays.append(
-                    self._matched_filter_fft(hc_shifted, data_full, psd_eff, dur))
+                    self._matched_filter_fft(
+                        hc_shifted, data_full, psd_eff, dur))
 
                 # Template-template products (time-independent, use masked)
                 mask = ifo.frequency_mask
@@ -341,7 +343,7 @@ class PsiMarginalizedLikelihood(GWplusEMLikelihood):
             B_array = np.array(B_arrays)
 
             # Time grid and prior from bilby's setup
-            n_times = A_array.shape[1]
+            A_array.shape[1]
             time_prior = self.time_prior_array
 
             # Evaluate log L at each psi, marginalising over time
@@ -377,7 +379,8 @@ class PsiMarginalizedLikelihood(GWplusEMLikelihood):
                 data = ifo.frequency_domain_strain[mask]
 
                 dt = ifo.time_delay_from_geocenter(ra, dec, tc)
-                dt_geocent = self.parameters["geocent_time"] - ifo.strain_data.start_time
+                dt_geocent = self.parameters["geocent_time"] - \
+                    ifo.strain_data.start_time
                 time_shift = dt + dt_geocent
                 freqs = ifo.frequency_array[mask]
                 phase_shift = np.exp(-2j * np.pi * freqs * time_shift)
@@ -619,8 +622,8 @@ def setup_ifos_real_data(duration, sampling_frequency, fmin=23.0,
 # ---------------------------------------------------------------------------
 
 def build_priors(use_density_prior=False, no_tides=False,
-                  roq_scale_factor=None, marginalize_psi=False,
-                  aligned_spin=False, marginalize_phase=False):
+                 roq_scale_factor=None, marginalize_psi=False,
+                 aligned_spin=False, marginalize_phase=False):
     """Build priors for GW170817 PE.
 
     If no_tides=True, use BBHPriorDict (no lambda_1/lambda_2).
@@ -705,7 +708,7 @@ def get_injection_parameters():
         mass_1=1.5,
         mass_2=1.3,
         luminosity_distance=40.0,
-        theta_jn=2.6,    # ~149 deg → theta_obs ~ 31 deg, consistent with JetFit
+        theta_jn=2.6,    # ~149 deg → theta_obs ~ 31 deg, consistent with JetFit  # noqa: E501
         ra=RA_NGC4993,
         dec=DEC_NGC4993,
         psi=2.659,
@@ -904,8 +907,8 @@ def main():
         print(f"  scale_factor = {ROQ_BASIS_SEGLEN}/{args.duration} "
               f"= {roq_scale_factor:.5f}")
         print(f"  mc range (scaled): "
-              f"[{1.42/roq_scale_factor:.4f}, {2.60/roq_scale_factor:.4f}]")
-        print(f"  flow (scaled): {20*roq_scale_factor:.2f} Hz")
+              f"[{1.42 / roq_scale_factor:.4f}, {2.60 / roq_scale_factor:.4f}]")  # noqa: E501
+        print(f"  flow (scaled): {20 * roq_scale_factor:.2f} Hz")
 
         roq_kwargs = dict(
             interferometers=ifos,
@@ -1034,7 +1037,7 @@ def main():
 
     result.plot_corner(
         parameters=["luminosity_distance", "theta_jn", "chirp_mass",
-                     "mass_ratio"],
+                    "mass_ratio"],
         filename=os.path.join(outdir, f"{label}_corner.png"),
     )
 
@@ -1054,7 +1057,7 @@ def main():
         print(f"  dlogz (stop):  {dlogz_final}")
 
     if nsamples < 100:
-        print("  WARNING: fewer than 100 posterior samples — likely unconverged")
+        print("  WARNING: fewer than 100 posterior samples — likely unconverged")  # noqa: E501
     if result.log_evidence_err > 1.0:
         print("  WARNING: large evidence uncertainty (> 1.0) — increase nlive")
 

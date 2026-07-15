@@ -5,7 +5,7 @@
 # option) any later version.
 """Posterior-predictive check of the CF4 TFR W1 redshift distribution.
 
-Drives ``candel.mock.gen_TFR_mock`` at the posterior means of the W1 linear-bias
+Drives ``candel.mock.gen_TFR_mock`` at the posterior means of the W1 linear-bias  # noqa: E501
 chain (2M++ density + r^2 exp[-(r/R)^q] empirical distance prior + Vext +
 sigma_v) and compares the mock zcmb distribution to the observed sample.
 
@@ -14,7 +14,7 @@ Examples:
     python ppc_zcmb.py --n-mock-factor 20 --n-reals 50
 """
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
-from os.path import dirname, abspath, join
+from os.path import abspath, dirname, join
 from sys import path as sys_path
 
 
@@ -27,18 +27,17 @@ def _heavy_imports():
     import matplotlib
     matplotlib.use("Agg")
 
-    import numpy as np
     import h5py
     import matplotlib.pyplot as plt
+    import numpy as np
     import scienceplots  # noqa: F401
 
     sys_path.insert(0, "/Users/rstiskalek/Projects/candel")
     import candel
-    from candel.mock import gen_TFR_mock
+    from candel.cosmo.cosmography import Distance2Distmod, Distance2Redshift
     from candel.field import name2field_loader
+    from candel.mock import gen_TFR_mock
     from candel.pvdata import load_CF4_data
-    from candel.cosmo.cosmography import (
-        Distance2Distmod, Distance2Redshift)
 
 
 # -----------------------------------------------------------------------------

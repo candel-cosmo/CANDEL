@@ -1,21 +1,21 @@
 #!/usr/bin/env python
 """Compare CH0 single-field reconstruction variants."""
 
+import csv
 from argparse import ArgumentParser
 from dataclasses import dataclass
-import csv
 from pathlib import Path
 
 import h5py
 import matplotlib
 
 matplotlib.use("Agg")
+import tomllib  # noqa: E402
+
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import scienceplots  # noqa: F401,E402
-import tomllib  # noqa: E402
 from matplotlib.colors import LinearSegmentedColormap, Normalize  # noqa: E402
-
 
 ROOT = Path(__file__).resolve().parents[2]
 TASK_FILE = ROOT / "scripts" / "runs" / "tasks_CH0_single.txt"
@@ -183,7 +183,7 @@ def classify_config(config, mode):
         return None
 
     if mode.name == "cola-mas":
-        if reconstruction != "ManticoreLocalCOLA" or mas not in mode.variant_order:
+        if reconstruction != "ManticoreLocalCOLA" or mas not in mode.variant_order:  # noqa: E501
             return None
         variant = mas
     elif mode.name == "swift-cola-sph":
@@ -398,7 +398,8 @@ def save_pdf_png(fig, out_pdf):
 
 
 def identity_limits(*arrays, pad_frac=0.05):
-    values = np.concatenate([np.asarray(array, dtype=float) for array in arrays])
+    values = np.concatenate([np.asarray(array, dtype=float)
+                            for array in arrays])
     low = float(np.min(values))
     high = float(np.max(values))
     pad = pad_frac * (high - low)

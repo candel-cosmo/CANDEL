@@ -10,29 +10,44 @@ from pathlib import Path
 
 import h5py
 import matplotlib
-
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+
+matplotlib.use("Agg")
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Make slab, power-spectrum, and cross-correlation plots comparing "
-            "borg_forward split final_density outputs to /scalars/BORG_final_density."
-        )
-    )
-    parser.add_argument("mcmc", type=Path, help="Native Manticore/BORG mcmc_*.h5 file.")
+            "borg_forward split final_density outputs to /scalars/BORG_final_density."))  # noqa: E501
+    parser.add_argument(
+        "mcmc",
+        type=Path,
+        help="Native Manticore/BORG mcmc_*.h5 file.")
     parser.add_argument(
         "--output-dir",
         type=Path,
         help="Directory containing split output_<iteration>.h5_<rank> files.",
     )
-    parser.add_argument("--iteration", type=int, help="Iteration number. Defaults to mcmc filename.")
-    parser.add_argument("--nprocs", type=int, default=28, help="Number of split files. Default: 28.")
-    parser.add_argument("--slice-index", type=int, help="Slab index along axis 2. Default: middle slab.")
-    parser.add_argument("--nbins", type=int, default=50, help="Number of k bins. Default: 50.")
+    parser.add_argument(
+        "--iteration",
+        type=int,
+        help="Iteration number. Defaults to mcmc filename.")
+    parser.add_argument(
+        "--nprocs",
+        type=int,
+        default=28,
+        help="Number of split files. Default: 28.")
+    parser.add_argument(
+        "--slice-index",
+        type=int,
+        help="Slab index along axis 2. Default: middle slab.")
+    parser.add_argument(
+        "--nbins",
+        type=int,
+        default=50,
+        help="Number of k bins. Default: 50.")
     parser.add_argument(
         "--out-prefix",
         type=Path,
@@ -44,7 +59,8 @@ def parse_args() -> argparse.Namespace:
 def iteration_from_mcmc(mcmc: Path) -> int:
     match = re.fullmatch(r"mcmc_(\d+)", mcmc.stem)
     if match is None:
-        raise ValueError(f"Could not infer iteration from MCMC filename: {mcmc}")
+        raise ValueError(
+            f"Could not infer iteration from MCMC filename: {mcmc}")
     return int(match.group(1))
 
 
@@ -55,10 +71,11 @@ def infer_output_dir(mcmc: Path) -> Path:
             "Could not infer output directory. Expected "
             "<run-root>/chain/<subchain>/mcmc_*.h5; pass --output-dir."
         )
-    return chain_dir.parent.parent / "forward" / chain_dir.name / mcmc.stem / "rsd"
+    return chain_dir.parent.parent / "forward" / chain_dir.name / mcmc.stem / "rsd"  # noqa: E501
 
 
-def load_generated(output_dir: Path, iteration: int, nprocs: int) -> tuple[np.ndarray, float]:
+def load_generated(output_dir: Path, iteration: int,
+                   nprocs: int) -> tuple[np.ndarray, float]:
     slabs = []
     box_size = None
     for rank in range(nprocs):
@@ -79,7 +96,8 @@ def load_reference(mcmc: Path) -> np.ndarray:
         return handle["/scalars/BORG_final_density"][...]
 
 
-def binned_power(field_a: np.ndarray, field_b: np.ndarray, box_size: float, nbins: int) -> dict[str, np.ndarray]:
+def binned_power(field_a: np.ndarray, field_b: np.ndarray,
+                 box_size: float, nbins: int) -> dict[str, np.ndarray]:
     if field_a.shape != field_b.shape:
         raise ValueError(f"Shape mismatch: {field_a.shape} != {field_b.shape}")
 
@@ -95,7 +113,8 @@ def binned_power(field_a: np.ndarray, field_b: np.ndarray, box_size: float, nbin
     kx = 2 * np.pi * np.fft.fftfreq(n0, d=box_size / n0)
     ky = 2 * np.pi * np.fft.fftfreq(n1, d=box_size / n1)
     kz = 2 * np.pi * np.fft.rfftfreq(n2, d=box_size / n2)
-    kk = np.sqrt(kx[:, None, None] ** 2 + ky[None, :, None] ** 2 + kz[None, None, :] ** 2)
+    kk = np.sqrt(kx[:, None, None] ** 2 + ky[None, :, None]
+                 ** 2 + kz[None, None, :] ** 2)
 
     p_aa = (fft_a * np.conj(fft_a)).real * norm
     p_bb = (fft_b * np.conj(fft_b)).real * norm
@@ -137,7 +156,11 @@ def binned_power(field_a: np.ndarray, field_b: np.ndarray, box_size: float, nbin
     }
 
 
-def save_slab_plot(ref: np.ndarray, gen: np.ndarray, out_prefix: Path, slice_index: int) -> Path:
+def save_slab_plot(
+        ref: np.ndarray,
+        gen: np.ndarray,
+        out_prefix: Path,
+        slice_index: int) -> Path:
     diff = gen - ref
     ref_slice = ref[:, :, slice_index]
     gen_slice = gen[:, :, slice_index]
@@ -145,11 +168,13 @@ def save_slab_plot(ref: np.ndarray, gen: np.ndarray, out_prefix: Path, slice_ind
     denom_floor = 1e-3 * np.percentile(np.abs(ref_slice), 99)
     rel_slice = diff_slice / np.maximum(np.abs(ref_slice), denom_floor)
 
-    vmin, vmax = np.percentile(np.concatenate([ref_slice.ravel(), gen_slice.ravel()]), [1, 99])
+    vmin, vmax = np.percentile(np.concatenate(
+        [ref_slice.ravel(), gen_slice.ravel()]), [1, 99])
     dlim = np.percentile(np.abs(diff_slice), 99.5)
     rlim = np.percentile(np.abs(rel_slice), 99.5)
 
-    fig, axes = plt.subplots(1, 4, figsize=(16.5, 4.2), constrained_layout=True)
+    fig, axes = plt.subplots(1, 4, figsize=(
+        16.5, 4.2), constrained_layout=True)
     panels = [
         (ref_slice, "MCMC /scalars/BORG_final_density", vmin, vmax, "viridis"),
         (gen_slice, "Regenerated RSD final_density", vmin, vmax, "viridis"),
@@ -171,16 +196,24 @@ def save_slab_plot(ref: np.ndarray, gen: np.ndarray, out_prefix: Path, slice_ind
 
 
 def save_power_plot(spectra: dict[str, np.ndarray], out_prefix: Path) -> Path:
-    fig, axes = plt.subplots(2, 1, figsize=(7.2, 7.0), sharex=True, constrained_layout=True)
+    fig, axes = plt.subplots(2, 1, figsize=(
+        7.2, 7.0), sharex=True, constrained_layout=True)
 
     axes[0].loglog(spectra["k"], spectra["p_ref"], label="MCMC")
-    axes[0].loglog(spectra["k"], spectra["p_gen"], "--", label="Regenerated RSD")
+    axes[0].loglog(
+        spectra["k"],
+        spectra["p_gen"],
+        "--",
+        label="Regenerated RSD")
     axes[0].set_ylabel("P(k)")
     axes[0].legend()
     axes[0].grid(alpha=0.25)
 
     axes[1].semilogx(spectra["k"], spectra["ratio"], label="P_regen / P_mcmc")
-    axes[1].semilogx(spectra["k"], spectra["r"], label="cross-correlation r(k)")
+    axes[1].semilogx(
+        spectra["k"],
+        spectra["r"],
+        label="cross-correlation r(k)")
     axes[1].axhline(1.0, color="0.3", lw=1)
     axes[1].set_xlabel("k")
     axes[1].set_ylabel("ratio / r(k)")
@@ -198,7 +231,13 @@ def save_spectra_csv(spectra: dict[str, np.ndarray], out_prefix: Path) -> Path:
     path = out_prefix.with_name(out_prefix.name + "_power_cross.csv")
     with path.open("w", newline="") as handle:
         writer = csv.writer(handle)
-        writer.writerow(["k", "p_mcmc", "p_generated", "p_cross", "cross_correlation", "power_ratio", "nmodes"])
+        writer.writerow(["k",
+                         "p_mcmc",
+                         "p_generated",
+                         "p_cross",
+                         "cross_correlation",
+                         "power_ratio",
+                         "nmodes"])
         for row in zip(
             spectra["k"],
             spectra["p_ref"],
@@ -215,9 +254,14 @@ def save_spectra_csv(spectra: dict[str, np.ndarray], out_prefix: Path) -> Path:
 def main() -> None:
     args = parse_args()
     mcmc = args.mcmc.expanduser().resolve()
-    iteration = args.iteration if args.iteration is not None else iteration_from_mcmc(mcmc)
-    output_dir = (args.output_dir if args.output_dir is not None else infer_output_dir(mcmc)).expanduser().resolve()
-    out_prefix = args.out_prefix.expanduser().resolve() if args.out_prefix is not None else output_dir / "borg_forward_vs_mcmc"
+    iteration = args.iteration if args.iteration is not None else iteration_from_mcmc(  # noqa: E501
+        mcmc)
+    output_dir = (
+        args.output_dir
+        if args.output_dir is not None else
+        infer_output_dir(mcmc)).expanduser().resolve()
+    out_prefix = args.out_prefix.expanduser().resolve(
+    ) if args.out_prefix is not None else output_dir / "borg_forward_vs_mcmc"
 
     print(f"Loading MCMC field: {mcmc}", flush=True)
     ref = load_reference(mcmc)
@@ -225,13 +269,24 @@ def main() -> None:
     gen, box_size = load_generated(output_dir, iteration, args.nprocs)
 
     if ref.shape != gen.shape:
-        raise ValueError(f"Shape mismatch: reference {ref.shape}, generated {gen.shape}")
+        raise ValueError(
+            f"Shape mismatch: reference {
+                ref.shape}, generated {
+                gen.shape}")
 
-    slice_index = args.slice_index if args.slice_index is not None else ref.shape[2] // 2
+    slice_index = args.slice_index if args.slice_index is not None else ref.shape[2] // 2  # noqa: E501
     diff = gen - ref
     print(f"Field shape: {ref.shape}", flush=True)
     print(f"Box size: {box_size}", flush=True)
-    print(f"Difference max_abs={np.max(np.abs(diff)):.16e}, rms={np.sqrt(np.mean(diff * diff)):.16e}", flush=True)
+    print(
+        f"Difference max_abs={
+            np.max(
+                np.abs(diff)):.16e}, rms={
+            np.sqrt(
+                np.mean(
+                    diff *
+                    diff)):.16e}",
+        flush=True)
 
     slab_path = save_slab_plot(ref, gen, out_prefix, slice_index)
     spectra = binned_power(ref, gen, box_size, args.nbins)

@@ -2,8 +2,15 @@
 """Create the EDD TRGB sky-distribution figure."""
 import argparse
 import os
-from pathlib import Path
 import sys
+from pathlib import Path
+
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import numpy as np
+from astropy import units as u
+from astropy.coordinates import SkyCoord
+from edd_trgb_plot_data import PAPER_RC, load_edd_trgb_plot_data, save_figure
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PLOT_DIR = next(path for path in SCRIPT_DIR.parents
@@ -14,16 +21,8 @@ for path in (SCRIPT_DIR, PLOT_DIR):
 
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/candel_mplconfig")
 
-import matplotlib as mpl
 
 mpl.use("Agg")
-import matplotlib.pyplot as plt
-import numpy as np
-from astropy import units as u
-from astropy.coordinates import SkyCoord
-
-from edd_trgb_plot_data import PAPER_RC, load_edd_trgb_plot_data, save_figure
-
 
 OUTNAME = "edd_trgb_sky_distribution.pdf"
 SKY_AXIS_FONTSIZE = 8
@@ -150,7 +149,7 @@ def make_figure(data, paper_figdir=None):
         ax_sky.tick_params(labelsize=SKY_TICK_FONTSIZE)
         for label in ax_sky.get_yticklabels():
             label.set_x(0.012)
-        cbar = fig.colorbar(scat, ax=ax_sky, orientation="horizontal", pad=0.08,
+        cbar = fig.colorbar(scat, ax=ax_sky, orientation="horizontal", pad=0.08,  # noqa: E501
                             fraction=0.06, aspect=30)
         cbar.set_label(
             r"$cz_{\rm CMB}\ [\mathrm{km}\,\mathrm{s}^{-1}]$",

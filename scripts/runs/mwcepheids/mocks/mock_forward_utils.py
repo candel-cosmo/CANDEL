@@ -5,11 +5,9 @@ Uses the same generator and true parameters as the simplified model
 MWCepheidModel.
 """
 import numpy as np
+from mock_utils import DEFAULT_CONFIGS, generate_one_campaign
 
 from candel.pvdata.mwcepheids import CepheidData
-
-from mock_utils import (
-    DEFAULT_CONFIGS, EPSILON_OH, TRUE_PARAMS, generate_one_campaign)
 
 # Forward-model campaign configs (references to DEFAULT_CONFIGS)
 MOCK_CFG_MW = DEFAULT_CONFIGS["C22"]

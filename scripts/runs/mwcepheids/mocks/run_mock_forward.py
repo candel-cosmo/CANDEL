@@ -22,13 +22,12 @@ from datetime import datetime
 from pathlib import Path
 
 import numpy as np
+from mock_forward_utils import (MOCK_CFG_MW, MOCK_CFG_PI,  # noqa: E402
+                                TRUE_PARAMS, generate_mock_forward)
 from mpi4py import MPI
 
 from candel.inference import run_MWCepheids_inference  # noqa: E402
 from candel.model import MWCepheidModel  # noqa: E402
-
-from mock_forward_utils import (MOCK_CFG_MW, MOCK_CFG_PI,  # noqa: E402
-                                TRUE_PARAMS, generate_mock_forward)
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = Path(__file__).resolve().parents[4]

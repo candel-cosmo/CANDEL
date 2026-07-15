@@ -20,7 +20,7 @@ from warnings import warn
 
 import matplotlib.pyplot as plt
 import numpy as np
-from corner import corner
+from corner import corner, overplot_lines, overplot_points
 from getdist import MCSamples, plots
 from h5py import File
 
@@ -51,6 +51,7 @@ def name2label(name):
         "b2": r"$b_2$",
         "b3": r"$b_3$",
         "beta": r"$\beta$",
+        "velocity_beta": r"$\beta$",
         "Vext_mag": r"$V_\mathrm{ext}$",
         "Vext_ell": r"$\ell_\mathrm{ext}$",
         "Vext_b": r"$b_\mathrm{ext}$",
@@ -68,6 +69,7 @@ def name2label(name):
         "SN_absmag": r"$M_{\rm SN}$",
         "SN_alpha": r"$\mathcal{A}$",
         "SN_beta": r"$\mathcal{B}$",
+        "eta": r"$\eta$",
         "eta_prior_mean": r"$\hat{\eta}$",
         "eta_prior_std": r"$w_\eta$",
         "A_CL": r"$A_{\rm CL}$",
@@ -122,9 +124,11 @@ def name2label(name):
         "periapsis": r"$\omega$",
         "periapsis_rad": r"$\omega$",
         "dperiapsis_dr": r"$\mathrm{d}\omega/\mathrm{d}r$",
-        "sigma_pec": r"$\sigma_{\rm pec}~[\mathrm{km/s}]$",
+        "sigma_pec": r"$\sigma_{\rm pec}$",
         "D_lim": r"$D_{\rm lim}$",
         "D_width": r"$\sigma_{D,\rm lim}$",
+        "cz_lim_selection": r"$cz_{\rm lim}$",
+        "cz_lim_selection_width": r"$\sigma_{cz,\rm lim}$",
     }
 
     if "/" in name:
@@ -168,6 +172,8 @@ def name2labelgetdist(name):
         "Vext_ell": r"\ell_\mathrm{ext}~\left[\mathrm{deg}\right]",
         "Vext_ell_offset": r"\ell_\mathrm{ext} - 180~\left[\mathrm{deg}\right]",  # noqa
         "Vext_b":   r"b_\mathrm{ext}~\left[\mathrm{deg}\right]",
+        "Vext_phi": r"\phi_\mathrm{ext}~\left[\mathrm{rad}\right]",
+        "Vext_cos_theta": r"\cos\theta_\mathrm{ext}",
         "logM_miss": r"\log_{10} M_{\rm miss}",
         "Mmiss_distance": r"r_{\rm miss}~\left[h^{-1}\,\mathrm{Mpc}\right]",
         "Mmiss_ell": r"\ell_{\rm miss}~\left[\mathrm{deg}\right]",
@@ -228,8 +234,14 @@ def name2labelgetdist(name):
         "periapsis_rad": r"\omega",
         "dperiapsis_dr": r"\mathrm{d}\omega/\mathrm{d}r",
         "sigma_pec": r"\sigma_{\rm pec}~\left[\mathrm{km}\,\mathrm{s}^{-1}\right]",  # noqa
-        "D_lim": r"D_{\rm lim}",
-        "D_width": r"\sigma_{D,\rm lim}",
+        "D_lim": r"D_{\rm lim}~\left[\mathrm{Mpc}\right]",
+        "D_width": r"\sigma_{D,\rm lim}~\left[\mathrm{Mpc}\right]",
+        "cz_lim_selection": (
+            r"cz_{\rm lim}~\left[\mathrm{km}\,\mathrm{s}^{-1}\right]"
+        ),
+        "cz_lim_selection_width": (
+            r"\sigma_{cz,\rm lim}~\left[\mathrm{km}\,\mathrm{s}^{-1}\right]"
+        ),
         "dZP": r"\Delta_{\rm ZP}",
         "R_dist_emp": r"R~\left[h^{-1}\,\mathrm{Mpc}\right]",
         "q_dist_emp": r"q",
@@ -248,7 +260,8 @@ def name2labelgetdist(name):
 def sort_params(keys):
     order = [
         "H0", "log10_D_c", "D_c", "log_MBH", "dv_sys",
-        "sigma_pec", "D_lim", "D_width", "x0", "y0", "i0", "Omega0",
+        "sigma_pec", "D_lim", "D_width", "cz_lim_selection",
+        "cz_lim_selection_width", "x0", "y0", "i0", "Omega0",
         "di_dr", "dOmega_dr", "d2i_dr2", "d2Omega_dr2",
         "sigma_x_floor", "sigma_y_floor", "sigma_v_sys", "sigma_v_hv",
         "sigma_a_floor", "ecc", "e_x", "e_y", "periapsis",
@@ -268,10 +281,14 @@ def sort_params(keys):
     return sorted(keys, key=sort_key)
 
 
-def plot_corner(samples, show_fig=True, filename=None, smooth=1, keys=None):
+def plot_corner(samples, show_fig=True, filename=None, smooth=1, keys=None,
+                truths=None, points=None, point_color="tab:blue",
+                point_label=None, truth_label=None, log_save=True,
+                map_point=None, map_color="tab:green", map_label="MAP"):
     """Plot a corner plot from posterior samples."""
     flat_samples = []
     labels = []
+    truth_keys = []
 
     if keys is None:
         keys = sort_params(list(samples.keys()))
@@ -286,6 +303,7 @@ def plot_corner(samples, show_fig=True, filename=None, smooth=1, keys=None):
             for i in range(nbin):
                 flat_samples.append(v[:, i])
                 labels.append(fr"$V_{{\mathrm{{ext}}, {{{i}}}}}$")
+                truth_keys.append(None)
 
         if v.ndim > 1:
             continue
@@ -294,15 +312,70 @@ def plot_corner(samples, show_fig=True, filename=None, smooth=1, keys=None):
             continue
         flat_samples.append(v)
         labels.append(name2label(k))
+        truth_keys.append(k)
 
     if not flat_samples:
         raise ValueError("No valid samples to plot.")
 
     data = np.vstack(flat_samples).T
-    fig = corner(data, labels=labels, show_titles=True, smooth=smooth)
+    truth_values = None
+    if truths is not None:
+        truth_values = [
+            truths.get(k) if k is not None and k in truths else None
+            for k in truth_keys
+        ]
+        if not any(v is not None for v in truth_values):
+            truth_values = None
+    fig = corner(
+        data, labels=labels, show_titles=True, smooth=smooth,
+        truths=truth_values, truth_color="red")
+    legend_fontsize = max(12, min(26, 0.9 * max(fig.get_size_inches())))
+    legend_handles = []
+    if truth_values is not None and truth_label:
+        from matplotlib.lines import Line2D
+        legend_handles.append(Line2D(
+            [0], [0], color="red", lw=2.0, label=truth_label))
+    if points is not None:
+        point_values = [
+            points.get(k) if k is not None and k in points else None
+            for k in truth_keys
+        ]
+        if any(v is not None for v in point_values):
+            overplot_lines(fig, point_values, color=point_color)
+            overplot_points(
+                fig,
+                [[np.nan if v is None else v for v in point_values]],
+                color=point_color, marker="s")
+            if point_label:
+                from matplotlib.lines import Line2D
+                legend_handles.append(Line2D(
+                    [0], [0], color=point_color, lw=2.0, marker="s",
+                    markersize=0.45 * legend_fontsize, label=point_label))
+    if map_point is not None:
+        map_values = [
+            map_point.get(k) if k is not None and k in map_point else None
+            for k in truth_keys
+        ]
+        if any(v is not None for v in map_values):
+            overplot_lines(fig, map_values, color=map_color, linestyle=":")
+            overplot_points(
+                fig,
+                [[np.nan if v is None else v for v in map_values]],
+                color=map_color, marker="*")
+            if map_label:
+                from matplotlib.lines import Line2D
+                legend_handles.append(Line2D(
+                    [0], [0], color=map_color, lw=2.0, marker="*",
+                    markersize=0.6 * legend_fontsize, label=map_label))
+    if legend_handles:
+        fig.legend(handles=legend_handles, loc="upper right",
+                   bbox_to_anchor=(0.98, 0.98), frameon=True,
+                   framealpha=0.9, fontsize=legend_fontsize,
+                   borderpad=0.6, labelspacing=0.45, handlelength=2.0)
 
     if filename is not None:
-        fprint(f"saving a corner plot to {filename}")
+        if log_save:
+            fprint(f"saving a corner plot to {filename}")
         fig.savefig(filename, bbox_inches="tight")
 
     if show_fig:

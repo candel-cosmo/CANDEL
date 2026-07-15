@@ -4,8 +4,15 @@ import argparse
 import csv
 import math
 import os
-from pathlib import Path
 import sys
+from pathlib import Path
+
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import numpy as np
+from edd_trgb_plot_data import DATA_FILE, PAPER_RC, save_figure
+from scipy.stats import ks_2samp
+from trgbh0_plot_style import TRGBH0_COLOURS
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PLOT_DIR = next(path for path in SCRIPT_DIR.parents
@@ -16,16 +23,8 @@ for path in (SCRIPT_DIR, PLOT_DIR):
 
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/candel_mplconfig")
 
-import matplotlib as mpl
 
 mpl.use("Agg")
-import matplotlib.pyplot as plt
-import numpy as np
-from scipy.stats import ks_2samp
-
-from edd_trgb_plot_data import DATA_FILE, PAPER_RC, save_figure
-from trgbh0_plot_style import TRGBH0_COLOURS
-
 
 OUTNAME = "edd_trgb_data_availability_ks.pdf"
 ANCHORS = {"NGC4258", "NGC4258-DF6"}
@@ -68,7 +67,7 @@ def build_samples():
     rows = [row for row in _load_rows() if row["Name"] not in ANCHORS]
     finite_mag = [
         row for row in rows
-        if math.isfinite(_float_or_nan(row["T814"]) - _float_or_nan(row["A_814"]))
+        if math.isfinite(_float_or_nan(row["T814"]) - _float_or_nan(row["A_814"]))  # noqa: E501
     ]
     missing_colour = [
         row for row in finite_mag

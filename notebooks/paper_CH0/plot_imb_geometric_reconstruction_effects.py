@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 """Plot CH0 imb-geometric reconstruction-effect summaries."""
 
-from argparse import ArgumentParser
 import csv
+from argparse import ArgumentParser
 from pathlib import Path
 
 import matplotlib
@@ -10,7 +10,6 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
-
 
 ROOT = Path(__file__).resolve().parents[2]
 SUMMARY_DIR = (
@@ -29,7 +28,7 @@ def parse_args():
     parser = ArgumentParser(description=__doc__)
     parser.add_argument(
         "--summary-dir", type=Path, default=SUMMARY_DIR,
-        help="Directory written by summarise_imb_geometric_reconstruction_effects.py.")
+        help="Directory written by summarise_imb_geometric_reconstruction_effects.py.")  # noqa: E501
     parser.add_argument(
         "--output-dir", type=Path, default=None,
         help="Directory for plots. Defaults to --summary-dir.")

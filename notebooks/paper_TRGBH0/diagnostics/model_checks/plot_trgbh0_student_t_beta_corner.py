@@ -1,8 +1,14 @@
 #!/usr/bin/env python
 """Compare fixed- and free-beta Student-t TRGBH0 posteriors."""
+import sys
 from argparse import ArgumentParser
 from pathlib import Path
-import sys
+
+import h5py
+import numpy as np
+from trgbh0_plot_style import OUTPUT_DIR, TRGBH0_COLOURS, TRGBH0_TABLE_RESULTS
+
+from candel.plotting.corner import plot_corner_getdist
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PLOT_DIR = next(path for path in SCRIPT_DIR.parents
@@ -11,23 +17,17 @@ for path in (SCRIPT_DIR, PLOT_DIR):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-import h5py
-import numpy as np
-
-from candel.plotting.corner import plot_corner_getdist
-from trgbh0_plot_style import OUTPUT_DIR, TRGBH0_COLOURS, TRGBH0_TABLE_RESULTS
-
 
 RESULTS = TRGBH0_TABLE_RESULTS
 OUTDIR = OUTPUT_DIR
 
 FIXED_BETA = (
     RESULTS
-    / "EDD_TRGB_rhoSmoothR4_cz-student_t_MAS-PCS_sel-TRGB_magnitude_ManticoreLocalCOLA_main.hdf5"
+    / "EDD_TRGB_rhoSmoothR4_cz-student_t_MAS-PCS_sel-TRGB_magnitude_ManticoreLocalCOLA_main.hdf5"  # noqa: E501
 )
 FREE_BETA = (
     RESULTS
-    / "EDD_TRGB_rhoSmoothR4_cz-student_t_MAS-PCS_sel-TRGB_magnitude_ManticoreLocalCOLA_beta_free_main.hdf5"
+    / "EDD_TRGB_rhoSmoothR4_cz-student_t_MAS-PCS_sel-TRGB_magnitude_ManticoreLocalCOLA_beta_free_main.hdf5"  # noqa: E501
 )
 
 CORNER_KEYS = [

@@ -1,9 +1,14 @@
 #!/usr/bin/env python
 """Plot local COLA-Manticore density fields near the observer."""
-from argparse import ArgumentParser
 import csv
-from pathlib import Path
+import re
 import sys
+from argparse import ArgumentParser
+from pathlib import Path
+
+import h5py
+import matplotlib
+from trgbh0_plot_style import ROOT
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PLOT_DIR = next(path for path in SCRIPT_DIR.parents
@@ -11,19 +16,15 @@ PLOT_DIR = next(path for path in SCRIPT_DIR.parents
 for path in (SCRIPT_DIR, PLOT_DIR):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
-import re
 
-import h5py
-import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 from matplotlib.patches import Circle  # noqa: E402
+from trgbh0_plot_style import save_pdf_png as save_pdf_png_common  # noqa: E402
 
 from candel.field.loader import ManticoreLocalCOLA_FieldLoader  # noqa: E402
-from trgbh0_plot_style import ROOT, save_pdf_png as save_pdf_png_common  # noqa: E402
-
 
 SOURCE_ROOT = (
     Path("/mnt/extraspace/rstiskalek/MANTICORE")

@@ -1,14 +1,18 @@
-import numpy as np
-import warnings
-import sys
+import importlib
 import os
+import sys
+import warnings
+
 import jax.numpy as jnp
-from jax import random
+import matplotlib.pyplot as plt
+import numpy as np
 import numpyro
 import numpyro.distributions as dist
-from numpyro.infer import MCMC, NUTS
 import pandas as pd
-import matplotlib.pyplot as plt
+import seaborn as sns
+from jax import random
+from numpyro.infer import MCMC, NUTS
+
 # Suppress noisy FutureWarnings emitted within seaborn's internal pandas usage
 warnings.filterwarnings(
     "ignore",
@@ -25,10 +29,9 @@ warnings.filterwarnings(
     category=FutureWarning,
     message=r".*length-1 list-like.*length-1 tuple.*"
 )
-import seaborn as sns
 
 # Required CLI flags (positional):
-#   qj_model   (0: no q0/j0; 1: fixed q0=-0.595,j0=1; 2: infer q0, j0 fixed 1; 3: infer q0 & j0)
+#   qj_model   (0: no q0/j0; 1: fixed q0=-0.595,j0=1; 2: infer q0, j0 fixed 1; 3: infer q0 & j0)  # noqa: E501
 #   lcdm_flag  (0: original q0/j0 scheme; 1: LCDM Omega parameterization)
 # Internal (set in code below):
 #   tf_only (True: use TF distances only; False: use all distances)
@@ -47,33 +50,35 @@ try:
 except Exception:
     print("ERROR: lcdm_flag argument invalid")
     sys.exit(1)
-if qj_model not in (0,1,2,3):
+if qj_model not in (0, 1, 2, 3):
     print("ERROR: qj_model must be 0,1,2,3")
     sys.exit(1)
-if lcdm_flag not in (0,1):
+if lcdm_flag not in (0, 1):
     print("ERROR: lcdm_flag must be 0 or 1")
     sys.exit(1)
 
 # Hard-coded analysis toggles (adjust here, not via CLI)
 tf_only = True       # set False to use all distance indicators
-no_selection = False # set True to keep all Vcmb (no >4000 cut)
+no_selection = False  # set True to keep all Vcmb (no >4000 cut)
 
 qj_desc = {
     0: "No q0/j0 (pure H0)",
-    1: "Fixed q0=-0.595, j0=1", 
-    2: "Infer q0, fix j0=1", 
+    1: "Fixed q0=-0.595, j0=1",
+    2: "Infer q0, fix j0=1",
     3: "Infer q0 and j0"
 }[qj_model]
 print(f"qj_model = {qj_model}: {qj_desc}")
 print(f"lcdm_flag = {lcdm_flag} (1=use LCDM Omega_m/Omega_L parameterization)")
 print(f"tf_only (hard-coded)   = {int(tf_only)} (1=TF only; 0=all distances)")
-print(f"no_selection (hard-coded) = {int(no_selection)} (1=NO Vcmb>4000 cut; 0=apply cut)")
+print(
+    f"no_selection (hard-coded) = {int(no_selection)} (1=NO Vcmb>4000 cut; 0=apply cut)")  # noqa: E501
 qj_suffix = f"_qj{qj_model}"
 all_suffix = "" if tf_only else "_all"
 sel_suffix = "_noselection" if no_selection else ""
 lcdm_suffix = "_lcdm" if lcdm_flag else ""
 
-PGC, VCMB, D, eD, D_TF, eD_TF = np.genfromtxt("CF4_distances.csv", delimiter=',', unpack=True)
+PGC, VCMB, D, eD, D_TF, eD_TF = np.genfromtxt(
+    "CF4_distances.csv", delimiter=',', unpack=True)
 
 # Make a Pandas dataframe of this
 df = pd.DataFrame({
@@ -101,8 +106,9 @@ tf_out = f"CF4_TF_subset{sel_suffix}.npy"
 np.save(tf_out, tf_subset)
 print(f"Saved TF subset to {tf_out} with shape {tf_subset.shape}")
 
-# Save the full-distance subset (all indicators) with quality cuts to an .npy file
-full_df = df[(df['eD'] > 0) & (df['D'] > 0) & (df['Vcmb'] > 0)].reset_index(drop=True)
+# Save the full-distance subset (all indicators) with quality cuts to an .npy file  # noqa: E501
+full_df = df[(df['eD'] > 0) & (df['D'] > 0) & (
+    df['Vcmb'] > 0)].reset_index(drop=True)
 full_subset = full_df[['Vcmb', 'D', 'eD']].to_numpy()
 full_out = f"CF4_full_subset{sel_suffix}.npy"
 np.save(full_out, full_subset)
@@ -133,35 +139,38 @@ except Exception:
     pass
 
 
-# Likelihood function, starting with the fiducial analysis that reproduces the results from CF4
+# Likelihood function, starting with the fiducial analysis that reproduces the results from CF4  # noqa: E501
 
-import importlib
+
 ###############################
 # Model Definitions (Two Variants)
 ###############################
+
 
 def _cosmography(Vcmb, h0, z_local):
     """Return distance modulus model.
 
     Two parameterizations:
       - Original (lcdm_flag=0): sample/ fix q0, j0 directly per qj_model.
-      - LCDM (lcdm_flag=1): sample Omegas; derive q0, j0 assuming FLRW with matter, Lambda, curvature.
+      - LCDM (lcdm_flag=1): sample Omegas; derive q0, j0 assuming FLRW with matter, Lambda, curvature.  # noqa: E501
 
     LCDM relations (a=1 today):
       q0 = 0.5 * Omega_m - Omega_L
       j0 = 1 + (Omega_k)  where Omega_k = 1 - Omega_m - Omega_L
       (For flat case: Omega_k=0 -> j0=1.)
-    For qj_model==2 under LCDM: flat assumed -> sample Omega_m, set Omega_L = 1 - Omega_m.
-    For qj_model==3 under LCDM: allow curvature -> sample Omega_m, Omega_L independently (Uniform priors) and clip small negatives minimally via transform enforcement (kept simple here by broad uniform in [0,1.5]).
+    For qj_model==2 under LCDM: flat assumed -> sample Omega_m, set Omega_L = 1 - Omega_m.  # noqa: E501
+    For qj_model==3 under LCDM: allow curvature -> sample Omega_m, Omega_L independently (Uniform priors) and clip small negatives minimally via transform enforcement (kept simple here by broad uniform in [0,1.5]).  # noqa: E501
     """
     if not lcdm_flag:
         # Original q0/j0 scheme
         if qj_model == 0:
             return 5*jnp.log10(Vcmb / h0) + 25
         elif qj_model == 1:
-            q0 = -0.595; j0 = 1.0
+            q0 = -0.595
+            j0 = 1.0
         elif qj_model == 2:
-            q0 = numpyro.sample("q0", dist.Uniform(-10.0, 10.0)); j0 = 1.0
+            q0 = numpyro.sample("q0", dist.Uniform(-10.0, 10.0))
+            j0 = 1.0
         elif qj_model == 3:
             q0 = numpyro.sample("q0", dist.Uniform(-10.0, 10.0))
             j0 = numpyro.sample("j0", dist.Uniform(-10.0, 10.0))
@@ -195,10 +204,12 @@ def _cosmography(Vcmb, h0, z_local):
     else:
         return 5*jnp.log10(Vcmb / h0) + 25
 
+
 def model_fiducial(Vcmb, D_obs, eD_obs):
     h0 = numpyro.sample("h0", dist.Uniform(50.0, 100.0))
     D_theory = _cosmography(Vcmb, h0, z)
     numpyro.sample("obs", dist.Normal(D_theory, eD_obs), obs=D_obs)
+
 
 def model_comoving(Vcmb, D_obs, eD_obs):
     h0 = numpyro.sample("h0", dist.Uniform(50.0, 100.0))
@@ -208,17 +219,21 @@ def model_comoving(Vcmb, D_obs, eD_obs):
     extra_term = 0.6 * jnp.log(10) * D_theory
     numpyro.factor("extra_term", extra_term)
 
+
 ###############################
 # Run Both Models
 ###############################
 rng_key = random.PRNGKey(0)
 key1, key2 = random.split(rng_key)
 
+
 def run_chain(model_fn, key):
     kernel = NUTS(model_fn)
     mcmc = MCMC(kernel, num_warmup=500, num_samples=3000)
-    mcmc.run(key, Vcmb=jnp.array(Vcmb), D_obs=jnp.array(D_obs_np), eD_obs=jnp.array(eD_obs_np))
+    mcmc.run(key, Vcmb=jnp.array(Vcmb), D_obs=jnp.array(
+        D_obs_np), eD_obs=jnp.array(eD_obs_np))
     return mcmc
+
 
 mcmc_fid = run_chain(model_fiducial, key1)
 mcmc_com = run_chain(model_comoving, key2)
@@ -234,10 +249,12 @@ samples_com = mcmc_com.get_samples()
 ###############################
 # Build param sample dicts for plotting
 ###############################
+
+
 def collect_params(samples_dict):
-    ps = {"h0": np.array(samples_dict["h0"]) }
+    ps = {"h0": np.array(samples_dict["h0"])}
     if lcdm_flag:
-        # Under LCDM we may have Omega parameters instead of / in addition to q0,j0
+        # Under LCDM we may have Omega parameters instead of / in addition to q0,j0  # noqa: E501
         if "Omega_m" in samples_dict:
             ps["Omega_m"] = np.array(samples_dict["Omega_m"])
         if "Omega_L" in samples_dict:
@@ -245,11 +262,12 @@ def collect_params(samples_dict):
         if "Omega_k" in samples_dict:
             ps["Omega_k"] = np.array(samples_dict["Omega_k"])
     else:
-        if qj_model in (2,3) and "q0" in samples_dict:
+        if qj_model in (2, 3) and "q0" in samples_dict:
             ps["q0"] = np.array(samples_dict["q0"])
         if qj_model == 3 and "j0" in samples_dict:
-            ps["j0"] = np.array(samples_dict["j0"]) 
+            ps["j0"] = np.array(samples_dict["j0"])
     return ps
+
 
 param_fid = collect_params(samples_fid)
 param_com = collect_params(samples_com)
@@ -257,42 +275,52 @@ param_com = collect_params(samples_com)
 ###############################
 # Plotting helpers
 ###############################
+
+
 def plot_param_set(param_dict, tag):
     if len(param_dict) == 1:
-        plt.figure(figsize=(8,6))
-        plt.hist(param_dict["h0"], bins=50, density=True, alpha=0.7, color='blue', edgecolor='black')
+        plt.figure(figsize=(8, 6))
+        plt.hist(param_dict["h0"], bins=50, density=True,
+                 alpha=0.7, color='blue', edgecolor='black')
         plt.title(f"Posterior $H_0$ ({tag})")
         plt.xlabel("$H_0$")
         plt.ylabel("Density")
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
-        out_path = f"Plots/H0_posterior_CF4_{tag}{qj_suffix}{lcdm_suffix}{all_suffix}{sel_suffix}.png"
+        out_path = f"Plots/H0_posterior_CF4_{tag}{qj_suffix}{lcdm_suffix}{all_suffix}{sel_suffix}.png"  # noqa: E501
         plt.savefig(out_path, dpi=300)
     else:
         have_corner = importlib.util.find_spec("corner") is not None
         data = np.vstack([param_dict[k] for k in param_dict.keys()]).T
+
         def _label(k):
             if k == "h0":
                 return r"$H_0$"
             if lcdm_flag:
-                if k == "Omega_m": return r"$\Omega_m$"
-                if k == "Omega_L": return r"$\Omega_\Lambda$"
-                if k == "Omega_k": return r"$\Omega_k$"
+                if k == "Omega_m":
+                    return r"$\Omega_m$"
+                if k == "Omega_L":
+                    return r"$\Omega_\Lambda$"
+                if k == "Omega_k":
+                    return r"$\Omega_k$"
             return r"$q_0$" if k == "q0" else (r"$j_0$" if k == "j0" else k)
         labels = [_label(k) for k in param_dict.keys()]
-        out_path = f"Plots/posterior_corner_CF4_{tag}{qj_suffix}{lcdm_suffix}{all_suffix}{sel_suffix}.png"
+        out_path = f"Plots/posterior_corner_CF4_{tag}{qj_suffix}{lcdm_suffix}{all_suffix}{sel_suffix}.png"  # noqa: E501
         if have_corner:
             import corner
-            fig = corner.corner(data, labels=labels, show_titles=True, quantiles=[0.16,0.5,0.84], title_fmt=".2f")
+            fig = corner.corner(data, labels=labels, show_titles=True, quantiles=[  # noqa: E501
+                                0.16, 0.5, 0.84], title_fmt=".2f")
             fig.savefig(out_path, dpi=300)
             print(f"Corner plot produced with corner: {out_path}")
         else:
             import pandas as _pd
-            _df = _pd.DataFrame(data, columns=[k.upper() for k in param_dict.keys()])
+            _df = _pd.DataFrame(
+                data, columns=[k.upper() for k in param_dict.keys()])
             sns.pairplot(_df, corner=True)
             plt.savefig(out_path, dpi=300)
             print(f"Corner-style pairplot produced (seaborn): {out_path}")
     print(f"Plot saved to {out_path}")
+
 
 plot_param_set(param_fid, "fiducial")
 plot_param_set(param_com, "comoving_volume")

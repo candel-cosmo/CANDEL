@@ -1,11 +1,10 @@
 #!/usr/bin/env python
 """Build TRGBH0 paper figures by broad category."""
 import argparse
-from pathlib import Path
 import shutil
 import subprocess
 import sys
-
+from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PAPER_FIGURE_DIR = SCRIPT_DIR / "paper_figures"
@@ -67,7 +66,8 @@ def main():
     unknown = sorted(set(args.targets) - set(TARGETS))
     if unknown:
         valid = ", ".join(sorted(TARGETS))
-        raise SystemExit(f"Unknown figure category: {unknown[0]}. Choose from: {valid}.")
+        raise SystemExit(
+            f"Unknown figure category: {unknown[0]}. Choose from: {valid}.")
     targets = args.targets or sorted(TARGETS)
     for name in targets:
         run_target(name, args)

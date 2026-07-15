@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 """Diagnose why SWIFT field 21 has a low galaxy-density integral."""
 
-from argparse import ArgumentParser
 import csv
 import os
+from argparse import ArgumentParser
 from pathlib import Path
 
 import matplotlib
@@ -18,7 +18,6 @@ from candel.pvdata.volume_density import _load_volume_data_for_H0  # noqa: E402
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
-
 
 ROOT = Path(__file__).resolve().parents[2]
 INTEGRAL_DIR = (
@@ -38,7 +37,7 @@ def parse_args():
     parser = ArgumentParser(description=__doc__)
     parser.add_argument(
         "--rows-csv", type=Path, default=ROWS_CSV,
-        help="Per-run integral table from plot_single_selection_integral_diagnostics.py.")
+        help="Per-run integral table from plot_single_selection_integral_diagnostics.py.")  # noqa: E501
     parser.add_argument(
         "--output-dir", type=Path, default=DEFAULT_OUTDIR,
         help="Directory for plots and tables.")
@@ -227,7 +226,7 @@ def field21_diagnostics(rows):
             "log_rho_left": left,
             "log_rho_right": right,
             "rho_left": 0.0 if not np.isfinite(left) else float(np.exp(left)),
-            "rho_right": np.inf if not np.isfinite(right) else float(np.exp(right)),
+            "rho_right": np.inf if not np.isfinite(right) else float(np.exp(right)),  # noqa: E501
         }
         for key in ("rho", "ng", "sel"):
             f21_value = broad_field21[key][i]
@@ -377,7 +376,7 @@ def plot_diagnostics(diag, outdir):
 
 
 def write_summary(path, diag):
-    f21 = diag["field21"]
+    diag["field21"]
     ranks = diag["field21_ranks"]
     field21_params = diag["field21_params"]
     median_params = diag["median_params"]
@@ -405,7 +404,7 @@ def write_summary(path, diag):
         "| parameter | field 21 | SWIFT median |",
         "| --- | ---: | ---: |",
     ]
-    for name, value21, median in zip(BIAS_PARAMS, field21_params, median_params):
+    for name, value21, median in zip(BIAS_PARAMS, field21_params, median_params):  # noqa: E501
         lines.append(f"| {name} | {value21:.3f} | {median:.3f} |")
     lines.extend([
         "",
@@ -434,10 +433,13 @@ def write_summary(path, diag):
         "| --- | --- | ---: | ---: | ---: | ---: |",
     ])
     for row in broad:
-        left = "-inf" if not np.isfinite(row["log_rho_left"]) else f"{row['log_rho_left']:.3f}"
-        right = "inf" if not np.isfinite(row["log_rho_right"]) else f"{row['log_rho_right']:.3f}"
+        left = "-inf" if not np.isfinite(row["log_rho_left"]
+                                         ) else f"{row['log_rho_left']:.3f}"
+        right = "inf" if not np.isfinite(
+            row["log_rho_right"]) else f"{row['log_rho_right']:.3f}"
         rho_left = "0" if row["rho_left"] == 0 else f"{row['rho_left']:.2f}"
-        rho_right = "inf" if not np.isfinite(row["rho_right"]) else f"{row['rho_right']:.2f}"
+        rho_right = "inf" if not np.isfinite(
+            row["rho_right"]) else f"{row['rho_right']:.2f}"
         lines.append(
             f"| {left} to {right} | {rho_left} to {rho_right} | "
             f"{row['ng_deficit'] / total_ng_deficit:.3f} | "
@@ -449,11 +451,11 @@ def write_summary(path, diag):
         "Summary: voxels with `rho < 1` account for "
         f"{sum(row['ng_deficit'] for row in rho_lt1) / total_ng_deficit:.1%} "
         "of the expected-galaxy deficit and "
-        f"{sum(row['sel_deficit'] for row in rho_lt1) / total_sel_deficit:.1%} "
+        f"{sum(row['sel_deficit'] for row in rho_lt1) / total_sel_deficit:.1%} "  # noqa: E501
         "of the selected-galaxy deficit.",
         "Voxels below the field-21 bias transition "
         f"(`rho < {np.exp(field21_params[2]):.2f}`) account for "
-        f"{sum(row['ng_deficit'] for row in rho_lt_transition) / total_ng_deficit:.1%} "
+        f"{sum(row['ng_deficit'] for row in rho_lt_transition) / total_ng_deficit:.1%} "  # noqa: E501
         "of the expected-galaxy deficit.",
     ])
     path.write_text("\n".join(lines) + "\n")

@@ -121,7 +121,7 @@ def trapz_log_weights(x):
     x = jnp.asarray(x)
     h = jnp.diff(x)
     N = x.shape[0]
-    w = jnp.zeros(N)
+    w = jnp.zeros(N, dtype=x.dtype)
     w = w.at[0].set(h[0] / 2)
     w = w.at[-1].set(h[-1] / 2)
     w = w.at[1:-1].set((h[:-1] + h[1:]) / 2)

@@ -37,7 +37,7 @@ def _zcmb_blat_mask(zcmb, RA, dec, zcmb_min=None, zcmb_max=None, b_min=None):
         mask &= zcmb < zcmb_max
     if b_min is not None:
         b = radec_to_galactic(RA, dec)[1]
-        mask &= np.abs(b) > b_min
+        mask &= np.abs(b) >= b_min
     return mask
 
 

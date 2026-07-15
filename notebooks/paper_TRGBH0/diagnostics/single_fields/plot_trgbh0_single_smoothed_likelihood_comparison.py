@@ -1,10 +1,13 @@
 #!/usr/bin/env python
 """Compare Gaussian and Student-t TRGBH0 smoothed single-field runs."""
 
-from argparse import ArgumentParser
 import csv
-from pathlib import Path
 import sys
+from argparse import ArgumentParser
+from pathlib import Path
+
+import h5py
+import matplotlib
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PLOT_DIR = next(path for path in SCRIPT_DIR.parents
@@ -13,27 +16,18 @@ for path in (SCRIPT_DIR, PLOT_DIR):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-import h5py
-import matplotlib
 
 matplotlib.use("Agg")
+import tomllib  # noqa: E402
+
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import scienceplots  # noqa: F401,E402
-import tomllib  # noqa: E402
 from matplotlib.colors import Normalize  # noqa: E402
 from scipy.stats import gaussian_kde  # noqa: E402
-
-from trgbh0_plot_style import (  # noqa: E402
-    FIGURE_DPI,
-    OUTPUT_DIR,
-    ROOT,
-    TRGBH0_COLOURS,
-    save_pdf_png,
-    set_paper_rc,
-    trgbh0_cmap,
-)
-
+from trgbh0_plot_style import (FIGURE_DPI, OUTPUT_DIR, ROOT,  # noqa: E402,F401
+                               TRGBH0_COLOURS, save_pdf_png, set_paper_rc,
+                               trgbh0_cmap)
 
 TASK_FILE = ROOT / "scripts" / "runs" / "tasks_TRGBH0_single_smoothed.txt"
 DEFAULT_OUTDIR = (
@@ -617,7 +611,8 @@ def main():
     ]
     for path in written:
         print(f"Wrote {path}")
-    print(f"Complete outputs: {sum(row['status'] == 'complete' for row in rows)}.")
+    print(
+        f"Complete outputs: {sum(row['status'] == 'complete' for row in rows)}.")  # noqa: E501
     print(f"Matched fields: {len(matched)}; missing: {len(missing)}.")
 
 

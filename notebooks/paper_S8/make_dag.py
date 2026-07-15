@@ -172,7 +172,7 @@ tex = rf"""
 \begin{{document}}
 \begin{{tikzpicture}}[scale={SCALE}]
 
-\useasboundingbox ({bb_left:.2f}, -1.5) rectangle ({bb_right:.2f}, {legend_y + 0.5:.2f});
+\useasboundingbox ({bb_left:.2f}, -1.5) rectangle ({bb_right:.2f}, {legend_y + 0.5:.2f});  # noqa: E501
 
 % ===== NODES =====
 {nodes_block}
@@ -188,13 +188,13 @@ tex = rf"""
           font=\footnotesize, inner sep=0pt] (lp) at (0, 0) {{}};
     \node[right, font=\footnotesize] at (lp.east) {{Parameters}};
     \node[det, minimum width=0.4cm, minimum height=0.25cm,
-          font=\footnotesize, inner sep=0pt] (ld) at ({0.25 * legend_width:.2f}, 0) {{}};
+          font=\footnotesize, inner sep=0pt] (ld) at ({0.25 * legend_width:.2f}, 0) {{}};  # noqa: E501
     \node[right, font=\footnotesize] at (ld.east) {{Deterministic}};
     \node[like, minimum width=0.4cm, minimum height=0.25cm,
-          font=\footnotesize, inner sep=0pt] (ll) at ({0.52 * legend_width:.2f}, 0) {{}};
+          font=\footnotesize, inner sep=0pt] (ll) at ({0.52 * legend_width:.2f}, 0) {{}};  # noqa: E501
     \node[right, font=\footnotesize] at (ll.east) {{Likelihoods}};
     \node[data, minimum width=0.4cm, minimum height=0.25cm,
-          font=\footnotesize, inner sep=0pt] (lo) at ({0.78 * legend_width:.2f}, 0) {{}};
+          font=\footnotesize, inner sep=0pt] (lo) at ({0.78 * legend_width:.2f}, 0) {{}};  # noqa: E501
     \node[right, font=\footnotesize] at (lo.east) {{Data}};
 \end{{scope}}
 

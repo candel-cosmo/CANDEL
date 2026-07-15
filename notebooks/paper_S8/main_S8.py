@@ -14,7 +14,7 @@ Examples:
     python main_S8.py --plots all --bias both
 """
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
-from os.path import dirname, abspath, join
+from os.path import abspath, dirname, join
 
 
 def _heavy_imports():
@@ -32,21 +32,19 @@ def _heavy_imports():
     import matplotlib
     matplotlib.use("Agg")  # non-interactive backend (no plt.show hangs).
 
-    import numpy as np  # noqa: F401
-    from scipy.interpolate import interp1d  # noqa: F401
     import matplotlib.pyplot as plt  # noqa: F401
-    import seaborn as sns  # noqa: F401
+    import numpy as np  # noqa: F401
     import scienceplots  # noqa: F401  (registers the "science" mpl style)
+    import seaborn as sns  # noqa: F401
     from h5py import File  # noqa: F401
+    from scipy.interpolate import interp1d  # noqa: F401
 
     sys_path.insert(0, "/Users/rstiskalek/Projects/candel")
+    import posterior_agreement  # noqa: F401
+    from utils import compute_fsigma8_lin_all, compute_S8_all, get_key_all
+
     import candel  # noqa: F401
     from candel.plotting.corner import plot_corner_from_hdf5  # noqa: F401
-    import posterior_agreement  # noqa: F401
-
-    from utils import (
-        get_key_all, compute_S8_all, compute_fsigma8_lin_all,
-    )
 
     # Re-bind into module globals for the rest of the script.
     g = globals()
@@ -68,6 +66,7 @@ def _heavy_imports():
 # -----------------------------------------------------------------------------
 # Constants and run paths
 # -----------------------------------------------------------------------------
+
 
 SCRIPT_DIR = dirname(abspath(__file__))
 ROOT = "/Users/rstiskalek/Projects/CANDEL/results/S8"
@@ -128,6 +127,7 @@ JOINT_VARIANTS = [
 def _joint_variant_run(cats, bias):
     return (f"precomputed_los_Carrick2015_{cats}_{bias}"
             f"_shared-sigma_v+Vext+beta.hdf5")
+
 
 # Effective survey redshifts (computed once and cached).
 # NOTE: "Joint (no 6dF)" reuses the 5-survey joint value as a placeholder;
@@ -302,14 +302,15 @@ def print_table_b1_beta_S8(fnames, labels, beta_list, S8_list, fs8_list,
 
     ``extra_joint_rows`` is an optional list of
     ``(label, beta, S8, fs8)`` tuples for additional joint variants that
-    are appended after the main "Joint TFR + SNe" row (b1 and z_eff print as '-').
+    are appended after the main "Joint TFR + SNe" row
+    (b1 and z_eff print as '-').
     """
     b1_list = get_key_all(fnames, "b1")
     with File(fnames[0], "r") as _f:
         has_b2 = "b2" in _f["samples"]
     b2_list = get_key_all(fnames, "b2") if has_b2 else None
-    fmt_pm = lambda mu, sd: f"{mu:.3f} +/- {sd:.3f}"
-    extra_widths = [len(l) for l, *_ in (extra_joint_rows or [])]
+    def fmt_pm(mu, sd): return f"{mu:.3f} +/- {sd:.3f}"
+    extra_widths = [len(label) for label, *_ in (extra_joint_rows or [])]
     lab_w = max([12, *extra_widths])
     b2_col = f"  {'b2':>16}" if has_b2 else ""
     header = (f"{'Sample':<{lab_w}} {'z_eff':>6}  {'b1':>16}{b2_col}  "
@@ -354,11 +355,13 @@ def print_table_tension(per_survey_labels, S8_list, all_labels,
     triangle). Falls back to a Gaussian tension when the posterior-
     agreement estimator fails (e.g. returns inf for non-overlapping
     chains)."""
-    chains = [S8_list[all_labels.index(l)] for l in per_survey_labels]
+    chains = [
+        S8_list[all_labels.index(label)] for label in per_survey_labels]
     n = len(per_survey_labels)
     print(f"\n=== {title}: pairwise S8 tension (sigma) ===")
-    colw = max(len(l) for l in per_survey_labels) + 2
-    print(" " * colw + "".join(f"{l:>{colw}}" for l in per_survey_labels))
+    colw = max(len(label) for label in per_survey_labels) + 2
+    print(" " * colw
+          + "".join(f"{label:>{colw}}" for label in per_survey_labels))
     for i, lab_i in enumerate(per_survey_labels):
         cells = []
         for j in range(n):
@@ -409,10 +412,12 @@ def plot_s8_posterior(S8_list, labels, savedir):
         ax.set_ylabel("Normalised PDF")
 
         survey_handles, survey_labels = ax.get_legend_handles_labels()
-        survey_handles = [h for h, l in zip(survey_handles, survey_labels)
-                          if l != r"\textit{Planck} $1\sigma$"]
-        survey_labels = [l for l in survey_labels
-                         if l != r"\textit{Planck} $1\sigma$"]
+        survey_handles = [
+            handle for handle, label in zip(survey_handles, survey_labels)
+            if label != r"\textit{Planck} $1\sigma$"]
+        survey_labels = [
+            label for label in survey_labels
+            if label != r"\textit{Planck} $1\sigma$"]
         leg1 = ax.legend(survey_handles, survey_labels, loc="upper left")
         ax.add_artist(leg1)
         ax.legend([planck_band], [r"\textit{Planck} $1\sigma$"],
@@ -481,9 +486,11 @@ def plot_s8_comparison(S8_list, labels, savedir, S8_list_q=None):
         lo, hi = [], []
         for m, e in zip(means, errs):
             if isinstance(e, tuple):
-                lo.append(m - e[0]); hi.append(m + e[1])
+                lo.append(m - e[0])
+                hi.append(m + e[1])
             else:
-                lo.append(m - e); hi.append(m + e)
+                lo.append(m - e)
+                hi.append(m + e)
         return lo, hi
 
     lower_lit, upper_lit = _bounds(lit_means, lit_errs)
@@ -565,7 +572,7 @@ def plot_vext_corner(fnames, labels, savedir):
         fontsize=18,
         filled=True,
         labels=labels,
-        cols=[LABEL_COLORS[l] for l in labels],
+        cols=[LABEL_COLORS[label] for label in labels],
         keys=["Vext_mag", "Vext_ell", "Vext_b"],
         filename=out,
         show_fig=False,
@@ -695,7 +702,9 @@ def plot_b1_beta(savedir, b1_min=0.25):
                 b1.append(v)
                 mu.append(np.mean(beta))
                 sd.append(np.std(beta))
-            b1 = np.array(b1); mu = np.array(mu); sd = np.array(sd)
+            b1 = np.array(b1)
+            mu = np.array(mu)
+            sd = np.array(sd)
             k = np.argsort(b1)
             b1, mu, sd = b1[k], mu[k], sd[k]
             m = b1 >= b1_min
@@ -741,7 +750,7 @@ def main():
         "--plots", nargs="+", default=["all"],
         choices=ALL_PLOTS + ["all"], metavar="PLOT",
         help=f"Which plots to make. Choices: {', '.join(ALL_PLOTS)}, all. "
-             "Default: all.")
+        "Default: all.")
     parser.add_argument(
         "--bias", default="linear",
         choices=["linear", "quadratic", "both"],
@@ -812,8 +821,8 @@ def main():
 
     # For fs8_z and s8_comparison, replace the 5-survey "Joint TFR + SNe" entry
     # with the "Joint (no 6dF)" variant. Returns a new list with the
-    # entry at the "Joint TFR + SNe" index replaced by ``new_value``; labels list
-    # gets the variant name.
+    # entry at the "Joint TFR + SNe" index replaced by ``new_value``;
+    # labels list gets the variant name.
     def _swap_joint(values, rows, field):
         no6df = next(r for r in rows if r[0] == "Joint (no 6dF)")
         idx = {"S8": 2, "fs8": 3}[field]
@@ -821,7 +830,9 @@ def main():
         out[all_labels.index("Joint TFR + SNe")] = no6df[idx]
         return out
 
-    labs_swap = ["Joint (no 6dF)" if l == "Joint TFR + SNe" else l for l in all_labels]
+    labs_swap = [
+        "Joint (no 6dF)" if label == "Joint TFR + SNe" else label
+        for label in all_labels]
 
     plot_files = {"s8_posterior":  "S8_posterior.pdf",
                   "s8_comparison": "S8_comparison.pdf",

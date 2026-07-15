@@ -1115,7 +1115,7 @@ def load_CCHP_from_config(config_path, ra_dec_only=False):
 
     volume_data = _load_h0_volume_data_from_config(
         config, los_data_path, reconstruction, "CCHP",
-        velocity_selections=("redshift",),
+        velocity_selections=("redshift", "TRGB_magnitude_redshift"),
         field_indices=data.get("host_los_field_indices", None))
     if volume_data is not None:
         data.update(volume_data)
@@ -1775,7 +1775,7 @@ def _load_EDD_TRGB_from_config_common(config_path, config_key, loader):
 
     volume_data = _load_h0_volume_data_from_config(
         config, los_data_path, reconstruction, config_key,
-        velocity_selections=(),
+        velocity_selections=("TRGB_magnitude_redshift",),
         field_indices=data.get("host_los_field_indices", None))
 
     if volume_data is not None:

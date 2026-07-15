@@ -1,22 +1,22 @@
 #!/usr/bin/env python
 """Plot CH0 fixed-bias single-field diagnostics."""
 
-from argparse import ArgumentParser
 import csv
 import re
+from argparse import ArgumentParser
 from pathlib import Path
 
 import h5py
 import matplotlib
 
 matplotlib.use("Agg")
+import tomllib  # noqa: E402
+
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import scienceplots  # noqa: F401,E402
-import tomllib  # noqa: E402
 from matplotlib.colors import LinearSegmentedColormap, Normalize  # noqa: E402
 from scipy.stats import gaussian_kde, pearsonr, spearmanr  # noqa: E402
-
 
 ROOT = Path(__file__).resolve().parents[2]
 TASK_FILE = ROOT / "scripts" / "runs" / "tasks_CH0_single_fixed_bias.txt"

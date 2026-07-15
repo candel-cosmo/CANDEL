@@ -1,10 +1,14 @@
 #!/usr/bin/env python
 """Analyse which galaxies drive TRGBH0 single-field evidence differences."""
-from argparse import ArgumentParser
 import csv
 import re
-from pathlib import Path
 import sys
+from argparse import ArgumentParser
+from pathlib import Path
+
+import h5py
+import matplotlib
+from trgbh0_plot_style import FIGURE_DPI, ROOT, TRGBH0_COLOURS, set_paper_rc
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PLOT_DIR = next(path for path in SCRIPT_DIR.parents
@@ -13,34 +17,24 @@ for path in (SCRIPT_DIR, PLOT_DIR):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-import h5py
-import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
-import scienceplots  # noqa: F401
+import scienceplots  # noqa: E402,F401
 from scipy.stats import pearsonr, spearmanr  # noqa: E402
+from trgbh0_plot_style import save_pdf_png as save_pdf_png_common  # noqa: E402
 
-from candel.plotting.selection_diagnostics import (  # noqa: E402
-    plot_raw_selection_evidence,
-)
-from trgbh0_plot_style import (  # noqa: E402
-    FIGURE_DPI,
-    ROOT,
-    TRGBH0_COLOURS,
-    save_pdf_png as save_pdf_png_common,
-    set_paper_rc,
-)
-
+from candel.plotting.selection_diagnostics import \
+    plot_raw_selection_evidence  # noqa: E402
 
 RESULTS = ROOT / "results" / "TRGBH0_paper" / "manticore_fields_const_sigv"
 DEFAULT_OUTDIR = RESULTS / "plots"
 FIELD_RE = re.compile(r"_field(\d+)_")
 PATTERNS = {
-    "all": "EDD_TRGB_sel-TRGB_magnitude_*manticore_2MPP_MULTIBIN_N256_DES_V2_field*_manticore_field_const_sigv.hdf5",
-    "cola": "EDD_TRGB_sel-TRGB_magnitude_COLA_manticore_2MPP_MULTIBIN_N256_DES_V2_field*_manticore_field_const_sigv.hdf5",
-    "non-cola": "EDD_TRGB_sel-TRGB_magnitude_manticore_2MPP_MULTIBIN_N256_DES_V2_field*_manticore_field_const_sigv.hdf5",
+    "all": "EDD_TRGB_sel-TRGB_magnitude_*manticore_2MPP_MULTIBIN_N256_DES_V2_field*_manticore_field_const_sigv.hdf5",  # noqa: E501
+    "cola": "EDD_TRGB_sel-TRGB_magnitude_COLA_manticore_2MPP_MULTIBIN_N256_DES_V2_field*_manticore_field_const_sigv.hdf5",  # noqa: E501
+    "non-cola": "EDD_TRGB_sel-TRGB_magnitude_manticore_2MPP_MULTIBIN_N256_DES_V2_field*_manticore_field_const_sigv.hdf5",  # noqa: E501
 }
 REQUIRED_AUX = (
     "auxiliary/log_likelihood_per_galaxy",
@@ -50,6 +44,8 @@ REQUIRED_AUX = (
     "auxiliary/host_names",
     "gof/lnZ_harmonic",
 )
+
+
 def parse_args():
     parser = ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -86,7 +82,7 @@ def parse_args():
         "--heatmap-galaxies",
         type=int,
         default=40,
-        help="Number of galaxies to include in the likelihood-difference heatmap.",
+        help="Number of galaxies to include in the likelihood-difference heatmap.",  # noqa: E501
     )
     return parser.parse_args()
 
@@ -208,9 +204,9 @@ def load_rows(results_dir, field_set):
                 "ll_total_mean": float(np.sum(ll_gal_mean)),
                 "ll_mean_per_galaxy": float(np.mean(ll_gal_mean)),
                 "observed_selection_total_mean": float(np.sum(obs_gal_mean)),
-                "observed_selection_mean_per_galaxy": float(np.mean(obs_gal_mean)),
+                "observed_selection_mean_per_galaxy": float(np.mean(obs_gal_mean)),  # noqa: E501
                 "minus_log_selection_integral_mean": -log_s_mean,
-                "minus_log_selection_integral_total_mean": float(-n_gal * log_s_mean),
+                "minus_log_selection_integral_total_mean": float(-n_gal * log_s_mean),  # noqa: E501
                 "full_total_mean": float(np.sum(full_gal_mean)),
                 "full_mean_per_galaxy": float(np.mean(full_gal_mean)),
                 **h0_summary(handle),
@@ -218,7 +214,8 @@ def load_rows(results_dir, field_set):
             rows.append(row)
 
     if not rows:
-        raise ValueError("No usable files had the required auxiliary datasets.")
+        raise ValueError(
+            "No usable files had the required auxiliary datasets.")
 
     add_reference_delta_metrics(rows)
     return rows, skipped, reference_names
@@ -579,7 +576,8 @@ def plot_best_field_components(rows, best, out_pdf):
         ax_bar.set_xticks(xpos)
         ax_bar.set_xticklabels(labels, rotation=25, ha="right")
         ax_bar.set_ylabel("Total delta relative to median field")
-        ax_bar.set_title(f"Best field {best['field']} decomposition", loc="left")
+        ax_bar.set_title(
+            f"Best field {best['field']} decomposition", loc="left")
 
         hist_sets = [
             (delta_ll, r"$\log\mathcal{L}_{m,cz}$", TRGBH0_COLOURS[1]),
@@ -667,7 +665,7 @@ def write_text_summary(rows, skipped, best, path):
         (
             "  total magnitude/redshift likelihood delta = "
             f"{best['delta_ll_total_vs_median_field']:.3f} "
-            f"({best['delta_ll_mean_per_galaxy_vs_median_field']:.4f} per galaxy)"
+            f"({best['delta_ll_mean_per_galaxy_vs_median_field']:.4f} per galaxy)"  # noqa: E501
         ),
         (
             "  total observed-selection delta = "
@@ -675,7 +673,7 @@ def write_text_summary(rows, skipped, best, path):
         ),
         (
             "  total selection-integral delta = "
-            f"{best['delta_minus_log_selection_integral_total_vs_median_field']:.3f}"
+            f"{best['delta_minus_log_selection_integral_total_vs_median_field']:.3f}"  # noqa: E501
         ),
         (
             "  total with-selection host-likelihood delta = "
@@ -788,8 +786,8 @@ def run_analysis(
     print(
         "Best vs median-field decomposition: "
         f"d_logL={best['delta_ll_total_vs_median_field']:.3f}, "
-        f"d_obs_sel={best['delta_observed_selection_total_vs_median_field']:.3f}, "
-        f"d_minus_logS={best['delta_minus_log_selection_integral_total_vs_median_field']:.3f}, "
+        f"d_obs_sel={best['delta_observed_selection_total_vs_median_field']:.3f}, "  # noqa: E501
+        f"d_minus_logS={best['delta_minus_log_selection_integral_total_vs_median_field']:.3f}, "  # noqa: E501
         f"d_full={best['delta_full_total_vs_median_field']:.3f}"
     )
     print(

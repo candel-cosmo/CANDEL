@@ -31,9 +31,4 @@ from .inference import (                                                        
 
 from .checkpointed_nuts import run_checkpointed_nuts                            # noqa
 
-try:
-    from .optimise import find_MAP, sobol_optimize, de_optimize  # noqa
-except ImportError:
-    pass
-
 from .nested import run_nss, decompose_model                                    # noqa

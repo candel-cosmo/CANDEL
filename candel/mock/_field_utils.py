@@ -184,10 +184,33 @@ def _validated_smoothing_scale(scale, cellsize, label):
     return scale
 
 
+def _density_max_within_radius(density, boxsize, observer_pos, radius):
+    """Maximum grid-cell density within a sphere around the observer."""
+    if radius is None:
+        return float(np.max(density))
+
+    ngrid = density.shape[0]
+    cellsize = float(boxsize) / ngrid
+    x = np.linspace(0.5 * cellsize, float(boxsize) - 0.5 * cellsize, ngrid)
+    dx2 = (x - float(observer_pos[0]))**2
+    dy2 = (x - float(observer_pos[1]))**2
+    dz2 = (x - float(observer_pos[2]))**2
+    yz2 = dy2[:, None] + dz2[None, :]
+    r2 = float(radius)**2
+    rho_max = -np.inf
+    for i, x2 in enumerate(dx2):
+        keep = yz2 <= r2 - x2
+        if np.any(keep):
+            rho_max = max(rho_max, float(np.max(density[i][keep])))
+    if not np.isfinite(rho_max):
+        raise ValueError("No density grid cells lie within the PPC radius.")
+    return rho_max
+
+
 def build_field_pool_evaluator(field_loader, density_divisor=None,
                                field_smoothing_scale=None,
                                velocity_field_smoothing_scale=None,
-                               verbose=True):
+                               max_radius_h=None, verbose=True):
     """Load field products once and build interpolators for PPC pools."""
     obs = field_loader.observer_pos
     coord_frame = field_loader.coordinate_frame
@@ -219,6 +242,9 @@ def build_field_pool_evaluator(field_loader, density_divisor=None,
         density_log, field_loader.boxsize,
         fill_value=np.float32(np.log(1 + eps)))
     delta_max = float(density_raw.max()) - 1
+    delta_max_within_radius = (
+        _density_max_within_radius(
+            density_raw, field_loader.boxsize, obs, max_radius_h) - 1)
     del density_raw, density_log
 
     fprint("loading velocity field once for pool evaluator...",
@@ -247,15 +273,34 @@ def build_field_pool_evaluator(field_loader, density_divisor=None,
         "f_density": f_density,
         "f_vel": tuple(f_vel),
         "delta_max": delta_max,
+        "delta_max_within_radius": delta_max_within_radius,
         "eps": eps,
     }
+
+
+def _sample_galactic_masked_xyz(gen, r_sphere, pool_size, b_min, rmin_h):
+    """Sample field-frame Galactic offsets directly outside |b| < b_min."""
+    r_min3 = float(rmin_h)**3
+    r_max3 = float(r_sphere)**3
+    r_h = gen.uniform(r_min3, r_max3, int(pool_size))**(1.0 / 3.0)
+    ell = gen.uniform(0.0, 2.0 * np.pi, int(pool_size))
+    sin_b_min = np.sin(np.deg2rad(float(b_min)))
+    abs_sin_b = gen.uniform(sin_b_min, 1.0, int(pool_size))
+    sign = np.where(gen.integers(0, 2, int(pool_size)) == 0, -1.0, 1.0)
+    sin_b = sign * abs_sin_b
+    cos_b = np.sqrt(np.maximum(0.0, 1.0 - sin_b**2))
+    return np.column_stack([
+        r_h * cos_b * np.cos(ell),
+        r_h * cos_b * np.sin(ell),
+        r_h * sin_b,
+    ]).astype(np.float32)
 
 
 def build_field_pool(field_loader, r_sphere, pool_size, gen,
                      rmin_h=0.1, density_divisor=None,
                      field_smoothing_scale=None,
                      velocity_field_smoothing_scale=None,
-                     field_evaluator=None, verbose=True):
+                     field_evaluator=None, b_min=None, verbose=True):
     """Pre-sample 3D positions and evaluate density/velocity in one batch.
 
     Returns dict with keys: r_h, rho, v_los, RA, dec, rhat_icrs, delta_max.
@@ -274,17 +319,25 @@ def build_field_pool(field_loader, r_sphere, pool_size, gen,
     eps = field_evaluator["eps"]
     delta_max = field_evaluator["delta_max"]
 
-    # Sample positions uniformly in sphere
-    n_cube = int(pool_size * 2.0)
-    fprint(f"sampling {n_cube} candidate positions "
-           f"(r_sphere={r_sphere:.1f} Mpc/h)...", verbose=verbose)
-    xyz = gen.uniform(-r_sphere, r_sphere,
-                      (n_cube, 3)).astype(np.float32)
-    r_sq = np.sum(xyz**2, axis=1)
-    mask = (r_sq < r_sphere**2) & (r_sq > rmin_h**2)
-    xyz = xyz[mask]
-    if len(xyz) > pool_size:
-        xyz = xyz[:pool_size]
+    # Sample positions uniformly in sphere.
+    if (b_min is not None and b_min > 0.0
+            and coord_frame == "galactic"):
+        fprint(f"sampling {pool_size} Galactic-masked candidate positions "
+               f"(r_sphere={r_sphere:.1f} Mpc/h, |b| >= {b_min:g} deg)...",
+               verbose=verbose)
+        xyz = _sample_galactic_masked_xyz(
+            gen, r_sphere, pool_size, b_min, rmin_h)
+    else:
+        n_cube = int(pool_size * 2.0)
+        fprint(f"sampling {n_cube} candidate positions "
+               f"(r_sphere={r_sphere:.1f} Mpc/h)...", verbose=verbose)
+        xyz = gen.uniform(-r_sphere, r_sphere,
+                          (n_cube, 3)).astype(np.float32)
+        r_sq = np.sum(xyz**2, axis=1)
+        mask = (r_sq < r_sphere**2) & (r_sq > rmin_h**2)
+        xyz = xyz[mask]
+        if len(xyz) > pool_size:
+            xyz = xyz[:pool_size]
 
     r_h = np.linalg.norm(xyz, axis=1)
 

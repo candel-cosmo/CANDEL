@@ -4,8 +4,14 @@ import argparse
 import csv
 import math
 import os
-from pathlib import Path
+import shutil
 import sys
+from pathlib import Path
+
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import numpy as np
+from trgbh0_plot_style import OUTPUT_DIR, PAPER_RC, ROOT, TRGBH0_COLOURS
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PLOT_DIR = next(path for path in SCRIPT_DIR.parents
@@ -13,18 +19,11 @@ PLOT_DIR = next(path for path in SCRIPT_DIR.parents
 for path in (SCRIPT_DIR, PLOT_DIR):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
-import shutil
 
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/candel_mplconfig")
 
-import matplotlib as mpl
 
 mpl.use("Agg")
-import matplotlib.pyplot as plt
-import numpy as np
-
-from trgbh0_plot_style import OUTPUT_DIR, PAPER_RC, ROOT, TRGBH0_COLOURS
-
 
 OUTDIR = OUTPUT_DIR
 OUTNAME = "cchp_mBprime_standardisation_check"
@@ -201,7 +200,8 @@ def main():
     outputs = save_figure(fig, args.paper_figdir)
     plt.close(fig)
 
-    print(f"Compared {len(rows)} CCHP SNe with finite m_Bprime and CSP m,s,BV.")
+    print(
+        f"Compared {len(rows)} CCHP SNe with finite m_Bprime and CSP m,s,BV.")
     print(f"median delta = {med:.4f} mag")
     print(f"MAD scatter = {scatter:.4f} mag")
     print(f"RMS delta = {rms:.4f} mag")

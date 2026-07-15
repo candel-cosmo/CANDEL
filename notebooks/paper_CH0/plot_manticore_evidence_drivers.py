@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 """Analyse total-likelihood drivers of CH0 single-field posteriors."""
-from argparse import ArgumentParser
 import csv
 import re
+from argparse import ArgumentParser
 from pathlib import Path
 
 import h5py
@@ -11,11 +11,10 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
+from scipy.stats import pearsonr, spearmanr  # noqa: E402
 
-from candel.plotting.selection_diagnostics import (  # noqa: E402
-    plot_raw_selection_evidence,
-)
-
+from candel.plotting.selection_diagnostics import \
+    plot_raw_selection_evidence  # noqa: E402
 
 ROOT = Path("/mnt/users/rstiskalek/CANDEL")
 RESULTS = ROOT / "results" / "CH0_paper" / "single_fields"
@@ -178,7 +177,8 @@ def read_rows(results_dir, pattern):
             })
 
     if not rows:
-        raise ValueError("No usable files had the required auxiliary datasets.")
+        raise ValueError(
+            "No usable files had the required auxiliary datasets.")
     add_reference_deltas(rows)
     return rows, skipped
 
@@ -196,6 +196,24 @@ def best_by(rows, key, maximise=True):
     if not finite:
         raise ValueError(f"No finite `{key}` values.")
     return (max if maximise else min)(finite, key=lambda row: row[key])
+
+
+def p_label(value):
+    if value < 1e-3:
+        return "<10^{-3}"
+    return f"={value:.3f}"
+
+
+def corr_label(x, y):
+    finite = np.isfinite(x) & np.isfinite(y)
+    if np.sum(finite) < 3:
+        return "correlation unavailable"
+    pearson_r, pearson_p = pearsonr(x[finite], y[finite])
+    spearman_r, spearman_p = spearmanr(x[finite], y[finite])
+    return (
+        rf"$r={pearson_r:.2f}$, $p{p_label(pearson_p)}$" "\n"
+        rf"$\rho={spearman_r:.2f}$, $p{p_label(spearman_p)}$"
+    )
 
 
 def write_csv(rows, path):
@@ -260,7 +278,6 @@ def plot_raw_vs_selection(rows, out_pdf):
 
 def plot_driver_scatter(rows, out_pdf):
     lnz = np.asarray([row["lnZ_harmonic"] for row in rows], dtype=float)
-    fields = np.asarray([row["field"] for row in rows], dtype=int)
     best = best_by(rows, "lnZ_harmonic")
     best_s = best_by(rows, "minus_log_selection_integral_total_mean")
 
@@ -300,7 +317,7 @@ def write_summary(rows, skipped, path):
         "# CH0 Manticore Evidence-Driver Study",
         "",
         f"Usable fields: {len(rows)}.",
-        f"Skipped files without auxiliary likelihood tracking: {len(skipped)}.",
+        f"Skipped files without auxiliary likelihood tracking: {len(skipped)}.",  # noqa: E501
         "",
         "## Best Fields",
         "",
@@ -331,7 +348,7 @@ def write_summary(rows, skipped, path):
         "## Most Favourable Selection-Normalisation Field",
         "",
         f"Field {best_s['field']} has "
-        f"`-logS = {best_s['minus_log_selection_integral_per_host_mean']:.4f}` "
+        f"`-logS = {best_s['minus_log_selection_integral_per_host_mean']:.4f}` "  # noqa: E501
         "per host.",
         "",
         "| contribution | total delta vs median field |",

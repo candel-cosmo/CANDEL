@@ -1,5 +1,5 @@
-from scripts.preprocess.field_input_cache import (
-    _h0_velocity_key, _variant_action)
+from scripts.preprocess.field_input_cache import (_h0_velocity_key,
+                                                  _variant_action)
 
 
 def test_reconstructed_no_selection_ch0_still_warms_3d_cache():

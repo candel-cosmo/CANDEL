@@ -36,12 +36,18 @@ def output_path(output_pattern: Path, iteration: int) -> Path:
     return Path(str(output_pattern) % iteration)
 
 
-def load_generated_rsd(output_pattern: Path, iteration: int, nprocs: int) -> np.ndarray:
+def load_generated_rsd(
+        output_pattern: Path,
+        iteration: int,
+        nprocs: int) -> np.ndarray:
     output = output_path(output_pattern, iteration)
     paths = [Path(f"{output}_{rank}") for rank in range(nprocs)]
     missing = [path for path in paths if not path.is_file()]
     if missing:
-        raise FileNotFoundError("Missing split output files:\n" + "\n".join(str(path) for path in missing))
+        raise FileNotFoundError(
+            "Missing split output files:\n" +
+            "\n".join(
+                str(path) for path in missing))
 
     slab_shapes = []
     for path in paths:
@@ -62,10 +68,12 @@ def load_generated_rsd(output_pattern: Path, iteration: int, nprocs: int) -> np.
 
 def load_native_rsd(mcmc: Path) -> np.ndarray:
     with h5py.File(mcmc, "r") as handle:
-        return handle["/scalars/BORG_final_density"][...].astype(np.float32, copy=False)
+        return handle["/scalars/BORG_final_density"][...].astype(
+            np.float32, copy=False)
 
 
-def compute_power(reference: np.ndarray, generated: np.ndarray, args: argparse.Namespace) -> dict[str, np.ndarray]:
+def compute_power(reference: np.ndarray, generated: np.ndarray,
+                  args: argparse.Namespace) -> dict[str, np.ndarray]:
     reference = reference - np.mean(reference, dtype=np.float64)
     generated = generated - np.mean(generated, dtype=np.float64)
     spectra = PKL.XPk(
@@ -92,23 +100,37 @@ def compute_power(reference: np.ndarray, generated: np.ndarray, args: argparse.N
 
 def write_csv(path: Path, power: dict[str, np.ndarray]) -> None:
     with path.open("w") as handle:
-        handle.write("k_h_per_Mpc,nmodes,p_borg_rsd,p_generated_rsd,p_cross,r\n")
+        handle.write(
+            "k_h_per_Mpc,nmodes,p_borg_rsd,p_generated_rsd,p_cross,r\n")
         for i in range(len(power["k"])):
             handle.write(
-                f"{power['k'][i]:.10e},{power['nmodes'][i]},"
-                f"{power['p_reference'][i]:.10e},{power['p_generated'][i]:.10e},"
-                f"{power['p_cross'][i]:.10e},{power['r'][i]:.10e}\n"
-            )
+                f"{
+                    power['k'][i]:.10e},{
+                    power['nmodes'][i]}," f"{
+                    power['p_reference'][i]:.10e},{
+                    power['p_generated'][i]:.10e}," f"{
+                        power['p_cross'][i]:.10e},{
+                            power['r'][i]:.10e}\n")
 
 
-def write_plot(path: Path, power: dict[str, np.ndarray], metrics: dict[str, float | int | bool]) -> None:
+def write_plot(path: Path,
+               power: dict[str,
+                           np.ndarray],
+               metrics: dict[str,
+                             float | int | bool]) -> None:
     fig, axes = plt.subplots(2, 1, figsize=(6.4, 6.0), sharex=True)
     k = power["k"]
 
     ax = axes[0]
     ax.loglog(k, power["p_reference"], lw=1.3, label="BORG sample RSD")
     ax.loglog(k, power["p_generated"], lw=1.3, label="generated RSD")
-    ax.loglog(k, np.abs(power["p_cross"]), lw=1.1, ls="--", label=r"$|P_\times|$")
+    ax.loglog(
+        k,
+        np.abs(
+            power["p_cross"]),
+        lw=1.1,
+        ls="--",
+        label=r"$|P_\times|$")
     ax.set_ylabel(r"$P(k)~[(h^{-1}{\rm Mpc})^3]$")
     ax.legend(frameon=False)
 
@@ -141,9 +163,15 @@ def main() -> None:
     args.metrics_json.parent.mkdir(parents=True, exist_ok=True)
 
     reference = load_native_rsd(args.mcmc)
-    generated = load_generated_rsd(args.output_pattern, args.iteration, args.nprocs)
+    generated = load_generated_rsd(
+        args.output_pattern,
+        args.iteration,
+        args.nprocs)
     if reference.shape != generated.shape:
-        raise ValueError(f"Shape mismatch: BORG RSD {reference.shape} != generated RSD {generated.shape}")
+        raise ValueError(
+            f"Shape mismatch: BORG RSD {
+                reference.shape} != generated RSD {
+                generated.shape}")
 
     power = compute_power(reference, generated, args)
     finite = np.isfinite(power["r"])
@@ -160,7 +188,7 @@ def main() -> None:
         "mean_r_constrained": mean_r,
         "mean_r_k_lt_0p05": nanmean(power["r"][low]),
         "mean_r_0p05_to_0p2": nanmean(power["r"][mid]),
-        "min_r_constrained": float(np.nanmin(power["r"][constrained])) if np.any(constrained) else float("nan"),
+        "min_r_constrained": float(np.nanmin(power["r"][constrained])) if np.any(constrained) else float("nan"),  # noqa: E501
         "nmodes_constrained": int(np.sum(power["nmodes"][constrained])),
         "passed": bool(np.isfinite(mean_r) and mean_r >= args.min_mean_r),
     }
@@ -172,7 +200,12 @@ def main() -> None:
     write_plot(plot_path, power, metrics)
     metrics["csv"] = str(csv_path)
     metrics["plot"] = str(plot_path)
-    args.metrics_json.write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n")
+    args.metrics_json.write_text(
+        json.dumps(
+            metrics,
+            indent=2,
+            sort_keys=True) +
+        "\n")
 
     status = "PASS" if metrics["passed"] else "FAIL"
     print(

@@ -2,8 +2,14 @@
 """Create EDD TRGB velocity and tip-magnitude histograms."""
 import argparse
 import os
-from pathlib import Path
 import sys
+from pathlib import Path
+
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import numpy as np
+from edd_trgb_plot_data import PAPER_RC, load_edd_trgb_plot_data, save_figure
+from trgbh0_plot_style import TRGBH0_COLOURS
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PLOT_DIR = next(path for path in SCRIPT_DIR.parents
@@ -14,15 +20,8 @@ for path in (SCRIPT_DIR, PLOT_DIR):
 
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/candel_mplconfig")
 
-import matplotlib as mpl
 
 mpl.use("Agg")
-import matplotlib.pyplot as plt
-import numpy as np
-
-from edd_trgb_plot_data import PAPER_RC, load_edd_trgb_plot_data, save_figure
-from trgbh0_plot_style import TRGBH0_COLOURS
-
 
 OUTNAME = "edd_trgb_velocity_magnitude_histograms.pdf"
 
@@ -63,7 +62,8 @@ def make_figure(data, paper_figdir=None):
 
 def main():
     args = parse_args()
-    out = make_figure(load_edd_trgb_plot_data(include_sky=False), args.paper_figdir)
+    out = make_figure(load_edd_trgb_plot_data(
+        include_sky=False), args.paper_figdir)
     print(f"Wrote {out}")
     if args.paper_figdir is not None:
         print(f"Copied to {args.paper_figdir / OUTNAME}")

@@ -124,7 +124,6 @@ high = 10.0
 
 [model.priors.b2]
 dist = "truncated_normal"
-low = 0.0
 mean = 0.0
 scale = 1.0
 

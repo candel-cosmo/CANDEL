@@ -2,8 +2,15 @@
 """Create the EDD TRGB tip-magnitude versus CMB-frame velocity figure."""
 import argparse
 import os
-from pathlib import Path
+import shutil
 import sys
+from pathlib import Path
+
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import numpy as np
+from edd_trgb_plot_data import OUTDIR, PAPER_RC, load_edd_trgb_plot_data
+from trgbh0_plot_style import TRGBH0_COLOURS
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PLOT_DIR = next(path for path in SCRIPT_DIR.parents
@@ -11,19 +18,11 @@ PLOT_DIR = next(path for path in SCRIPT_DIR.parents
 for path in (SCRIPT_DIR, PLOT_DIR):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
-import shutil
 
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/candel_mplconfig")
 
-import matplotlib as mpl
 
 mpl.use("Agg")
-import matplotlib.pyplot as plt
-import numpy as np
-
-from edd_trgb_plot_data import OUTDIR, PAPER_RC, load_edd_trgb_plot_data
-from trgbh0_plot_style import TRGBH0_COLOURS
-
 
 OUTNAME = "edd_trgb_magnitude_redshift_scatter"
 
@@ -110,7 +109,8 @@ def save_figure(fig, paper_figdir=None):
         outputs.append(out)
     if paper_figdir is not None:
         paper_figdir.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(OUTDIR / f"{OUTNAME}.pdf", paper_figdir / f"{OUTNAME}.pdf")
+        shutil.copyfile(OUTDIR / f"{OUTNAME}.pdf",
+                        paper_figdir / f"{OUTNAME}.pdf")
     return outputs
 
 

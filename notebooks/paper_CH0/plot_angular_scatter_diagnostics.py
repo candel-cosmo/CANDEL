@@ -1,21 +1,21 @@
 #!/usr/bin/env python
 """Plot CH0 angular-position-scatter diagnostics."""
 
-from argparse import ArgumentParser
 import csv
+from argparse import ArgumentParser
 from pathlib import Path
 
 import h5py
 import matplotlib
 
 matplotlib.use("Agg")
+import tomllib  # noqa: E402
+
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import scienceplots  # noqa: F401,E402
-import tomllib  # noqa: E402
 from matplotlib.colors import LinearSegmentedColormap, Normalize  # noqa: E402
 from scipy.stats import gaussian_kde  # noqa: E402
-
 
 ROOT = Path(__file__).resolve().parents[2]
 TASK_FILE = ROOT / "scripts" / "runs" / "tasks_CH0_angular_scatter.txt"
@@ -522,7 +522,7 @@ def main():
     txt_path = args.output_dir / "angular_scatter_summary.txt"
     joint_pdf = args.output_dir / "angular_scatter_joint_h0.pdf"
     shift_lines_pdf = args.output_dir / "angular_scatter_h0_shift_fields.pdf"
-    shift_summary_pdf = args.output_dir / "angular_scatter_h0_shift_summary.pdf"
+    shift_summary_pdf = args.output_dir / "angular_scatter_h0_shift_summary.pdf"  # noqa: E501
     h0_lnz_pdf = args.output_dir / "angular_scatter_h0_vs_lnz.pdf"
 
     write_rows_csv(rows, baselines, csv_path)

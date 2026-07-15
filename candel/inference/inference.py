@@ -42,7 +42,6 @@ from ..util import (fprint, fsection, galactic_to_radec,
                     radec_to_galactic)
 from .evidence import (BIC_AIC, dict_samples_to_array, harmonic_evidence,
                        laplace_evidence)
-from .optimise import _use_de, find_MAP
 
 _BASE_AUXILIARY_KEYS = ("Vpec_host_skipZ",)
 _PER_GALAXY_LOG_LIKELIHOOD_AUXILIARY_KEYS = (
@@ -261,9 +260,15 @@ def find_initial_point(model, model_kwargs, maxiter=100, seed=42,
             init_constrained[k] = v["value"]
     site_names = set(init_constrained.keys())
 
+    # The optimiser works in unconstrained space, so the flatten/unflatten
+    # bookkeeping must use the unconstrained shapes. Transforms such as the
+    # simplex stick-breaking change dimensionality (N -> N-1); deriving the
+    # sizes from the constrained values would mis-slice the flat vector.
+    unc0 = {k: transforms[k].inv(v) for k, v in init_constrained.items()}
+
     # Sort keys for consistent flattening
-    keys = sorted(init_constrained.keys())
-    shapes = {k: init_constrained[k].shape for k in keys}
+    keys = sorted(unc0.keys())
+    shapes = {k: unc0[k].shape for k in keys}
     sizes = {k: int(np.prod(s)) for k, s in shapes.items()}
 
     def flatten(params_dict):
@@ -304,9 +309,16 @@ def find_initial_point(model, model_kwargs, maxiter=100, seed=42,
             v, g = jit_val_grad(jnp.asarray(x), model_kwargs)
         else:
             v, g = jit_val_grad(jnp.asarray(x))
-        return float(v), np.asarray(g, dtype=np.float64)
+        v = float(v)
+        g = np.asarray(g, dtype=np.float64)
+        # A step into an unphysical region gives a non-finite value/gradient,
+        # which otherwise aborts L-BFGS-B with ABNORMAL_TERMINATION_IN_LNSRCH.
+        # Returning a large finite value with zero gradient makes the line
+        # search backtrack to a smaller, safe step instead of giving up.
+        if not (np.isfinite(v) and np.all(np.isfinite(g))):
+            return 1e30, np.zeros_like(g)
+        return v, g
 
-    unc0 = {k: transforms[k].inv(v) for k, v in init_constrained.items()}
     x0 = flatten(unc0)
     if dynamic_model_kwargs:
         loss0 = float(loss_fn(unc0, model_kwargs))
@@ -650,6 +662,53 @@ def _plot_pv_vext_outputs(model, samples, fname_out):
     return plot_paths
 
 
+def _plot_trgb_sky_exposure_outputs(model, samples, fname_out):
+    """Generate a corner plot for TRGB sky-exposure pixel fractions."""
+    if not getattr(model, "use_TRGB_sky_exposure", False):
+        return []
+
+    theta_key = next((
+        key for key in (
+            "TRGB_sky_exposure_ratio",
+            "TRGB_sky_exposure_theta_full",
+            "TRGB_sky_exposure_theta")
+        if key in samples), "TRGB_sky_exposure_theta")
+    if theta_key not in samples:
+        return []
+
+    theta = np.asarray(samples[theta_key])
+    theta = theta.reshape((theta.shape[0], -1))
+    if theta_key.endswith("_theta_full"):
+        pix = np.arange(theta.shape[1])
+    else:
+        pix = np.asarray(getattr(
+            model, "_TRGB_sky_exposure_support_pix",
+            np.arange(theta.shape[1]))).reshape(-1)
+        if len(pix) != theta.shape[1]:
+            pix = np.arange(theta.shape[1])
+
+    keep = [
+        i for i in range(theta.shape[1])
+        if np.all(np.isfinite(theta[:, i])) and np.ptp(theta[:, i]) > 0
+    ]
+    if not keep:
+        return []
+    if len(keep) > 50:
+        fprint("Skipping corner plot of TRGB sky-exposure pixel fractions "
+               f"with {len(keep)} pixels.")
+        return []
+
+    fname_plot = splitext(fname_out)[0] + "_corner_TRGB_sky_exposure.png"
+    prefix = (
+        "sky_ratio_pix" if theta_key.endswith("_ratio") else "sky_frac_pix")
+    theta_samples = {
+        f"{prefix}_{int(pix[i])}": theta[:, i]
+        for i in keep
+    }
+    plot_corner(theta_samples, show_fig=False, filename=fname_plot)
+    return [("TRGB sky-exposure pixel-fraction corner plot", fname_plot)]
+
+
 def _save_inference_outputs(model, samples, log_density,
                             log_density_per_sample, gof, auxiliary,
                             extra_summary=None, catch_corner_errors=False,
@@ -825,20 +884,9 @@ def run_H0_inference(model, model_kwargs=None, print_summary=True,
 
     kwargs = model.config["inference"]
 
-    init_method = kwargs.get("init_method", "lbfgs")
-
-    site_names = None
-    if init_method == "sobol_adam":
-        init_params = find_MAP(
-            model, model_kwargs, seed=kwargs["seed"],
-            dynamic_model_kwargs=dynamic_model_kwargs)
-        method = "DE" if _use_de(model) else "Sobol+Adam"
-        fprint(f"initialising NUTS from {method} MAP.")
-        init_strategy = init_to_value(values=init_params)
-    else:
-        init_params, site_names, init_strategy = _initialise_from_lbfgs(
-            model, model_kwargs, kwargs, init_maxiter,
-            dynamic_model_kwargs=dynamic_model_kwargs)
+    init_params, site_names, init_strategy = _initialise_from_lbfgs(
+        model, model_kwargs, kwargs, init_maxiter,
+        dynamic_model_kwargs=dynamic_model_kwargs)
 
     mcmc = _run_nuts_mcmc(
         model, model_kwargs, kwargs, init_params, site_names, init_strategy,
@@ -867,7 +915,8 @@ def run_H0_inference(model, model_kwargs=None, print_summary=True,
     if save_samples:
         _save_inference_outputs(
             model, samples, log_density, None, gof, auxiliary,
-            extra_summary=print_student_t_nu_warnings)
+            extra_summary=print_student_t_nu_warnings,
+            extra_plots=_plot_trgb_sky_exposure_outputs)
 
     if return_diagnostics:
         return samples, diagnostic_summary

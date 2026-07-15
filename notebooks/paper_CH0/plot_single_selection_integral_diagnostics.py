@@ -1,11 +1,11 @@
 #!/usr/bin/env python
 """Diagnose CH0 single-field selection-volume integrals."""
 
-from argparse import ArgumentParser
 import csv
 import os
-from pathlib import Path
 import tomllib
+from argparse import ArgumentParser
+from pathlib import Path
 
 import h5py
 import matplotlib
@@ -22,7 +22,6 @@ from candel.pvdata.volume_density import _load_volume_data_for_H0  # noqa: E402
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import scienceplots  # noqa: F401,E402
-
 
 ROOT = Path(__file__).resolve().parents[2]
 TASK_SAMPLED = ROOT / "scripts" / "runs" / "tasks_CH0_single.txt"
@@ -248,7 +247,8 @@ def reference_selection_params(rows, config_path):
         rand_los_data_path=None,
         volume_data=None,
         field_indices=None,
-        drop_observation=get_nested(config, ("io", "SH0ES", "drop_observation")),
+        drop_observation=get_nested(
+            config, ("io", "SH0ES", "drop_observation")),
     )
     return {
         "H0_ref": float(np.median([row["H0_q50"] for row in rows])),
@@ -346,7 +346,7 @@ def controlled_integrals_for_family(
                 "log_density_integral": log_rho_integral,
                 "density_integral": float(np.exp(log_rho_integral)),
                 "mean_density": float(np.exp(log_rho_integral - log_volume)),
-                "mean_delta": float(np.exp(log_rho_integral - log_volume) - 1.0),
+                "mean_delta": float(np.exp(log_rho_integral - log_volume) - 1.0),  # noqa: E501
             }
 
             matching = [
@@ -698,8 +698,8 @@ def write_summary(path, rows, field_integrals, params, missing):
                 f"| {FAMILY_LABELS[family]} | {mode} | {best['field']} | "
                 f"{best['H0_q50']:.3f} | {best['lnZ_harmonic']:.2f} | "
                 f"{best['log_selected_galaxy_integral_rank_low']:.0f} | "
-                f"{best['log_selected_galaxy_integral_delta_from_median']:+.3f} | "
-                f"{best['controlled_selection_loglike_gain_vs_median']:+.2f} | "
+                f"{best['log_selected_galaxy_integral_delta_from_median']:+.3f} | "  # noqa: E501
+                f"{best['controlled_selection_loglike_gain_vs_median']:+.2f} | "  # noqa: E501
                 f"{post_delta:+.3f} | "
                 f"{best['mean_density_rank_high']:.0f} | "
                 f"{best['mean_density']:.3f} |")
@@ -718,8 +718,8 @@ def write_summary(path, rows, field_integrals, params, missing):
                 if row["family"] == family and row["mode"] == mode]
             lines.append(
                 f"| {FAMILY_LABELS[family]} | {mode} | "
-                f"{corrcoef(group, 'log_selected_galaxy_integral', 'lnZ_harmonic'):+.3f} | "
-                f"{corrcoef(group, 'log_expected_galaxy_integral', 'lnZ_harmonic'):+.3f} | "
+                f"{corrcoef(group, 'log_selected_galaxy_integral', 'lnZ_harmonic'):+.3f} | "  # noqa: E501
+                f"{corrcoef(group, 'log_expected_galaxy_integral', 'lnZ_harmonic'):+.3f} | "  # noqa: E501
                 f"{corrcoef(group, 'mean_density', 'lnZ_harmonic'):+.3f} |")
     lines.extend([
         "",

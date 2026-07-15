@@ -1,8 +1,13 @@
 #!/usr/bin/env python
 """Plot beta-free Student-t TRGBH0 H0 posterior diagnostics."""
+import re
+import shutil
+import sys
 from argparse import ArgumentParser
 from pathlib import Path
-import sys
+
+import h5py
+import matplotlib
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PLOT_DIR = next(path for path in SCRIPT_DIR.parents
@@ -10,11 +15,7 @@ PLOT_DIR = next(path for path in SCRIPT_DIR.parents
 for path in (SCRIPT_DIR, PLOT_DIR):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
-import re
-import shutil
 
-import h5py
-import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
@@ -23,21 +24,13 @@ import scienceplots  # noqa: F401,E402
 from matplotlib.colors import LinearSegmentedColormap, Normalize  # noqa: E402
 from matplotlib.ticker import MaxNLocator  # noqa: E402
 from scipy.stats import gaussian_kde  # noqa: E402
-
-from trgbh0_plot_style import (  # noqa: E402
-    FIGURE_DPI,
-    OUTPUT_DIR,
-    TRGBH0_COLOURS,
-    TRGBH0_RESULTS,
-    TRGBH0_TABLE_RESULTS,
-    paper_style,
-    save_pdf_png,
-)
-
+from trgbh0_plot_style import (FIGURE_DPI, OUTPUT_DIR,  # noqa: E402,F401
+                               TRGBH0_COLOURS, TRGBH0_RESULTS,
+                               TRGBH0_TABLE_RESULTS, paper_style, save_pdf_png)
 
 RESULTS = TRGBH0_RESULTS
 TABLE = TRGBH0_TABLE_RESULTS
-SINGLE_FIELDS = RESULTS / "single_fields"
+SINGLE_FIELDS = RESULTS / "single_fields_smoothed"
 OUTDIR = OUTPUT_DIR
 
 FIXED_BETA_POSTERIOR = (
@@ -52,7 +45,8 @@ FREE_BETA_POSTERIOR = (
 )
 SINGLE_PATTERN = (
     "EDD_TRGB_rhoSmoothR4_cz-student_t_MAS-PCS_sel-TRGB_magnitude_"
-    "ManticoreLocalCOLA_beta_free_field*_single.hdf5"
+    "bmin10_skyhp_nside2_k192_ManticoreLocalCOLA_beta_free_field*_"
+    "single_smoothed.hdf5"
 )
 FIELD_RE = re.compile(r"_field(\d+)_")
 
@@ -256,7 +250,8 @@ def plot_stacked(rows, out_pdf):
     x_grid = density_grid([row["samples"] for row in rows])
     evidence = np.asarray([row["lnZ_harmonic"] for row in rows], dtype=float)
     medians = np.asarray([row["q50"] for row in rows], dtype=float)
-    norm = Normalize(vmin=float(np.min(evidence)), vmax=float(np.max(evidence)))
+    norm = Normalize(vmin=float(np.min(evidence)),
+                     vmax=float(np.max(evidence)))
     cmap = truncated_cmap(LNZ_CMAP)
     all_samples = np.concatenate([row["samples"] for row in rows])
     stacked_density = kde_on_grid(
@@ -405,11 +400,16 @@ def copy_to_paper(paths, paper_figdir):
 
 def main():
     args = parse_args()
-    marginal_rows = load_marginal_posteriors()
     field_rows = load_single_fields()
 
-    marginal_pdf, marginal_png = plot_marginal(
-        marginal_rows, args.output_dir / MARGINAL_NAME)
+    marginal_pdf = marginal_png = None
+    try:
+        marginal_rows = load_marginal_posteriors()
+        marginal_pdf, marginal_png = plot_marginal(
+            marginal_rows, args.output_dir / MARGINAL_NAME)
+    except FileNotFoundError as exc:
+        print(f"Skipping marginal posterior figure: {exc}")
+
     stacked_pdf, stacked_png = plot_stacked(
         field_rows, args.output_dir / STACKED_NAME)
     h0_lnz_pdf, h0_lnz_png = plot_h0_vs_lnz(
@@ -422,7 +422,8 @@ def main():
         marginal_pdf, marginal_png, stacked_pdf, stacked_png,
         h0_lnz_pdf, h0_lnz_png, summary_csv,
     ):
-        print(f"Wrote {path}")
+        if path is not None:
+            print(f"Wrote {path}")
     for path in copied:
         print(f"Copied {path}")
     print(f"Single-field realisations plotted: {len(field_rows)}")

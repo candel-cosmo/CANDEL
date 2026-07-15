@@ -56,7 +56,8 @@ def read_local_config(path: Path | None = None) -> dict:
         return tomllib.load(handle)
 
 
-def borg_field_config(required: tuple[str, ...] = tuple(ENV_NAMES)) -> dict[str, str]:
+def borg_field_config(required: tuple[str, ...] = tuple(
+        ENV_NAMES)) -> dict[str, str]:
     path = local_config_path()
     config = read_local_config(path)
     section = borg_fields_section(config, path)

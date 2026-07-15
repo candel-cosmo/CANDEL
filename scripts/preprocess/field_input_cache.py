@@ -21,13 +21,12 @@ os.environ.setdefault(
     "NUMBA_CACHE_DIR", os.path.join(tempfile.gettempdir(),
                                     f"candel_numba_{_USER}"))
 
+import numpy as np  # noqa: E402
 import tomli_w  # noqa: E402
+from h5py import File  # noqa: E402
 
 import candel  # noqa: E402
 from candel import get_nested  # noqa: E402
-import numpy as np  # noqa: E402
-from h5py import File  # noqa: E402
-
 from candel.field.loader import name2field_loader  # noqa: E402
 from candel.pvdata import catalogues as catalogues_mod  # noqa: E402
 from candel.pvdata import field_cache as field_cache_mod  # noqa: E402
@@ -35,9 +34,8 @@ from candel.pvdata import field_products as field_products_mod  # noqa: E402
 from candel.pvdata import frame as frame_mod  # noqa: E402
 from candel.pvdata import los as los_mod  # noqa: E402
 from candel.pvdata import volume_density as volume_density_mod  # noqa: E402
-from candel.pvdata.field_cache import (  # noqa: E402
-    _field_cache_dir_from_config,
-)
+from candel.pvdata.field_cache import \
+    _field_cache_dir_from_config  # noqa: E402
 from candel.util import SPEED_OF_LIGHT  # noqa: E402
 
 pvdata_mod = SimpleNamespace(
@@ -275,7 +273,8 @@ def _configured_or_available_field_indices(config, reconstruction):
         return configured
     try:
         from scripts.preprocess import field_input_los as prep_los_mod
-        return prep_los_mod.reconstruction_field_indices(config, reconstruction)
+        return prep_los_mod.reconstruction_field_indices(
+            config, reconstruction)
     except Exception:
         return None
 
@@ -308,6 +307,8 @@ def _sh0es_num_hosts(config):
 def _h0_velocity_key(config):
     which_run = get_nested(config, "model/which_run", None)
     which_sel = get_nested(config, "model/which_selection", None)
+    if which_sel == "TRGB_magnitude_redshift":
+        return "velocity"
     if (which_sel in ("redshift", "SN_magnitude_redshift")
             and which_run not in ("EDD_TRGB", "EDD_TRGB_grouped")):
         return "velocity"
@@ -363,6 +364,7 @@ def _selection_label(selection):
     aliases = {
         "SN_magnitude_redshift": "mag+z",
         "SN_magnitude_or_redshift_Nmag": "mag|z_N",
+        "TRGB_magnitude_redshift": "TRGB+z",
     }
     return aliases.get(selection, selection)
 
@@ -556,7 +558,7 @@ def _h0_supersampling_description(config):
 
 
 def _h0_supersampling_label(config):
-    factor, radius, target_dx = pvdata_mod._h0_volume_supersampling_from_config(
+    factor, radius, target_dx = pvdata_mod._h0_volume_supersampling_from_config(  # noqa: E501
         config)
     if radius <= 0.0:
         return "-"

@@ -114,8 +114,10 @@ def fit_H0_sample_r(Vcmb, mu_obs, sigma_mu=0.4, h0_min=50.0, h0_max=100,
     r_grid = np.linspace(rmin, rmax, nrstep)
 
     # Shape `(n_H0, n_data, n_r)`
-    ll_cz = log_pdf_gauss(Vcmb[None, :, None] , H0_grid[:, None, None] * r_grid[None, None, :], sigma_vpec)
-    ll_mu = log_pdf_gauss(mu_obs[None, :, None], 5 * np.log10(r_grid[None, None, :]) + 25.0, sigma_mu)
+    ll_cz = log_pdf_gauss(
+        Vcmb[None, :, None], H0_grid[:, None, None] * r_grid[None, None, :], sigma_vpec)  # noqa: E501
+    ll_mu = log_pdf_gauss(
+        mu_obs[None, :, None], 5 * np.log10(r_grid[None, None, :]) + 25.0, sigma_mu)  # noqa: E501
     ll_r = k * np.log(r_grid[None, None, :])
 
     lp = ll_cz + ll_mu + ll_r
@@ -137,7 +139,8 @@ def get_H0_map(Vcmb, mu_obs, sigma_mu, k):
     m = Vcmb > 0
     Vcmb, mu_obs = Vcmb[m], mu_obs[m]
 
-    logH0 = - (1 + k) * sigma_mu**2 * np.log(10) / 25 + np.mean(5 - mu_obs / 5 + np.log10(Vcmb))
+    logH0 = - (1 + k) * sigma_mu**2 * np.log(10) / 25 + \
+        np.mean(5 - mu_obs / 5 + np.log10(Vcmb))
     return 10**logH0
 
 
@@ -162,7 +165,3 @@ for k in [-1, 0, 1, 2]:
     H0_map = get_H0_map(v_obs, mu_obs, sigma_m, k)
     print(f"k={k:2d}  H0 = {H0_mean:.2f} ± {H0_std:.2f} km/s/Mpc "
           f"| H0_map = {H0_map:.2f} km/s/Mpc")
-
-
-
-

@@ -1,11 +1,13 @@
 #!/usr/bin/env python
 """Plot TRGBH0 single-field density-smoothing diagnostics."""
 
-from argparse import ArgumentParser
-from collections import defaultdict
 import csv
-from pathlib import Path
 import sys
+from argparse import ArgumentParser
+from pathlib import Path
+
+import h5py
+import matplotlib
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PLOT_DIR = next(path for path in SCRIPT_DIR.parents
@@ -14,28 +16,19 @@ for path in (SCRIPT_DIR, PLOT_DIR):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-import h5py
-import matplotlib
 
 matplotlib.use("Agg")
+import tomllib  # noqa: E402
+
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import scienceplots  # noqa: F401,E402
-import tomllib  # noqa: E402
 from matplotlib.colors import Normalize  # noqa: E402
 from matplotlib.ticker import MaxNLocator  # noqa: E402
 from scipy.stats import gaussian_kde, pearsonr, spearmanr  # noqa: E402
-
-from trgbh0_plot_style import (  # noqa: E402
-    FIGURE_DPI,
-    OUTPUT_DIR,
-    ROOT,
-    TRGBH0_COLOURS,
-    save_pdf_png,
-    set_paper_rc,
-    trgbh0_cmap,
-)
-
+from trgbh0_plot_style import (FIGURE_DPI, OUTPUT_DIR, ROOT,  # noqa: E402,F401
+                               TRGBH0_COLOURS, save_pdf_png, set_paper_rc,
+                               trgbh0_cmap)
 
 TASK_FILE = ROOT / "scripts" / "runs" / "tasks_TRGBH0_single_smoothed.txt"
 BASELINE_TASK_FILE = ROOT / "scripts" / "runs" / "tasks_TRGBH0_single.txt"

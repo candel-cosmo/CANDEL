@@ -11,7 +11,6 @@ import os
 from pathlib import Path
 
 import numpy as np
-
 from mock_utils import likelihood_label, parse_likelihood
 
 TASKS = [

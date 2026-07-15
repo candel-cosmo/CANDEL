@@ -10,7 +10,6 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import Pk_library as PKL  # noqa: E402
-
 from borg_field_config import configured_chain_path  # noqa: E402
 
 DEFAULT_OUTDIR = (
@@ -42,20 +41,29 @@ def parse_args():
     )
     parser.add_argument("--field-a", type=Path, help="Reference HDF5 field.")
     parser.add_argument("--field-b", type=Path, help="Comparison HDF5 field.")
-    parser.add_argument("--mas", default="SPH", help="MAS output folder for --step. Default: SPH.")
+    parser.add_argument(
+        "--mas",
+        default="SPH",
+        help="MAS output folder for --step. Default: SPH.")
     parser.add_argument("--label-a", default="BORG forward SPH")
     parser.add_argument("--label-b", default="February N-body SPH")
     parser.add_argument("--out-stem", help="Output filename stem.")
     parser.add_argument("--outdir", type=Path, default=DEFAULT_OUTDIR)
     parser.add_argument("--threads", type=int, default=4)
-    parser.add_argument("--force", action="store_true", help="Ignore cached downsampled arrays.")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Ignore cached downsampled arrays.")
     return parser.parse_args()
 
 
 def default_paths(step, mas):
     return (
-        configured_chain_path("field_output_dir") / mas_folder(mas) / f"mcmc_{step}.hdf5",
-        configured_chain_path("reference_fields_dir") / f"mcmc_{step}.hdf5",
+        configured_chain_path("field_output_dir") /
+        mas_folder(mas) /
+        f"mcmc_{step}.hdf5",
+        configured_chain_path("reference_fields_dir") /
+        f"mcmc_{step}.hdf5",
     )
 
 
@@ -71,7 +79,8 @@ def downsample_density(dataset, target_shape):
     source_shape = dataset.shape
     factors = tuple(s // t for s, t in zip(source_shape, target_shape))
     if any(s % t != 0 for s, t in zip(source_shape, target_shape)):
-        raise ValueError(f"Cannot block-average {source_shape} to {target_shape}.")
+        raise ValueError(
+            f"Cannot block-average {source_shape} to {target_shape}.")
 
     out = np.empty(target_shape, dtype=np.float32)
     reshape_shape = (
@@ -86,7 +95,8 @@ def downsample_density(dataset, target_shape):
         block = slab.reshape(reshape_shape)
         out[ix] = block.mean(axis=(0, 2, 4), dtype=np.float64)
         if (ix + 1) % 32 == 0 or ix + 1 == target_shape[0]:
-            print(f"Downsampled {ix + 1} / {target_shape[0]} x-slabs", flush=True)
+            print(f"Downsampled {ix +
+                                 1} / {target_shape[0]} x-slabs", flush=True)
     return out
 
 
@@ -124,7 +134,7 @@ def compute_stats(field_a, field_b):
     diff = field_b - field_a
     return {
         "pearson_r": pearson_corr(field_a, field_b),
-        "rms_difference": float(np.sqrt(np.mean(diff.astype(np.float64) ** 2))),
+        "rms_difference": float(np.sqrt(np.mean(diff.astype(np.float64) ** 2))),  # noqa: E501
         "mean_abs_difference": float(np.mean(np.abs(diff.astype(np.float64)))),
         "mean_difference": float(np.mean(diff, dtype=np.float64)),
         "field_a_mean": float(np.mean(field_a, dtype=np.float64)),
@@ -148,19 +158,23 @@ def make_slice_plot(field_a, field_b, stats, args, outpng):
     rmin, rmax = np.nanpercentile(slice_ratio, [1.0, 99.0])
 
     fig, axes = plt.subplots(2, 2, figsize=(9.0, 7.5), constrained_layout=True)
-    im = axes[0, 0].imshow(slice_a.T, origin="lower", cmap="magma", vmin=vmin, vmax=vmax)
+    im = axes[0, 0].imshow(slice_a.T, origin="lower",
+                           cmap="magma", vmin=vmin, vmax=vmax)
     axes[0, 0].set_title(args.label_a)
     fig.colorbar(im, ax=axes[0, 0], fraction=0.046)
 
-    im = axes[0, 1].imshow(slice_b.T, origin="lower", cmap="magma", vmin=vmin, vmax=vmax)
+    im = axes[0, 1].imshow(slice_b.T, origin="lower",
+                           cmap="magma", vmin=vmin, vmax=vmax)
     axes[0, 1].set_title(args.label_b)
     fig.colorbar(im, ax=axes[0, 1], fraction=0.046)
 
-    im = axes[1, 0].imshow(slice_diff.T, origin="lower", cmap="coolwarm", vmin=-dlim, vmax=dlim)
+    im = axes[1, 0].imshow(slice_diff.T, origin="lower",
+                           cmap="coolwarm", vmin=-dlim, vmax=dlim)
     axes[1, 0].set_title(f"{args.label_b} - {args.label_a}")
     fig.colorbar(im, ax=axes[1, 0], fraction=0.046)
 
-    im = axes[1, 1].imshow(slice_ratio.T, origin="lower", cmap="viridis", vmin=rmin, vmax=rmax)
+    im = axes[1, 1].imshow(slice_ratio.T, origin="lower",
+                           cmap="viridis", vmin=rmin, vmax=rmax)
     axes[1, 1].set_title(f"(1 + {args.label_b}) / (1 + {args.label_a})")
     fig.colorbar(im, ax=axes[1, 1], fraction=0.046)
 
@@ -223,7 +237,13 @@ def make_power_plot(power, args, outpng):
     ax = axes[0]
     ax.loglog(k, power["p_a"], lw=1.3, label=args.label_a)
     ax.loglog(k, power["p_b"], lw=1.3, label=args.label_b)
-    ax.loglog(k, np.abs(power["p_cross"]), lw=1.1, ls="--", label=r"$|P_\times|$")
+    ax.loglog(
+        k,
+        np.abs(
+            power["p_cross"]),
+        lw=1.1,
+        ls="--",
+        label=r"$|P_\times|$")
     ax.set_ylabel(r"$P(k)~[(h^{-1}{\rm Mpc})^3]$")
     ax.legend(frameon=False)
 
@@ -245,10 +265,12 @@ def resolve_inputs(args):
     if args.step is not None:
         field_a, field_b = default_paths(args.step, args.mas)
         if args.out_stem is None:
-            args.out_stem = f"feb_nbody_vs_borg_forward_mcmc{args.step}_density"
+            args.out_stem = f"feb_nbody_vs_borg_forward_mcmc{
+                args.step}_density"
     else:
         if args.field_a is None or args.field_b is None:
-            raise ValueError("Specify either --step or both --field-a and --field-b.")
+            raise ValueError(
+                "Specify either --step or both --field-a and --field-b.")
         field_a, field_b = args.field_a, args.field_b
         if args.out_stem is None:
             args.out_stem = f"{field_b.stem}_vs_{field_a.stem}_density"
@@ -281,7 +303,7 @@ def main():
     outpower = args.outdir / f"{args.out_stem}_pylians_power.png"
     outcsv = args.outdir / f"{args.out_stem}_pylians_power.csv"
 
-    cached_fields = None if args.force or not outnpz.exists() else load_cached_fields(outnpz)
+    cached_fields = None if args.force or not outnpz.exists() else load_cached_fields(outnpz)  # noqa: E501
     if cached_fields is None:
         field_a = load_delta(field_a_path)
         field_b = load_delta(field_b_path, target_shape=field_a.shape)
@@ -289,7 +311,10 @@ def main():
         field_a, field_b = cached_fields
 
     if field_a.shape != field_b.shape:
-        raise ValueError(f"Field shapes differ after loading: {field_a.shape} vs {field_b.shape}.")
+        raise ValueError(
+            f"Field shapes differ after loading: {
+                field_a.shape} vs {
+                field_b.shape}.")
 
     stats = compute_stats(field_a, field_b)
     np.savez(
@@ -316,10 +341,14 @@ def main():
     print(f"Wrote {outnpz}")
     print(f"Pearson density correlation: {stats['pearson_r']:.8f}")
     print(f"RMS overdensity difference: {stats['rms_difference']:.8g}")
-    print(f"Mean absolute overdensity difference: {stats['mean_abs_difference']:.8g}")
+    print(
+        f"Mean absolute overdensity difference: {
+            stats['mean_abs_difference']:.8g}")
     print(f"Mean overdensity difference: {stats['mean_difference']:.8g}")
-    print(f"{args.label_a} mean/std: {stats['field_a_mean']:.8g} / {stats['field_a_std']:.8g}")
-    print(f"{args.label_b} mean/std: {stats['field_b_mean']:.8g} / {stats['field_b_std']:.8g}")
+    print(
+        f"{args.label_a} mean/std: {stats['field_a_mean']:.8g} / {stats['field_a_std']:.8g}")  # noqa: E501
+    print(
+        f"{args.label_b} mean/std: {stats['field_b_mean']:.8g} / {stats['field_b_std']:.8g}")  # noqa: E501
     print(f"Mean r(k), k<0.05: {np.nanmean(power['r'][low]):.6f}")
     print(f"Mean r(k), 0.05<=k<0.2: {np.nanmean(power['r'][mid]):.6f}")
 

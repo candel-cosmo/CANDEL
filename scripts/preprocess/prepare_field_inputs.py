@@ -30,12 +30,9 @@ if str(ROOT) not in sys.path:
 import candel  # noqa: E402
 from candel import get_nested  # noqa: E402
 from candel.pvdata.field_products import (  # noqa: E402
-    field_smoothing_scale_from_config,
-    los_field_cache_paths,
+    field_smoothing_scale_from_config, los_field_cache_paths,
     los_radial_grid_payload_from_array,
-    velocity_field_smoothing_scale_from_config,
-)
-
+    velocity_field_smoothing_scale_from_config)
 from scripts.preprocess import field_input_cache as cache_mod  # noqa: E402
 from scripts.preprocess import field_input_los as los_mod  # noqa: E402
 
@@ -371,7 +368,7 @@ def main():
               prepare_field_inputs.py scripts/runs/tasks_TRGBH0_main.txt
               prepare_field_inputs.py config_EDD_TRGB.toml --plan-only
               prepare_field_inputs.py tasks.txt --products cache
-              prepare_field_inputs.py tasks.txt --products cache --cache-items 1,3-5
+              prepare_field_inputs.py tasks.txt --products cache --cache-items 1,3-5  # noqa: E501
             """))
     parser.add_argument(
         "inputs", nargs="*", type=Path,
@@ -385,10 +382,12 @@ def main():
         help=("Override model.which_selection for H0 cache warming. May be "
               "repeated or comma-separated."))
     parser.add_argument(
-        "--cache-items", default=None,
-        help=("Comma-separated unique 3D volume-cache item IDs/ranges to warm, "
-              "as printed by the plan, e.g. 1,3-5. Default: all missing "
-              "unique cache products. LOS products are still prepared first."))
+        "--cache-items",
+        default=None,
+        help=(
+            "Comma-separated unique 3D volume-cache item IDs/ranges to warm, "
+            "as printed by the plan, e.g. 1,3-5. Default: all missing "
+            "unique cache products. LOS products are still prepared first."))
     parser.add_argument(
         "--products", choices=("all", "los", "cache"), default="all",
         help="Which preprocessing products to prepare.")

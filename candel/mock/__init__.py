@@ -18,4 +18,6 @@ from .TRGB_mock import gen_TRGB_mock                                            
 from .simple_mock import gen_simple_catalog                                     # noqa
 from .dev.EDD_2MTF_mock import gen_EDD_2MTF_mock                               # noqa
 from .ppc_trgb import (generate_trgb_ppc, plot_trgb_ppc,                       # noqa
-                       plot_trgb_ppc_distance)                                # noqa
+                       plot_trgb_ppc_distance,                                # noqa
+                       plot_trgb_ppc_sky_exposure,                            # noqa
+                       plot_trgb_ppc_sky)                                     # noqa

@@ -5,19 +5,19 @@ from pathlib import Path
 
 import h5py
 import matplotlib
-matplotlib.use("Agg")
 import matplotlib.lines as mlines
 import matplotlib.pyplot as plt
 import numpy as np
-import scienceplots  # noqa: F401
-from scipy.stats import gaussian_kde, kstest
-from scipy.signal import savgol_filter
 from astropy.cosmology import FlatLambdaCDM
+from scipy.signal import savgol_filter
+from scipy.stats import gaussian_kde, kstest
 
 import candel
 from candel import SPEED_OF_LIGHT
 from candel.plotting.corner import plot_corner_from_hdf5
 
+matplotlib.use("Agg")
+import scienceplots  # noqa: E402,F401
 
 ROOT = Path("/mnt/users/rstiskalek/CANDEL")
 RESULTS = ROOT / "results" / "CH0_paper"
@@ -88,8 +88,9 @@ def plot_h0_comparison():
                  fill=False, ls=":", bw=2.0, x_grid=x_grid)
         kde_line(ax, rng.normal(67.4, 0.5, 300000), "Planck", COLS[1],
                  fill=False, ls=":", bw=2.0, x_grid=x_grid)
-        ax.set_xlabel(r"$H_0 ~ [\mathrm{km}\,\mathrm{s}^{-1}\,\mathrm{Mpc}^{-1}]$")
-        ax.set_ylabel("Normalised PDF")
+        ax.set_xlabel(
+            r"$H_0 ~ [\mathrm{km}\,\mathrm{s}^{-1}\,\mathrm{Mpc}^{-1}]$")
+        ax.set_ylabel("Normalized PDF")
         ax.set_xlim(65, 78)
         ax.set_ylim(bottom=0)
         handles, legend_labels = ax.get_legend_handles_labels()
@@ -209,7 +210,8 @@ def plot_h0_stacked():
                   loc="lower left", ncol=2, bbox_to_anchor=(-0.5, 1.03),
                   frameon=False)
         ax.set_ylim(lit_base - len(literature) + 0.5, len(unique))
-        ax.set_xlabel(r"$H_0~[\mathrm{km}\,\mathrm{s}^{-1}\,\mathrm{Mpc}^{-1}]$")
+        ax.set_xlabel(
+            r"$H_0~[\mathrm{km}\,\mathrm{s}^{-1}\,\mathrm{Mpc}^{-1}]$")
         ax.set_ylabel("")
         ax.minorticks_off()
         ax.set_xlim(64, 77.8)
@@ -224,7 +226,7 @@ def plot_h0_proportion():
         fname = (
             MIXED
             / f"CH0_MAS-PCS_sel-SN_magnitude_or_redshift_Nmag_Nmag{i}_"
-              "ManticoreLocalCOLA_paper_mixed.hdf5"
+            "ManticoreLocalCOLA_paper_mixed.hdf5"
         )
         samples = read_samples(fname, "H0")
         xs.append(i)
@@ -238,7 +240,8 @@ def plot_h0_proportion():
         fig, ax = plt.subplots(figsize=(3.35, 3.0))
         ax.plot(xs, means_smoothed, c=COLS[1])
         ax.set_xlabel("Number of SN-magnitude-selected hosts")
-        ax.set_ylabel(r"$\langle H_0 \rangle ~ [\mathrm{km}\,\mathrm{s}^{-1}\,\mathrm{Mpc}^{-1}]$")
+        ax.set_ylabel(
+            r"$\langle H_0 \rangle ~ [\mathrm{km}\,\mathrm{s}^{-1}\,\mathrm{Mpc}^{-1}]$")  # noqa: E501
         ax.set_xlim(0, 35)
         fig.tight_layout()
         fig.savefig(FIGURES / "H0_proportion.pdf", dpi=450,
@@ -325,7 +328,7 @@ def plot_mu_host(data):
                     ecolor="lightgray", capsize=3, ms=1.5,
                     label=r"$\mathcal{U}(V) - \mathcal{U}(\mu)$")
         ax.plot(r2_mean[mask], diff_sn[mask], "o", color=COLS[1], ms=1.5,
-                label=r"$\mathcal{U}(V),\,m_{\rm SN}~{\rm sel.} - \mathcal{U}(\mu)$")
+                label=r"$\mathcal{U}(V),\,m_{\rm SN}~{\rm sel.} - \mathcal{U}(\mu)$")  # noqa: E501
         ax.axhline(0, color="red", linestyle="--")
         ax.set_xlabel(r"$\mu_{\rm host}^{\mathcal{U}(V)} ~ [\mathrm{mag}]$")
         ax.set_ylabel(r"$\Delta \mu ~ [\mathrm{mag}]$")
@@ -334,8 +337,10 @@ def plot_mu_host(data):
         fig.tight_layout(pad=0)
         fig.savefig(FIGURES / "mu_host.pdf", bbox_inches="tight", dpi=450)
         plt.close(fig)
-    print(f"Delta mu U(V)-U(mu): {diff_unif.mean():.4f} +/- {err_unif.mean():.4f}")
-    print(f"Delta mu SN sel-U(mu): {diff_sn.mean():.4f} +/- {err_sn.mean():.4f}")
+    print(
+        f"Delta mu U(V)-U(mu): {diff_unif.mean():.4f} +/- {err_unif.mean():.4f}")  # noqa: E501
+    print(
+        f"Delta mu SN sel-U(mu): {diff_sn.mean():.4f} +/- {err_sn.mean():.4f}")
 
 
 def plot_mu_host_cz(data):
@@ -358,9 +363,9 @@ def plot_mu_host_cz(data):
                     yerr=mu_std[mask], fmt="o", color="black",
                     capsize=4, alpha=0.75)
         ax.plot(czrange, mu_sh0es, color=COLS[3],
-                label=r"$H_0 = 73.04~\mathrm{km}\,\mathrm{s}^{-1}\,\mathrm{Mpc}^{-1}$")
+                label=r"$H_0 = 73.04~\mathrm{km}\,\mathrm{s}^{-1}\,\mathrm{Mpc}^{-1}$")  # noqa: E501
         ax.plot(czrange, mu_planck, color=COLS[4],
-                label=r"$H_0 = 67.4~\mathrm{km}\,\mathrm{s}^{-1}\,\mathrm{Mpc}^{-1}$")
+                label=r"$H_0 = 67.4~\mathrm{km}\,\mathrm{s}^{-1}\,\mathrm{Mpc}^{-1}$")  # noqa: E501
         ax.set_xlabel(r"$c z_{\rm CMB} ~ [\mathrm{km}\,\mathrm{s}^{-1}]$")
         ax.set_ylabel(r"$\mu_{\rm host} ~ [\mathrm{mag}]$")
         ax.set_xlim(50, 3500)

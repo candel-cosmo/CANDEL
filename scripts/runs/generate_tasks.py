@@ -84,7 +84,6 @@ except ModuleNotFoundError:
 
 from specs_tasks import TASK_SPECS
 
-
 RUN_DIR = Path(__file__).resolve().parent
 CANDEL_ROOT = RUN_DIR.parent.parent
 TASK_INDEX_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
@@ -110,12 +109,11 @@ def load_candel_helpers():
     """Import heavier CANDEL helpers only for build/dry-run commands."""
     global fprint, get_nested, load_config, replace_prior_with_delta
     if load_config is None:
-        from candel import (  # noqa
-            fprint as _fprint,
-            get_nested as _get_nested,
-            load_config as _load_config,
-            replace_prior_with_delta as _replace_prior_with_delta,
-        )
+        from candel import fprint as _fprint  # noqa
+        from candel import get_nested as _get_nested
+        from candel import load_config as _load_config
+        from candel import \
+            replace_prior_with_delta as _replace_prior_with_delta
         fprint = _fprint
         get_nested = _get_nested
         load_config = _load_config
@@ -431,6 +429,25 @@ def generate_dynamic_tag(config, base_tag="default"):
         if (_is_active(mag_min)
                 and float(mag_min) != DEFAULT_TRGBH0_EDD_MAG_MIN):
             parts.append(f"magmin{_tag_number(mag_min)}")
+        sky_exposure = get_nested(config, "model/TRGB_sky_exposure", {})
+        if (isinstance(sky_exposure, dict)
+                and sky_exposure.get("enabled", False)):
+            if "n_pix" in sky_exposure:
+                raise ValueError(
+                    "`model/TRGB_sky_exposure/n_pix` is no longer "
+                    "supported; use `model/TRGB_sky_exposure/nside`.")
+            if sky_exposure.get("nside", None) is None:
+                raise ValueError(
+                    "Enabled TRGB sky exposure requires "
+                    "`model/TRGB_sky_exposure/nside`.")
+            nside = int(sky_exposure["nside"])
+            if nside <= 0 or nside & (nside - 1):
+                raise ValueError(
+                    "`model/TRGB_sky_exposure/nside` must be a positive "
+                    "power of two.")
+            kappa = sky_exposure.get("kappa", 48.0)
+            parts.append(
+                f"skyhp_nside{nside}_k{_tag_number(kappa)}")
         if not get_nested(config, "model/use_TRGB_host_redshift", True):
             parts.append("no_TRGB_redshift")
         use_reconstruction = get_nested(
@@ -782,7 +799,7 @@ def validate_generated_config(config):
 
 
 def selected_reconstruction_names(config):
-    """Return reconstruction names actively selected by the generated config."""
+    """Return reconstruction names actively selected by the generated config."""  # noqa: E501
     reconstruction_keys = (
         "io/PV_main/EDD_TRGB/reconstruction",
         "io/PV_main/EDD_TRGB_grouped/reconstruction",

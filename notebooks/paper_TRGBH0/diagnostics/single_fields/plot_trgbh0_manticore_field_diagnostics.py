@@ -1,12 +1,16 @@
 #!/usr/bin/env python
 """Plot one-Manticore-field TRGBH0 nuisance-parameter diagnostics."""
-from argparse import ArgumentParser
 import csv
-from dataclasses import dataclass
 import re
 import shutil
-from pathlib import Path
 import sys
+from argparse import ArgumentParser
+from dataclasses import dataclass
+from pathlib import Path
+
+import h5py
+import matplotlib
+from trgbh0_plot_style import FIGURE_DPI, ROOT, set_paper_rc, trgbh0_cmap
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PLOT_DIR = next(path for path in SCRIPT_DIR.parents
@@ -15,27 +19,18 @@ for path in (SCRIPT_DIR, PLOT_DIR):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-import h5py
-import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
-import scienceplots  # noqa: F401
+import plot_trgbh0_manticore_evidence_drivers as evidence_drivers  # noqa: E402
+import plot_trgbh0_manticore_tempered_evidence_h0 as tempered_evidence_h0  # noqa: E402,E501
+import scienceplots  # noqa: E402,F401
 import yaml  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
-from scipy.stats import gaussian_kde, ks_2samp, pearsonr, spearmanr  # noqa: E402
-
-import plot_trgbh0_manticore_evidence_drivers as evidence_drivers  # noqa: E402
-import plot_trgbh0_manticore_tempered_evidence_h0 as tempered_evidence_h0  # noqa: E402
-from trgbh0_plot_style import (  # noqa: E402
-    FIGURE_DPI,
-    ROOT,
-    save_pdf_png as save_pdf_png_common,
-    set_paper_rc,
-    trgbh0_cmap,
-)
-
+from scipy.stats import (gaussian_kde, ks_2samp, pearsonr,  # noqa: E402
+                         spearmanr)
+from trgbh0_plot_style import save_pdf_png as save_pdf_png_common  # noqa: E402
 
 RESULTS = ROOT / "results" / "TRGBH0_paper" / "manticore_fields_const_sigv"
 DEFAULT_OUTDIR = RESULTS / "plots"
@@ -476,7 +471,8 @@ def load_rows(config, params=PARAMS, include_lnz_harmonic=False):
     missing_evidence = []
     for path in paths:
         with h5py.File(path, "r") as handle:
-            samples = {name: finite_samples(handle, name, path) for name in params}
+            samples = {name: finite_samples(
+                handle, name, path) for name in params}
             evidence = {}
             if include_lnz_harmonic:
                 try:
@@ -499,7 +495,8 @@ def load_rows(config, params=PARAMS, include_lnz_harmonic=False):
         })
     if include_lnz_harmonic and missing_evidence:
         for path, err in missing_evidence:
-            print(f"[WARN] Skipping `{path}` for evidence-coloured plots: {err}")
+            print(
+                f"[WARN] Skipping `{path}` for evidence-coloured plots: {err}")
     if not rows:
         raise ValueError("No rows available after applying plot filters.")
     return rows
@@ -531,7 +528,7 @@ def load_evidence_rows(field_set):
         print(f"[WARN] Skipping `{path}` for evidence comparison: {err}")
     if not rows:
         raise ValueError(
-            f"No evidence rows available for `{FIELD_SET_SPECS[field_set]['label']}`.")
+            f"No evidence rows available for `{FIELD_SET_SPECS[field_set]['label']}`.")  # noqa: E501
     return rows
 
 
@@ -613,7 +610,7 @@ def fields_and_missing(rows, expected_field_count):
     return fields, missing
 
 
-def print_outputs(name, out_pdf, out_png, summary_csv, rows, config, corr=None):
+def print_outputs(name, out_pdf, out_png, summary_csv, rows, config, corr=None):  # noqa: E501
     fields, missing = fields_and_missing(rows, config.expected_field_count)
     print(f"[{name}] Wrote {out_pdf}")
     print(f"[{name}] Wrote {out_png}")
@@ -630,7 +627,7 @@ def plot_evidence_comparison(config):
         field_set: load_evidence_rows(field_set)
         for field_set in ("cola", "non-cola")
     }
-    summary_csv = config.summary_dir / "manticore_field_lnz_harmonic_comparison.csv"
+    summary_csv = config.summary_dir / "manticore_field_lnz_harmonic_comparison.csv"  # noqa: E501
     write_evidence_comparison_summary(rows_by_field_set, summary_csv)
 
     labels = {
@@ -684,7 +681,8 @@ def plot_evidence_comparison(config):
                 ls=":",
             )
 
-        delta_median = np.median(values["cola"]) - np.median(values["non-cola"])
+        delta_median = np.median(
+            values["cola"]) - np.median(values["non-cola"])
         ax.text(
             0.03,
             0.97,
@@ -1081,7 +1079,7 @@ def plot_h0_lnz_harmonic_scatter(rows, config):
 
         out_pdf = (
             config.output_dir
-            / f"trgbh0_manticore_field_h0_lnz_harmonic{config.field_suffix}.pdf"
+            / f"trgbh0_manticore_field_h0_lnz_harmonic{config.field_suffix}.pdf"  # noqa: E501
         )
         out_png = save_pdf_png(fig, out_pdf)
 

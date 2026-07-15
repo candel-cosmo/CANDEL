@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 """Plot CH0 single-field smoothing diagnostics."""
 
+import csv
 from argparse import ArgumentParser
 from collections import defaultdict
-import csv
 from math import ceil
 from pathlib import Path
 
@@ -11,14 +11,14 @@ import h5py
 import matplotlib
 
 matplotlib.use("Agg")
+import tomllib  # noqa: E402
+
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import scienceplots  # noqa: F401,E402
-import tomllib  # noqa: E402
 from matplotlib.colors import LinearSegmentedColormap, Normalize  # noqa: E402
 from matplotlib.ticker import MaxNLocator  # noqa: E402
 from scipy.stats import gaussian_kde, pearsonr, spearmanr  # noqa: E402
-
 
 ROOT = Path(__file__).resolve().parents[2]
 TASK_FILE = ROOT / "scripts" / "runs" / "tasks_CH0_single_smoothed.txt"
@@ -1078,7 +1078,7 @@ def write_summary(rows, missing, path):
         "",
         "## Double-power-law COLA/CIC density-smoothing sequence",
         "",
-        "| density smoothing R [Mpc/h] | fields | mean field H0 | std field H0 | "
+        "| density smoothing R [Mpc/h] | fields | mean field H0 | std field H0 | "  # noqa: E501
         "median field H0 | stacked H0 mean | stacked H0 std | "
         "mean delta H0 | std delta H0 | median harmonic lnZ | "
         "best harmonic lnZ field |",
@@ -1158,7 +1158,7 @@ def main():
     txt_path = args.output_dir / "ch0_single_smoothed_summary.txt"
     impact_pdf = args.output_dir / "ch0_single_smoothed_h0_matched_fields.pdf"
     broad_pdf = args.output_dir / "ch0_single_smoothed_h0_distributions.pdf"
-    evidence_pdf = args.output_dir / "ch0_single_smoothed_h0_vs_harmonic_lnz.pdf"
+    evidence_pdf = args.output_dir / "ch0_single_smoothed_h0_vs_harmonic_lnz.pdf"  # noqa: E501
     evidence_dist_pdf = (
         args.output_dir / "ch0_single_smoothed_lnz_distributions.pdf")
     bias_matched_pdf = (

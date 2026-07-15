@@ -1,20 +1,20 @@
 #!/usr/bin/env python
 """Plot CH0 leave-one-out diagnostics."""
 
-from argparse import ArgumentParser
 import csv
+from argparse import ArgumentParser
 from pathlib import Path
 
 import h5py
 import matplotlib
 
 matplotlib.use("Agg")
+import tomllib  # noqa: E402
+
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import scienceplots  # noqa: F401,E402
-import tomllib  # noqa: E402
 from matplotlib.colors import Normalize  # noqa: E402
-
 
 ROOT = Path(__file__).resolve().parents[2]
 TASK_FILE = ROOT / "scripts" / "runs" / "tasks_CH0_leaveoneout.txt"

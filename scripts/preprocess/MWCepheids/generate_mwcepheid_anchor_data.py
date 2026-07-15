@@ -21,7 +21,6 @@ from shutil import copy2
 import numpy as np
 from astropy.io import fits
 
-
 POPULATIONS = {
     "N4258": {
         "idx_start": 2150,

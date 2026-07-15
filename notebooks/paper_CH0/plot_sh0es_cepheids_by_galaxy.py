@@ -10,11 +10,11 @@ The data transformation mirrors the Cepheid part of
 ``candel.pvdata.catalogues.load_SH0ES_separated`` without building covariance
 factorisations that are not needed for this diagnostic plot.
 """
+import os
+import tempfile
 from argparse import ArgumentParser
 from math import ceil
-import os
 from pathlib import Path
-import tempfile
 
 try:
     import tomllib
@@ -50,8 +50,8 @@ def _heavy_imports():
     import matplotlib
     matplotlib.use("Agg")
 
-    import numpy as np
     import matplotlib.pyplot as plt
+    import numpy as np
     from astropy.io import fits
 
     try:
@@ -143,7 +143,7 @@ def _resolve_data_root(config, data_root):
 def _format_cut(cz_cmb_max):
     if cz_cmb_max is None:
         return "all SH0ES hosts"
-    return rf"$cz_{{\rm CMB}} < {cz_cmb_max:g}\,\mathrm{{km}}\,\mathrm{{s}}^{{-1}}$"
+    return rf"$cz_{{\rm CMB}} < {cz_cmb_max:g}\,\mathrm{{km}}\,\mathrm{{s}}^{{-1}}$"  # noqa: E501
 
 
 def _resolve_drop_index(drop_observation, num_active_hosts):
@@ -282,7 +282,8 @@ def save_cepheid_table(data, outdir):
         ]
     )
     header = "galaxy,log10_period,logp_centered,magnitude,oxygen"
-    np.savetxt(path, table, delimiter=",", header=header, comments="", fmt="%s")
+    np.savetxt(path, table, delimiter=",",
+               header=header, comments="", fmt="%s")
     return path
 
 

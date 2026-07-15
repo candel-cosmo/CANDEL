@@ -1,8 +1,13 @@
 """Shared data helpers for EDD TRGB paper summary plots."""
 import csv
 import math
-from pathlib import Path
 import sys
+from pathlib import Path
+
+import numpy as np
+from trgbh0_plot_style import OUTPUT_DIR as OUTDIR
+from trgbh0_plot_style import ROOT
+from trgbh0_plot_style import save_figure as save_figure_common
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PLOT_DIR = (
@@ -13,12 +18,6 @@ PLOT_DIR = (
 for path in (SCRIPT_DIR, PLOT_DIR):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
-
-import numpy as np
-
-from trgbh0_plot_style import OUTPUT_DIR as OUTDIR
-from trgbh0_plot_style import PAPER_RC, ROOT
-from trgbh0_plot_style import save_figure as save_figure_common
 
 
 DATA_FILE = ROOT / "data" / "EDD_TRGB" / "EDD_TRGB.txt"

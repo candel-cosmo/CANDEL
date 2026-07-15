@@ -28,6 +28,7 @@ dense_mass_params = [
     "beta", "b1",
     "mu_LMC", "mu_N4258",
     "mag_lim_TRGB", "mag_lim_TRGB_width",
+    "cz_lim_selection", "cz_lim_selection_width",
 ]
 
 ###############################################################################

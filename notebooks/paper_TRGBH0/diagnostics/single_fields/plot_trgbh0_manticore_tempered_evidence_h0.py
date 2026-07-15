@@ -1,10 +1,13 @@
 #!/usr/bin/env python
 """Plot evidence-weighted H0 marginalisation for COLA Manticore fields."""
-from argparse import ArgumentParser
 import csv
 import re
-from pathlib import Path
 import sys
+from argparse import ArgumentParser
+from pathlib import Path
+
+import h5py
+import matplotlib
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PLOT_DIR = next(path for path in SCRIPT_DIR.parents
@@ -13,23 +16,14 @@ for path in (SCRIPT_DIR, PLOT_DIR):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-import h5py
-import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
-import scienceplots  # noqa: F401
+import scienceplots  # noqa: E402,F401
 from matplotlib.colors import Normalize  # noqa: E402
-
-from trgbh0_plot_style import (  # noqa: E402
-    FIGURE_DPI,
-    ROOT,
-    save_pdf_png,
-    set_paper_rc,
-    trgbh0_cmap,
-)
-
+from trgbh0_plot_style import (FIGURE_DPI, ROOT,  # noqa: E501,E402,F401
+                               save_pdf_png, set_paper_rc, trgbh0_cmap)
 
 RESULTS = ROOT / "results" / "TRGBH0_paper" / "manticore_fields_const_sigv"
 DEFAULT_OUTDIR = RESULTS / "plots"
@@ -50,6 +44,8 @@ LIKELIHOOD_LABELS = {
     "student-t": "Student-t redshift likelihood",
 }
 FIELD_RE = re.compile(r"_field(\d+)_")
+
+
 def likelihood_suffix(likelihood):
     if likelihood == "gaussian":
         return ""
@@ -777,7 +773,7 @@ def density_interval(x_grid, density):
     return np.interp([0.16, 0.5, 0.84], cdf, x_grid)
 
 
-def plot_resampling_h0(bootstrap_rows, loo_rows, full, rows, likelihood, out_pdf):
+def plot_resampling_h0(bootstrap_rows, loo_rows, full, rows, likelihood, out_pdf):  # noqa: E501
     boot_h0 = np.asarray([row["H0_mean"] for row in bootstrap_rows],
                          dtype=float)
     q16, q50, q84 = h0_interval(boot_h0)

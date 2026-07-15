@@ -2,8 +2,11 @@
 
 Manual TikZ layout. Sized for an MNRAS two-column figure.
 """
-from pathlib import Path
+import subprocess
 import sys
+from pathlib import Path
+
+from trgbh0_plot_style import OUTPUT_DIR
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PLOT_DIR = next(path for path in SCRIPT_DIR.parents
@@ -11,9 +14,6 @@ PLOT_DIR = next(path for path in SCRIPT_DIR.parents
 for path in (SCRIPT_DIR, PLOT_DIR):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
-import subprocess
-
-from trgbh0_plot_style import OUTPUT_DIR
 
 
 TEX_FILE = SCRIPT_DIR / "trgb_forward_model_dag.tex"
@@ -272,7 +272,7 @@ for a, b in edges:
     elif key == "sigint_msamp":
         edge_lines.append(
             "\\draw[dag edge] (sigint.south) "
-            ".. controls (5.55, 5.75) and (6.25, 0.10) .. ([xshift=1.05cm]msamp.north);"
+            ".. controls (5.55, 5.75) and (6.25, 0.10) .. ([xshift=1.05cm]msamp.north);"  # noqa: E501
         )
     elif key == "rho_rdist":
         edge_lines.append(
@@ -329,7 +329,7 @@ for a, b in edges:
     elif key == "mobs_selected":
         edge_lines.append(
             "\\draw[sel edge] (mobs.south east) "
-            ".. controls (7.20, -2.65) and (12.00, -2.65) .. (selected.south west);"
+            ".. controls (7.20, -2.65) and (12.00, -2.65) .. (selected.south west);"  # noqa: E501
         )
     elif key == "selcuts_detfrac":
         edge_lines.append(
@@ -362,7 +362,7 @@ bb_bottom = -3.40
 tex = rf"""
 \documentclass[border=5pt]{{standalone}}
 \usepackage{{tikz}}
-\usetikzlibrary{{arrows.meta, backgrounds, decorations.pathreplacing, fit, shapes.geometric}}
+\usetikzlibrary{{arrows.meta, backgrounds, decorations.pathreplacing, fit, shapes.geometric}}  # noqa: E501
 \usepackage{{amsmath, amssymb}}
 \usepackage{{bm}}
 
@@ -408,7 +408,7 @@ tex = rf"""
 \begin{{document}}
 \begin{{tikzpicture}}
 
-\useasboundingbox ({bb_left:.2f}, {bb_bottom:.2f}) rectangle ({bb_right:.2f}, {bb_top:.2f});
+\useasboundingbox ({bb_left:.2f}, {bb_bottom:.2f}) rectangle ({bb_right:.2f}, {bb_top:.2f});  # noqa: E501
 
 % ===== LEGEND =====
 \begin{{scope}}[on background layer]
@@ -422,15 +422,15 @@ tex = rf"""
 \node[data, minimum width=1.35cm] at (9.55, 9.42) {{Observed}};
 \node[conditioned, minimum width=1.35cm] at (11.50, 9.42) {{Selection}};
 \node[popdist, text width=1.50cm] at (13.65, 9.42) {{Population}};
-\node[selection, minimum width=1.65cm] at (15.80, 9.42) {{Detection\\fraction}};
+\node[selection, minimum width=1.65cm] at (15.80, 9.42) {{Detection\\fraction}};  # noqa: E501
 
 % ===== NODES =====
 {nodes_block}
 
 % ===== PLATES =====
 \begin{{scope}}[on background layer]
-    \node[plate, fit=(anchprior)(anchmu)(anchgeom)(anchmtrue)(anchsky)(anchmobs)] {{}};
-    \node[plate, inner ysep=6pt, fit=(skydelta)(rdist)(rtrue)(mu)(zcos)(vpec)(cdist)(ctrue)(csamp)(cobs)(mtrue)(cztrue)(msamp)(czsamp)(mobs)(czobs)(selected)] {{}};
+    \node[plate, fit=(anchprior)(anchmu)(anchgeom)(anchmtrue)(anchsky)(anchmobs)] {{}};  # noqa: E501
+    \node[plate, inner ysep=6pt, fit=(skydelta)(rdist)(rtrue)(mu)(zcos)(vpec)(cdist)(ctrue)(csamp)(cobs)(mtrue)(cztrue)(msamp)(czsamp)(mobs)(czobs)(selected)] {{}};  # noqa: E501
 \end{{scope}}
 
 % ===== EDGES =====
@@ -449,6 +449,7 @@ tex = rf"""
 \end{{tikzpicture}}
 \end{{document}}
 """
+
 
 def main():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

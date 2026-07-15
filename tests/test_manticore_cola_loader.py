@@ -1,10 +1,11 @@
 import numpy as np
 from h5py import File
 
-from candel.field.loader import (
-    BORGFieldLoader, ManticoreLocalCOLA_FieldLoader,
-    ManticoreLocalSWIFT_FieldLoader,
-    available_mcmc_field_indices, name2field_loader)
+from candel.field.loader import (BORGFieldLoader,
+                                 ManticoreLocalCOLA_FieldLoader,
+                                 ManticoreLocalSWIFT_FieldLoader,
+                                 available_mcmc_field_indices,
+                                 name2field_loader)
 from candel.pvdata.volume_density import _density_unit_normalization
 
 

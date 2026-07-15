@@ -2,8 +2,16 @@
 """Plot Galactic latitude distributions for the EDD TRGB hosts."""
 import argparse
 import os
-from pathlib import Path
 import sys
+from pathlib import Path
+
+import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+from make_edd_trgb_ppc import CONFIG, load_observed_data
+from trgbh0_plot_style import OUTPUT_DIR, paper_style, save_pdf_png
+
+import candel
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PLOT_DIR = next(path for path in SCRIPT_DIR.parents
@@ -13,16 +21,9 @@ if str(PLOT_DIR) not in sys.path:
 
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/candel_mplconfig")
 
-import matplotlib
+
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import numpy as np
-import scienceplots  # noqa: F401
-
-import candel
-from make_edd_trgb_ppc import CONFIG, load_observed_data
-from trgbh0_plot_style import OUTPUT_DIR, paper_style, save_pdf_png
-
+import scienceplots  # noqa: E402,F401
 
 OUTDIR = OUTPUT_DIR / "model_checks"
 SIGNED_OUT = OUTDIR / "edd_trgb_host_galactic_latitude_b.pdf"

@@ -1,20 +1,20 @@
 #!/usr/bin/env python
 """Compare CH0 single-field sampled-bias and fixed-bias runs."""
 
-from argparse import ArgumentParser
-from collections import Counter, defaultdict
 import csv
+from argparse import ArgumentParser
+from collections import Counter
 from pathlib import Path
 
 import h5py
 import matplotlib
 
 matplotlib.use("Agg")
+import tomllib  # noqa: E402
+
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import scienceplots  # noqa: F401,E402
-import tomllib  # noqa: E402
-
 
 ROOT = Path(__file__).resolve().parents[2]
 TASK_SAMPLED = ROOT / "scripts" / "runs" / "tasks_CH0_single.txt"
@@ -540,7 +540,7 @@ def main():
 
     rows_csv = args.output_dir / "ch0_single_fixed_bias_comparison_rows.csv"
     pairs_csv = args.output_dir / "ch0_single_fixed_bias_comparison_pairs.csv"
-    summary_txt = args.output_dir / "ch0_single_fixed_bias_comparison_summary.txt"
+    summary_txt = args.output_dir / "ch0_single_fixed_bias_comparison_summary.txt"  # noqa: E501
     write_rows_csv(rows, rows_csv)
     write_pairs_csv(pairs, pairs_csv)
     write_summary(rows, pairs, missing, summary_txt)

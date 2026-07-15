@@ -44,7 +44,7 @@ These models work in units of $h^{-1}\,\mathrm{Mpc}$ (i.e. assume $h = 1$). Mult
 - **Cepheid-calibrated $H_0$:** 35 Cepheid host galaxies from SH0ES
 - **Milky Way Cepheid calibration:** standalone Galactic Cepheid period-luminosity calibration via `model.which_run = "MWCepheids"`
 - **TRGB-calibrated $H_0$:** Tip of the Red Giant Branch distances from CCHP and EDD, including grouped EDD hosts
-- **Megamaser disk $H_0$:** spot-level warped disk fits for NGC 5765b, NGC 6264, NGC 6323, UGC 3789, CGCG 074-064, and NGC 4258 using the BlackJAX collapsed-Gibbs sampler.
+- **Megamaser disk $H_0$:** spot-level warped disk fits for NGC 5765b, NGC 6264, NGC 6323, UGC 3789, CGCG 074-064, and NGC 4258 using the BlackJAX explicit MCMC sampler.
 
 ## Package structure
 
@@ -91,15 +91,15 @@ python scripts/runs/generate_tasks.py build test
 **Megamaser disk model:**
 ```bash
 python scripts/megamaser/run_maser.py NGC5765b
-bash scripts/megamaser/submit.sh -q cmbgpu --galaxy NGC5765b --sampler gibbs
+bash scripts/megamaser/submit.sh -q cmbgpu --galaxy NGC5765b --sampler mcmc
 ```
 
-Megamaser jobs use the unified runner above; Gibbs is the default sampler.
+Megamaser jobs use the unified runner above; MCMC is the default sampler.
 
 ### Inference methods
 
 - **NUTS** (default for the non-maser distance-indicator models): No-U-Turn Sampler via NumPyro. Robust, gradient-based.
-- **BlackJAX collapsed Gibbs:** dedicated megamaser disk sampler in `scripts/megamaser/run_maser.py`.
+- **BlackJAX explicit MCMC:** dedicated megamaser disk sampler in `scripts/megamaser/run_maser.py`.
 - **Nested Slice Sampling (NSS):** Bayesian evidence computation via a self-contained reimplementation of the NSS algorithm ([Yallup et al. 2026](https://arxiv.org/abs/2601.23252)) in `candel/inference/nested.py`. No external nested-sampling dependency required.
 - **Sobol + Adam MAP:** Multi-start MAP optimisation using Sobol quasi-random initialisation and Adam gradient descent. Configured via the `[optimise]` section of the TOML config.
 

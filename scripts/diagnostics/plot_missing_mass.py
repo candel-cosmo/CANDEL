@@ -12,13 +12,13 @@ import numpy as np
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
-from candel.model.pv_utils import (  # noqa: E402
-    convert_cartesian_frame,
-    gaussian_missing_mass_delta,
-    gaussian_missing_mass_velocity,
-    missing_mass_los_delta_velocity,
-    spherical_rhat,
-)
+from candel.model.pv_utils import convert_cartesian_frame  # noqa: E402
+from candel.model.pv_utils import gaussian_missing_mass_delta  # noqa: E402
+from candel.model.pv_utils import \
+    gaussian_missing_mass_velocity  # noqa: E402,E501
+from candel.model.pv_utils import \
+    missing_mass_los_delta_velocity  # noqa: E402,E501
+from candel.model.pv_utils import spherical_rhat  # noqa: E402
 
 
 def _unit(v):
@@ -45,7 +45,8 @@ def _offset_rhat(center, e1, e2, dx_deg, dy_deg):
         out=np.zeros_like(tangent),
         where=theta[..., None] > 0,
     )
-    rhat = np.cos(theta)[..., None] * center + np.sin(theta)[..., None] * tangent
+    rhat = np.cos(theta)[..., None] * center + \
+        np.sin(theta)[..., None] * tangent
     return rhat / np.linalg.norm(rhat, axis=-1, keepdims=True)
 
 
@@ -103,7 +104,10 @@ def _plot_profiles(args, outdir, cluster_rhat_icrs):
     ax = axes[1, 0]
     for i, theta in enumerate(offsets):
         impact = args.distance * np.sin(np.deg2rad(theta))
-        ax.plot(r_grid, delta_los[i], label=f"{theta:.2f} deg ({impact:.1f} Mpc/h)")
+        ax.plot(
+            r_grid, delta_los[i], label=f"{
+                theta:.2f} deg ({
+                impact:.1f} Mpc/h)")
     ax.set_yscale("log")
     ax.axvline(args.distance, color="0.3", lw=0.8, ls="--")
     ax.set_xlabel(r"LOS distance $r$ [Mpc/h]")

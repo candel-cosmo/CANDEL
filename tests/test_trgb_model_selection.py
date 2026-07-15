@@ -26,8 +26,10 @@ distmod_limits_N4258 = [28.0, 31.0]
 r_limits_malmquist = [0.1, 10.0]
 num_points_malmquist = 5
 mag_min_TRGB = 22.1
-mag_lim_TRGB = 26.0
-mag_lim_TRGB_width = 0.5
+    mag_lim_TRGB = 26.0
+    mag_lim_TRGB_width = 0.5
+    cz_lim_selection = 3300.0
+    cz_lim_selection_width = 100.0
 
 [model.priors.H0]
 dist = "uniform"
@@ -76,10 +78,14 @@ def _minimal_trgb_data():
     }
 
 
-@pytest.mark.parametrize(
-    "selection", ["redshift", "TRGB_magnitude_redshift"])
-def test_trgb_model_rejects_redshift_selection(tmp_path, selection):
-    config_path = _write_trgb_config(tmp_path, selection)
+def test_trgb_model_rejects_legacy_redshift_selection(tmp_path):
+    config_path = _write_trgb_config(tmp_path, "redshift")
 
     with pytest.raises(ValueError, match="Unknown `which_selection`"):
         TRGBModel(config_path, _minimal_trgb_data())
+
+
+def test_trgb_model_accepts_magnitude_redshift_selection(tmp_path):
+    config_path = _write_trgb_config(tmp_path, "TRGB_magnitude_redshift")
+
+    TRGBModel(config_path, _minimal_trgb_data())

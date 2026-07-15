@@ -1,8 +1,13 @@
 #!/usr/bin/env python
 """Run the CCHP TRGBH0 single-field diagnostic scripts."""
 
-from pathlib import Path
+import shutil
+import subprocess
 import sys
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from trgbh0_plot_style import ROOT, TRGBH0_RESULTS
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PLOT_DIR = next(path for path in SCRIPT_DIR.parents
@@ -10,11 +15,7 @@ PLOT_DIR = next(path for path in SCRIPT_DIR.parents
 for path in (SCRIPT_DIR, PLOT_DIR):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
-import shutil
-import subprocess
-from tempfile import TemporaryDirectory
 
-from trgbh0_plot_style import ROOT, TRGBH0_RESULTS
 
 TASK_DIR = ROOT / "scripts" / "runs"
 RESULTS = TRGBH0_RESULTS

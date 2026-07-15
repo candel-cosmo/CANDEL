@@ -29,13 +29,19 @@ skip_done=false
 status_only=false
 local_mode=false
 dry=false
+trgb_ppc=false
+trgb_ppc_field_indices="random"
+trgb_ppc_n_workers=""
+trgb_ppc_n_ppc=""
+trgb_ppc_seed=42
 
 usage() {
     cat <<EOF
 usage: $(basename "$0") -q QUEUE [-n NCPU] [-m MEMORY]
                         [--gpu | --no-gpu] [--gputype TYPE] [--time T]
                         [--tasks SPEC] [--batch N] [--skip-done]
-                        [--status] [--local] [--dry] <task_index>
+                        [--trgb-ppc] [--status] [--local] [--dry]
+                        <task_index>
 
 Submit CANDEL inference tasks.
 
@@ -68,6 +74,16 @@ options:
                           per task named logs-<jobid>-task_<id>.out, and
                           later tasks still run if one fails.
   --skip-done             Skip tasks whose io/fname_output already exists.
+  --trgb-ppc              After a successful EDD_TRGB/EDD_TRGB_grouped task,
+                          try to run scripts/mocks/ppc_TRGB.py on the
+                          posterior. PPC failures are logged but do not mark
+                          the inference task failed.
+  --trgb-ppc-field-indices SPEC
+                          PPC field selection: random, all, 0-29, or comma
+                          list. Default: $trgb_ppc_field_indices.
+  --trgb-ppc-n-workers N  PPC worker processes. Default: --ncpu.
+  --trgb-ppc-n-ppc N      Number of simulated PPC hosts.
+  --trgb-ppc-seed S       PPC random seed. Default: $trgb_ppc_seed.
   --status                Report done/pending status for each task and exit
                           (no submission). Respects --tasks SPEC. -q is
                           not required in this mode.
@@ -96,6 +112,15 @@ while [[ $# -gt 0 ]]; do
         --status)        status_only=true; shift ;;
         --local)         local_mode=true; shift ;;
         --dry)           dry=true; shift ;;
+        --trgb-ppc)      trgb_ppc=true; shift ;;
+        --trgb-ppc-field-indices)
+                         trgb_ppc_field_indices="$2"; shift 2 ;;
+        --trgb-ppc-n-workers)
+                         trgb_ppc_n_workers="$2"; shift 2 ;;
+        --trgb-ppc-n-ppc)
+                         trgb_ppc_n_ppc="$2"; shift 2 ;;
+        --trgb-ppc-seed)
+                         trgb_ppc_seed="$2"; shift 2 ;;
         *)               task_index="$1"; shift ;;
     esac
 done
@@ -113,6 +138,19 @@ if ! $batch_arg_set; then
     batch_mode=false
 else
     batch_mode=true
+fi
+if [[ -z "$trgb_ppc_n_workers" ]]; then
+    trgb_ppc_n_workers="$ncpu"
+fi
+if ! [[ "$trgb_ppc_n_workers" =~ ^[0-9]+$ ]] || (( trgb_ppc_n_workers < 1 )); then
+    echo "[ERROR] --trgb-ppc-n-workers must be a positive integer"; exit 1
+fi
+if [[ -n "$trgb_ppc_n_ppc" ]] \
+        && { ! [[ "$trgb_ppc_n_ppc" =~ ^[0-9]+$ ]] || (( trgb_ppc_n_ppc < 1 )); }; then
+    echo "[ERROR] --trgb-ppc-n-ppc must be a positive integer"; exit 1
+fi
+if ! [[ "$trgb_ppc_seed" =~ ^-?[0-9]+$ ]]; then
+    echo "[ERROR] --trgb-ppc-seed must be an integer"; exit 1
 fi
 # machine='local' has no batch backend: force --local and reject -q.
 if [[ "$CANDEL_CLUSTER" == "local" ]]; then
@@ -160,6 +198,124 @@ _resolved_output() {
         root="${root%/}/results"
     fi
     echo "${root%/}/$fname"
+}
+
+_read_model_which_run() {
+    awk '
+        /^\[model\][[:space:]]*$/ { in_model=1; next }
+        /^\[/                     { in_model=0 }
+        in_model && /^[[:space:]]*which_run[[:space:]]*=/ {
+            line = $0
+            sub(/^[^=]*=[[:space:]]*/, "", line)
+            sub(/[[:space:]]*(#.*)?$/, "", line)
+            gsub(/^["'\'']|["'\'']$/, "", line)
+            print line
+            exit
+        }
+    ' "$1"
+}
+
+_run_trgb_ppc() {
+    local task_id="$1" config_path="$2" posterior="$3"
+    $trgb_ppc || return 0
+
+    local which_run; which_run=$(_read_model_which_run "$config_path")
+    case "$which_run" in
+        EDD_TRGB|EDD_TRGB_grouped) ;;
+        *)
+            echo "[INFO] task $task_id: --trgb-ppc skipped for which_run=${which_run:-<unset>}"
+            return 0 ;;
+    esac
+
+    if [[ -z "$posterior" || ! -f "$posterior" ]]; then
+        echo "[WARNING] task $task_id: TRGB PPC skipped; posterior not found: ${posterior:-<unresolved>}"
+        return 0
+    fi
+
+    local -a ppc_cmd=(
+        "$CANDEL_PYTHON" -u "$CANDEL_ROOT/scripts/mocks/ppc_TRGB.py"
+        --config "$config_path"
+        --posterior "$posterior"
+        --seed "$trgb_ppc_seed"
+        --field-indices "$trgb_ppc_field_indices"
+        --n-workers "$trgb_ppc_n_workers"
+    )
+    if [[ -n "$trgb_ppc_n_ppc" ]]; then
+        ppc_cmd+=(--n-ppc "$trgb_ppc_n_ppc")
+    fi
+
+    echo "[INFO] task $task_id: running TRGB PPC"
+    echo "[INFO] PPC posterior: $posterior"
+    if "${ppc_cmd[@]}"; then
+        echo "[OK] task $task_id: TRGB PPC complete"
+    else
+        echo "[WARNING] task $task_id: TRGB PPC failed; inference result kept"
+    fi
+}
+
+_emit_task_runner_helpers() {
+    cat <<'SCRIPT'
+_read_model_which_run() {
+    awk '
+        /^\[model\][[:space:]]*$/ { in_model=1; next }
+        /^\[/                     { in_model=0 }
+        in_model && /^[[:space:]]*which_run[[:space:]]*=/ {
+            line = $0
+            sub(/^[^=]*=[[:space:]]*/, "", line)
+            sub(/[[:space:]]*(#.*)?$/, "", line)
+            gsub(/^["'\'']|["'\'']$/, "", line)
+            print line
+            exit
+        }
+    ' "$1"
+}
+
+_run_trgb_ppc() {
+    local task_id="$1" config_path="$2" posterior="$3"
+    [[ "$TRGB_PPC" == 1 ]] || return 0
+
+    local which_run; which_run=$(_read_model_which_run "$config_path")
+    case "$which_run" in
+        EDD_TRGB|EDD_TRGB_grouped) ;;
+        *)
+            echo "[INFO] task $task_id: --trgb-ppc skipped for which_run=${which_run:-<unset>}"
+            return 0 ;;
+    esac
+
+    if [[ -z "$posterior" || ! -f "$posterior" ]]; then
+        echo "[WARNING] task $task_id: TRGB PPC skipped; posterior not found: ${posterior:-<unresolved>}"
+        return 0
+    fi
+
+    local -a ppc_cmd=(
+        "$CANDEL_PYTHON" -u "$CANDEL_ROOT/scripts/mocks/ppc_TRGB.py"
+        --config "$config_path"
+        --posterior "$posterior"
+        --seed "$TRGB_PPC_SEED"
+        --field-indices "$TRGB_PPC_FIELD_INDICES"
+        --n-workers "$TRGB_PPC_N_WORKERS"
+    )
+    if [[ -n "$TRGB_PPC_N_PPC" ]]; then
+        ppc_cmd+=(--n-ppc "$TRGB_PPC_N_PPC")
+    fi
+
+    echo "[INFO] task $task_id: running TRGB PPC"
+    echo "[INFO] PPC posterior: $posterior"
+    if "${ppc_cmd[@]}"; then
+        echo "[OK] task $task_id: TRGB PPC complete"
+    else
+        echo "[WARNING] task $task_id: TRGB PPC failed; inference result kept"
+    fi
+}
+
+_run_inference_task() {
+    local task_id="$1" config_path="$2" posterior="$3"
+    export PYTHONPATH="$RUN_ROOT:${PYTHONPATH:-}"
+    "$CANDEL_PYTHON" -u "$RUN_MAIN" --config "$config_path" \
+        --host-devices "$HOST_DEVICES" || return $?
+    _run_trgb_ppc "$task_id" "$config_path" "$posterior"
+}
+SCRIPT
 }
 
 # GPU policy per cluster. On glamdring, only GPU-named queues imply GPU use
@@ -250,6 +406,8 @@ fi
 # --skip-done: drop the rows whose output exists.
 if $skip_done; then
     filtered_lines=()
+    filtered_outputs=()
+    filtered_done=()
     for i in "${!task_lines[@]}"; do
         id=${task_lines[$i]%% *}
         if [[ "${task_done[$i]}" == 1 ]]; then
@@ -257,8 +415,12 @@ if $skip_done; then
             continue
         fi
         filtered_lines+=("${task_lines[$i]}")
+        filtered_outputs+=("${task_outputs[$i]}")
+        filtered_done+=("${task_done[$i]}")
     done
     task_lines=("${filtered_lines[@]}")
+    task_outputs=("${filtered_outputs[@]}")
+    task_done=("${filtered_done[@]}")
 fi
 
 if (( ${#task_lines[@]} == 0 )); then
@@ -295,6 +457,12 @@ echo "  CPUs:        $ncpu"
 echo "  Memory:      ${submit_memory} GB requested"
 $is_gpu && echo "  GPU:         yes${gputype:+ ($gputype)}"
 echo "  Host devices: $host_devices"
+$trgb_ppc && {
+    echo "  TRGB PPC:    yes"
+    echo "    fields:    $trgb_ppc_field_indices"
+    echo "    workers:   $trgb_ppc_n_workers"
+    [[ -n "$trgb_ppc_n_ppc" ]] && echo "    n_ppc:     $trgb_ppc_n_ppc"
+}
 if (( ${#task_lines[@]} != total_in_file )); then
     echo "  Total tasks: ${#task_lines[@]} (of $total_in_file in $task_file)"
 else
@@ -325,6 +493,8 @@ if (( CANDEL_USE_FROZEN )) && [[ ! -d "$run_root" ]]; then
     exit 4
 fi
 export PYTHONPATH="$run_root:${PYTHONPATH:-}"
+runner_ext=".sh"
+[[ "$CANDEL_CLUSTER" == "glamdring" ]] && runner_ext=""
 
 _write_batch_runner() {
     local runner="$1" batch_label="$2" log_dir="$3"
@@ -342,15 +512,29 @@ _write_batch_runner() {
         printf 'HOST_DEVICES=%q\n' "$host_devices"
         printf 'BATCH_LABEL=%q\n' "$batch_label"
         printf 'LOG_DIR=%q\n' "$log_dir"
+        if $trgb_ppc; then
+            printf 'TRGB_PPC=1\n'
+        else
+            printf 'TRGB_PPC=0\n'
+        fi
+        printf 'TRGB_PPC_FIELD_INDICES=%q\n' "$trgb_ppc_field_indices"
+        printf 'TRGB_PPC_N_WORKERS=%q\n' "$trgb_ppc_n_workers"
+        printf 'TRGB_PPC_N_PPC=%q\n' "$trgb_ppc_n_ppc"
+        printf 'TRGB_PPC_SEED=%q\n' "$trgb_ppc_seed"
         printf 'batch_tasks=()\n'
+        printf 'batch_outputs=()\n'
         for ((j=start; j<end; j++)); do
             printf 'batch_tasks+=(%q)\n' "${task_lines[$j]}"
+            printf 'batch_outputs+=(%q)\n' "${task_outputs[$j]}"
         done
         cat <<'SCRIPT'
 
 mkdir -p "$LOG_DIR"
 cd "$SUBMIT_CWD"
 export PYTHONPATH="$RUN_ROOT:${PYTHONPATH:-}"
+SCRIPT
+        _emit_task_runner_helpers
+        cat <<'SCRIPT'
 
 job_id="${SLURM_JOB_ID:-${SLURM_JOBID:-${JOB_ID:-local_$$}}}"
 status_file="$LOG_DIR/logs-${job_id}-batch_${BATCH_LABEL}.status.tsv"
@@ -361,7 +545,9 @@ echo "[INFO] Logs: $LOG_DIR/logs-${job_id}-task_<id>.out"
 
 failed=0
 succeeded=0
-for line in "${batch_tasks[@]}"; do
+for k in "${!batch_tasks[@]}"; do
+    line="${batch_tasks[$k]}"
+    posterior="${batch_outputs[$k]}"
     idx="${line%% *}"
     cfg_rel="${line#* }"
     config_path="$CANDEL_ROOT/$cfg_rel"
@@ -383,8 +569,7 @@ for line in "${batch_tasks[@]}"; do
         continue
     fi
 
-    if "$CANDEL_PYTHON" -u "$RUN_MAIN" --config "$config_path" \
-        --host-devices "$HOST_DEVICES" >> "$task_log" 2>&1
+    if _run_inference_task "$idx" "$config_path" "$posterior" >> "$task_log" 2>&1
     then
         echo "[INFO] Finished: $(date -Is)" >> "$task_log"
         echo "[OK] task $idx"
@@ -409,6 +594,34 @@ SCRIPT
     chmod +x "$runner"
 }
 
+_write_single_runner() {
+    local runner="$1" idx="$2" config_path="$3" posterior="$4"
+
+    mkdir -p "$(dirname "$runner")"
+    {
+        printf '#!/bin/bash -l\n'
+        printf 'set -euo pipefail\n'
+        printf 'CANDEL_ROOT=%q\n' "$CANDEL_ROOT"
+        printf 'CANDEL_PYTHON=%q\n' "$CANDEL_PYTHON"
+        printf 'RUN_ROOT=%q\n' "$run_root"
+        printf 'RUN_MAIN=%q\n' "$run_main"
+        printf 'HOST_DEVICES=%q\n' "$host_devices"
+        if $trgb_ppc; then
+            printf 'TRGB_PPC=1\n'
+        else
+            printf 'TRGB_PPC=0\n'
+        fi
+        printf 'TRGB_PPC_FIELD_INDICES=%q\n' "$trgb_ppc_field_indices"
+        printf 'TRGB_PPC_N_WORKERS=%q\n' "$trgb_ppc_n_workers"
+        printf 'TRGB_PPC_N_PPC=%q\n' "$trgb_ppc_n_ppc"
+        printf 'TRGB_PPC_SEED=%q\n' "$trgb_ppc_seed"
+        _emit_task_runner_helpers
+        printf '_run_inference_task %q %q %q\n' \
+            "$idx" "$config_path" "$posterior"
+    } > "$runner"
+    chmod +x "$runner"
+}
+
 if $batch_mode; then
     stamp="$(date +%Y%m%d_%H%M%S)_$$"
     batch_script_root="$PWD/generated_batch_scripts/${task_index}/${stamp}"
@@ -421,7 +634,7 @@ if $batch_mode; then
         last_id=${task_lines[$((end - 1))]%% *}
         batch_label=$(printf '%04d-%04d' "$first_id" "$last_id")
         batch_job_name="task_${first_id}_batch_${batch_label}"
-        runner="$batch_script_root/batch_${batch_label}.sh"
+        runner="$batch_script_root/batch_${batch_label}${runner_ext}"
         batch_log_dir="$PWD"
 
         _write_batch_runner "$runner" "$batch_label" "$batch_log_dir" \
@@ -462,10 +675,13 @@ if $batch_mode; then
     exit 0
 fi
 
+single_runner_root=""
 for i in "${!task_lines[@]}"; do
     line="${task_lines[$i]}"
-    idx=$(echo "$line" | cut -d' ' -f1)
-    config_path="$CANDEL_ROOT/$(echo "$line" | cut -d' ' -f2-)"
+    idx="${line%% *}"
+    cfg_rel="${line#* }"
+    config_path="$CANDEL_ROOT/$cfg_rel"
+    posterior="${task_outputs[$i]}"
 
     echo "[INFO] === Task $idx ==="
     echo "[INFO] Config: $config_path"
@@ -473,11 +689,11 @@ for i in "${!task_lines[@]}"; do
         echo "[WARNING] Config file not found: $config_path"; continue
     fi
 
-    pycmd="$CANDEL_PYTHON -u $run_main --config $config_path --host-devices $host_devices"
-
     if $local_mode; then
-        echo "[INFO] Running locally..."; echo "  $pycmd"
-        eval "$pycmd"
+        echo "[INFO] Running locally..."
+        "$CANDEL_PYTHON" -u "$run_main" --config "$config_path" \
+            --host-devices "$host_devices"
+        _run_trgb_ppc "$idx" "$config_path" "$posterior"
     else
         gpu_flags=()
         if $is_gpu; then
@@ -489,9 +705,22 @@ for i in "${!task_lines[@]}"; do
         $dry && dry_flag=(--dry)
         time_flag=()
         [[ -n "$walltime" ]] && time_flag=(--time "$walltime")
+        if $trgb_ppc; then
+            if [[ -z "$single_runner_root" ]]; then
+                stamp="$(date +%Y%m%d_%H%M%S)_$$"
+                single_runner_root="$PWD/generated_batch_scripts/${task_index}/${stamp}"
+            fi
+            runner="$single_runner_root/task_${idx}${runner_ext}"
+            _write_single_runner "$runner" "$idx" "$config_path" "$posterior"
+            task_cmd=("$runner")
+        else
+            task_cmd=(/usr/bin/env "PYTHONPATH=${PYTHONPATH:-}" \
+                "$CANDEL_PYTHON" -u "$run_main" --config "$config_path" \
+                --host-devices "$host_devices")
+        fi
         submit_job "${gpu_flags[@]}" --queue "$queue" --mem "$submit_memory" \
             --cpus "$ncpu" --name "task_${idx}" \
-            "${time_flag[@]}" "${dry_flag[@]}" -- $pycmd
+            "${time_flag[@]}" "${dry_flag[@]}" -- "${task_cmd[@]}"
     fi
     echo
 done

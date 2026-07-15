@@ -4,7 +4,7 @@
 # Source this file from a submit_*.sh, then call:
 #
 #   submit_job --queue Q --mem GB
-#              [--cpus N]                 # CPU cores (default: 1, or 4 with --gpu)
+#              [--cpus N]                 # CPU cores (CPU jobs: total; GPU jobs: per GPU)
 #              [--mpi-n N | AxB]          # MPI ranks; mutually exclusive with --gpu
 #              [--gpu] [--gpu-count N] [--gputype TYPE]
 #                                           # GPU count/type; TYPE e.g. l40s, h100, a100
@@ -12,7 +12,8 @@
 #              [--time H | D-HH:MM:SS]    # bare integer = hours; required on 'long'
 #                                         # defaults: short=12h, medium=48h
 #              [--name JOB]               # job name (default: candel)
-#              [--logdir DIR]             # log directory (default: logs)
+#              [--logdir DIR]             # also copy scheduler log to DIR
+#                                          # (primary log stays in submit CWD)
 #              [--default-log]            # use scheduler default log filename
 #              [--runafter JOBIDS]        # dependency list, scheduler syntax
 #              [--dry]                    # print command without submitting
@@ -36,6 +37,27 @@ _submit_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CANDEL_ROOT="$(cd "$_submit_lib_dir/.." && pwd)"
 export CANDEL_ROOT
 export PYTHONPATH="$CANDEL_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+
+if [[ "${1:-}" == "__copy_scheduler_log" ]]; then
+    shift
+    job_name="$1"
+    logdir="$2"
+    shift 2
+    [[ "${1:-}" == "--" ]] && shift
+
+    set +e
+    "$@"
+    status=$?
+    set -e
+
+    job_id="${SLURM_JOB_ID:-}"
+    if [[ -n "$job_id" ]]; then
+        logfile="logs-${job_id}-${job_name}.out"
+        mkdir -p "$logdir"
+        [[ -f "$logfile" ]] && cp "$logfile" "$logdir/$logfile"
+    fi
+    exit "$status"
+fi
 
 _toml_get() {
     local key="$1" file="$2"
@@ -163,7 +185,7 @@ launch_detached() {
 submit_job() {
     local queue="" mem="" cpus="" time="" name="candel" logdir="logs"
     local gpu=0 dry=0 mpi_n="" gputype="" gpu_mem_min="" gpu_count=1
-    local default_log=0 runafter=""
+    local default_log=0 runafter="" logdir_explicit=0
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --queue)   queue="$2"; shift 2 ;;
@@ -172,7 +194,7 @@ submit_job() {
             --mpi-n)   mpi_n="$2"; shift 2 ;;
             --time)    time="$2"; shift 2 ;;
             --name)    name="$2"; shift 2 ;;
-            --logdir)  logdir="$2"; shift 2 ;;
+            --logdir)  logdir="$2"; logdir_explicit=1; shift 2 ;;
             --default-log) default_log=1; shift ;;
             --runafter) runafter="$2"; shift 2 ;;
             --gpu)     gpu=1; shift ;;
@@ -199,9 +221,6 @@ submit_job() {
         echo "[submit_job] --mpi-n and --gpu are mutually exclusive" >&2
         return 2
     fi
-    if [[ -z "$cpus" ]]; then
-        if (( gpu )); then cpus=4; else cpus=1; fi
-    fi
     if [[ -n "${CANDEL_WATCH_ROUND:-}" && "$CANDEL_WATCH_ROUND" -gt 0 ]] 2>/dev/null; then
         name="${name}_r${CANDEL_WATCH_ROUND}"
     fi
@@ -212,6 +231,15 @@ submit_job() {
     if (( gpu_count > 1 && ! gpu )); then
         echo "[submit_job] --gpu-count given without --gpu; ignoring" >&2
         gpu_count=1
+    fi
+    if [[ -n "$cpus" ]] && ! [[ "$cpus" =~ ^[1-9][0-9]*$ ]]; then
+        echo "[submit_job] --cpus must be a positive integer" >&2
+        return 2
+    fi
+    if [[ -z "$cpus" ]]; then
+        if (( gpu )); then cpus=$((4 * gpu_count)); else cpus=1; fi
+    elif (( gpu )); then
+        cpus=$((cpus * gpu_count))
     fi
     if [[ -n "$gputype" ]] && (( ! gpu )); then
         echo "[submit_job] --gputype given without --gpu; ignoring" >&2
@@ -236,7 +264,33 @@ submit_job() {
         fi
     fi
 
-    local cmd_str="$*"
+    local cmd_str=""
+    local arg
+    for arg in "$@"; do
+        cmd_str+="$(printf '%q ' "$arg")"
+    done
+    cmd_str="${cmd_str% }"
+    local run_args=("$@")
+    local log_file="" log_display="" log_copy_display="" run_cmd=""
+    if (( ! default_log )); then
+        log_file="logs-%j-${name}.out"
+        log_display="$log_file"
+        [[ "$log_display" != /* ]] && log_display="$PWD/$log_display"
+        log_display="${log_display//%j/<jobid>}"
+        if (( logdir_explicit )); then
+            log_copy_display="$logdir/logs-<jobid>-${name}.out"
+        fi
+    fi
+    run_cmd="$cmd_str"
+    if (( logdir_explicit && ! default_log )); then
+        run_args=("/usr/bin/env" "bash" "$CANDEL_ROOT/scripts/_submit_lib.sh"
+                  "__copy_scheduler_log" "$name" "$logdir" -- "$@")
+        run_cmd=""
+        for arg in "${run_args[@]}"; do
+            run_cmd+="$(printf '%q ' "$arg")"
+        done
+        run_cmd="${run_cmd% }"
+    fi
 
     case "$CANDEL_CLUSTER" in
         arc)
@@ -244,14 +298,15 @@ submit_job() {
             # same file so there is a single log per job.
             local sbatch_flags=(
                 -p "$queue"
-                --mem="${mem}G"
+                --mem-per-cpu="${mem}G"
                 --job-name="$name"
                 --chdir="$PWD"
-                --output="logs-%j-${name}.out"
-                --error="logs-%j-${name}.out"
                 --mail-type=BEGIN,END,FAIL
                 --mail-user=richard.stiskalek@physics.ox.ac.uk
             )
+            if (( ! default_log )); then
+                sbatch_flags+=(--output="$log_file" --error="$log_file")
+            fi
             if [[ -n "$mpi_n" ]]; then
                 sbatch_flags+=(--ntasks="$mpi_total" --cpus-per-task=1)
             else
@@ -301,9 +356,32 @@ submit_job() {
                     fi
                     sbatch_flags+=(--constraint "$_mem_constraint")
                 fi
+                # Default-skip certain GPU models: rtx8000 (Quadro RTX 8000) and
+                # rtx (Titan RTX, htc-g041-043).  Live-queried by gres type so the
+                # node list needs no maintenance.  An explicit --gputype request for
+                # one of these still lands on it.  sbatch honours a single
+                # --exclude, so all skipped models fold into one nodelist.
+                local _skip_types=(rtx8000 rtx)
+                local _skip_re="" _t
+                for _t in "${_skip_types[@]}"; do
+                    [[ "$_t" == "$gputype" ]] && continue
+                    _skip_re+="${_skip_re:+|}gpu:${_t}:"
+                done
+                if [[ -n "$_skip_re" ]]; then
+                    local _gpu_exclude
+                    _gpu_exclude=$(sinfo -p "$queue" -N -h -o "%N %G" \
+                        | awk -v re="$_skip_re" '$2 ~ re {print $1}' | sort -u | paste -sd, -)
+                    [[ -n "$_gpu_exclude" ]] && sbatch_flags+=(--exclude="$_gpu_exclude")
+                fi
             fi
             echo "[submit_job] arc: sbatch ${sbatch_flags[*]}"
-            echo "[submit_job] cmd : $cmd_str"
+            if (( default_log )); then
+                echo "[submit_job] log : $PWD/slurm-<jobid>.out"
+            else
+                echo "[submit_job] log : $log_display"
+                [[ -n "$log_copy_display" ]] && echo "[submit_job] log copy: $log_copy_display"
+            fi
+            echo "[submit_job] cmd : $run_cmd"
             if (( dry )); then
                 echo "[submit_job] (dry: not submitting)"
                 return 0
@@ -316,7 +394,7 @@ submit_job() {
 export CANDEL_MODULES_ACTIVE="$mods"
 export PYTHONPATH="$CANDEL_ROOT\${PYTHONPATH:+:\$PYTHONPATH}"
 source "$_cluster_profile"
-$cmd_str
+$run_cmd
 SCRIPT
             ); then
                 echo "$_sbatch_out"
@@ -324,8 +402,8 @@ SCRIPT
             fi
             echo "$_sbatch_out"
             local _jid
-            _jid=$(echo "$_sbatch_out" \
-                | grep -oP 'Submitted batch job \K[0-9]+' || true)
+            _jid=$(printf '%s\n' "$_sbatch_out" \
+                | awk '/Submitted batch job/ {print $NF; exit}')
             [[ -n "$_jid" ]] && echo "JOBID=$_jid"
             ;;
         glamdring)
@@ -340,13 +418,13 @@ SCRIPT
                 addqueue_flags+=(--runafter "$runafter")
             fi
             if (( ! default_log )); then
-                addqueue_flags+=(-o "logs-%j-${name}.out")
+                addqueue_flags+=(-o "$log_file")
             fi
             if (( gpu )); then
                 addqueue_flags+=(-s --gpus "$gpu_count" -n "$cpus")
                 [[ -n "$gputype" ]] && addqueue_flags+=(--gputype "$gputype")
             elif [[ -n "$mpi_n" ]]; then
-                addqueue_flags+=(-n "$mpi_n")
+                addqueue_flags+=(-s -n "$mpi_n")
             else
                 addqueue_flags+=(-s -n "$cpus")
             fi
@@ -362,11 +440,12 @@ SCRIPT
             fi
             local addqueue_prefix=""
             [[ ${#addqueue_env[@]} -gt 0 ]] && addqueue_prefix="${addqueue_env[*]} "
-            echo "[submit_job] glamdring: ${addqueue_prefix}addqueue ${addqueue_flags[*]} $cmd_str"
+            echo "[submit_job] glamdring: ${addqueue_prefix}addqueue ${addqueue_flags[*]} $run_cmd"
             if (( default_log )); then
                 echo "[submit_job] log     : $PWD/python-<jobid>.out"
             else
-                echo "[submit_job] log     : $PWD/logs-<jobid>-${name}.out"
+                echo "[submit_job] log     : $log_display"
+                [[ -n "$log_copy_display" ]] && echo "[submit_job] log copy: $log_copy_display"
             fi
             if (( dry )); then
                 echo "[submit_job] (dry: not submitting)"
@@ -374,20 +453,20 @@ SCRIPT
             fi
             local _aq_out
             if [[ ${#addqueue_env[@]} -gt 0 ]]; then
-                if ! _aq_out=$(env "${addqueue_env[@]}" addqueue --sbatch "${addqueue_flags[@]}" $cmd_str 2>&1); then
+                if ! _aq_out=$(env "${addqueue_env[@]}" addqueue --sbatch "${addqueue_flags[@]}" "${run_args[@]}" 2>&1); then
                     echo "$_aq_out"
                     return 1
                 fi
             else
-                if ! _aq_out=$(addqueue --sbatch "${addqueue_flags[@]}" $cmd_str 2>&1); then
+                if ! _aq_out=$(addqueue --sbatch "${addqueue_flags[@]}" "${run_args[@]}" 2>&1); then
                     echo "$_aq_out"
                     return 1
                 fi
             fi
             echo "$_aq_out"
             local _jid
-            _jid=$(echo "$_aq_out" \
-                | grep -oP 'Submitted batch job \K[0-9]+' || true)
+            _jid=$(printf '%s\n' "$_aq_out" \
+                | awk '/Submitted batch job/ {print $NF; exit}')
             [[ -n "$_jid" ]] && echo "JOBID=$_jid"
             ;;
         local)

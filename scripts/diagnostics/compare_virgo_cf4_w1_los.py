@@ -13,12 +13,12 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 import candel  # noqa: E402
-from candel.pvdata.volume_density import _density_unit_normalization  # noqa: E402
+from candel.pvdata.volume_density import \
+    _density_unit_normalization  # noqa: E402
 from candel.util import SPEED_OF_LIGHT, radec_to_galactic  # noqa: E402
 
-
 RECONSTRUCTIONS = (
-    ("COLA Manticore", "COLA_manticore_2MPP_MULTIBIN_N256_DES_V2", "tab:orange"),
+    ("COLA Manticore", "COLA_manticore_2MPP_MULTIBIN_N256_DES_V2", "tab:orange"),  # noqa: E501
     ("Manticore", "manticore_2MPP_MULTIBIN_N256_DES_V2", "tab:blue"),
     ("Carrick2015", "Carrick2015", "black"),
 )

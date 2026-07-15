@@ -8,7 +8,7 @@ from pathlib import Path
 
 URL = "https://www.astro.utoronto.ca/DDO/research/cepheids/table_positons.html"
 REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_OUTPUT = REPO_ROOT / "data" / "MWCepheids" / "ddo_cepheid_positions.csv"
+DEFAULT_OUTPUT = REPO_ROOT / "data" / "MWCepheids" / "ddo_cepheid_positions.csv"  # noqa: E501
 
 
 def main():

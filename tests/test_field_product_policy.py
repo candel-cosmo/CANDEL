@@ -1,12 +1,9 @@
 import math
 from pathlib import Path
 
-from candel.field import (
-    field_allows_raw_product_reads,
-    field_metadata,
-    field_requires_cached_products,
-    supported_field_names,
-)
+from candel.field import (field_allows_raw_product_reads, field_metadata,
+                          field_requires_cached_products,
+                          supported_field_names)
 from candel.pvdata.field_products import los_field_cache_path
 
 

@@ -251,8 +251,9 @@ class ModelBase(ABC):
             if data[key] is None:
                 keys_popped.append(key)
                 del data[key]
-        fprint("Popped the following keys with `None` "
-               f"values from data: {', '.join(keys_popped)}")
+        if keys_popped:
+            fprint("Popped the following keys with `None` "
+                   f"values from data: {', '.join(keys_popped)}")
 
         attrs_set = []
         for k, v in data.items():

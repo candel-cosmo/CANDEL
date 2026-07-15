@@ -15,19 +15,18 @@ different posterior files.
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 import re
+from pathlib import Path
 
-import healpy as hp
 import h5py
+import healpy as hp
 import matplotlib.pyplot as plt
-from matplotlib.text import Text
 import numpy as np
+from matplotlib.text import Text
 from scipy.interpolate import RegularGridInterpolator
 
 import candel
 from candel.field.loader import ManticoreLocalSWIFT_FieldLoader
-
 
 ROOT = Path("/mnt/users/rstiskalek/CANDEL")
 DEFAULT_FIELD_ROOT = (
@@ -37,7 +36,7 @@ DEFAULT_FIELD_ROOT = (
 DEFAULT_POSTERIOR = (
     ROOT
     / "results/TRGBH0_paper/table/"
-    / "EDD_TRGB_rhoSmoothR4_MAS-PCS_sel-TRGB_magnitude_ManticoreLocalCOLA_main.hdf5"
+    / "EDD_TRGB_rhoSmoothR4_MAS-PCS_sel-TRGB_magnitude_ManticoreLocalCOLA_main.hdf5"  # noqa: E501
 )
 DEFAULT_CACHE = ROOT / "notebooks/manticore_velocity_field_cache.npz"
 DEFAULT_OUTDIR = ROOT / "notebooks/manticore_velocity_field"
@@ -55,9 +54,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--outdir", type=Path, default=DEFAULT_OUTDIR)
     parser.add_argument("--nside", type=int, default=32)
     parser.add_argument("--sky-rmin", type=float, default=0.0,
-                        help="Minimum radius for sky-map vrad average in Mpc/h.")
+                        help="Minimum radius for sky-map vrad average in Mpc/h.")  # noqa: E501
     parser.add_argument("--sky-rmax", type=float, default=15.0,
-                        help="Maximum radius for sky-map vrad average in Mpc/h.")
+                        help="Maximum radius for sky-map vrad average in Mpc/h.")  # noqa: E501
     parser.add_argument("--sky-num-radii", type=int, default=16,
                         help="Number of radii used for the sky-map average.")
     parser.add_argument("--bulk-radii", type=float, nargs="+",
@@ -90,7 +89,8 @@ def selected_realisations(args: argparse.Namespace) -> np.ndarray:
     if args.max_realisations is not None:
         indices = indices[:args.max_realisations]
     if not indices:
-        raise ValueError(f"No Manticore realisations found in {args.field_root}.")
+        raise ValueError(
+            f"No Manticore realisations found in {args.field_root}.")
     return np.asarray(indices, dtype=np.int16)
 
 
@@ -293,7 +293,7 @@ def read_vext_samples(path: Path) -> np.ndarray:
 
 
 def vector_galactic(vectors: np.ndarray) -> tuple[np.ndarray, np.ndarray,
-                                                 np.ndarray]:
+                                                  np.ndarray]:
     mag, ell, b = candel.radec_cartesian_to_galactic(
         vectors[..., 0], vectors[..., 1], vectors[..., 2])
     return np.atleast_1d(mag), np.atleast_1d(ell), np.atleast_1d(b)
@@ -394,7 +394,7 @@ def plot_bulk_flow(cache: dict, bulk_plus_vext: np.ndarray,
     plt.close(fig)
 
 
-def write_summary(cache: dict, vext: np.ndarray, observer_plus_vext: np.ndarray,
+def write_summary(cache: dict, vext: np.ndarray, observer_plus_vext: np.ndarray,  # noqa: E501
                   posterior_path: Path, outpath: Path) -> None:
     obs_summary = vector_summary(observer_plus_vext)
     manticore_obs_summary = vector_summary(cache["observer_velocity"])

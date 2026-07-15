@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 """Plot CH0 single-field H0 summaries and evidence diagnostics."""
 
-from argparse import ArgumentParser
 import csv
 import re
+from argparse import ArgumentParser
 from pathlib import Path
 
 import h5py
@@ -12,10 +12,9 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
-import scienceplots  # noqa: F401
+import scienceplots  # noqa: E402,F401
 from matplotlib.colors import LinearSegmentedColormap, Normalize  # noqa: E402
 from scipy.stats import gaussian_kde, pearsonr, spearmanr  # noqa: E402
-
 
 ROOT = Path(__file__).resolve().parents[2]
 RESULTS = ROOT / "results" / "CH0_paper" / "single_fields"

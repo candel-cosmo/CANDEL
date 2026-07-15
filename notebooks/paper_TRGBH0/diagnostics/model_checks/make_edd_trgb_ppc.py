@@ -2,9 +2,9 @@
 """Make EDD TRGB Gaussian PPC plots."""
 import argparse
 import copy
-from pathlib import Path
 import sys
 import tempfile
+from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PLOT_DIR = next(path for path in SCRIPT_DIR.parents
@@ -12,14 +12,17 @@ PLOT_DIR = next(path for path in SCRIPT_DIR.parents
 if str(PLOT_DIR) not in sys.path:
     sys.path.insert(0, str(PLOT_DIR))
 
-import matplotlib
-matplotlib.use("Agg")
+import matplotlib  # noqa: E402
+import tomli_w  # noqa: E402
+from trgbh0_plot_style import (OUTPUT_DIR, ROOT,  # noqa: E402
+                               TRGBH0_TABLE_RESULTS)
 
-import candel
-import tomli_w
-from candel.mock import (
-    generate_trgb_ppc, plot_trgb_ppc, plot_trgb_ppc_distance)
-from trgbh0_plot_style import OUTPUT_DIR, ROOT, TRGBH0_TABLE_RESULTS
+import candel  # noqa: E402
+from candel.mock import (generate_trgb_ppc, plot_trgb_ppc,  # noqa: E402
+                         plot_trgb_ppc_distance, plot_trgb_ppc_sky,
+                         plot_trgb_ppc_sky_exposure)
+
+matplotlib.use("Agg")
 
 
 CONFIG = ROOT / "scripts/runs/configs/config_EDD_TRGB.toml"
@@ -97,7 +100,7 @@ def default_output(mode, field_index):
         return (
             OUTPUT_DIR
             / f"trgbh0_edd_trgb_manticore_field{field_index:02d}_"
-              "gaussian_ppc.pdf"
+            "gaussian_ppc.pdf"
         )
     return DEFAULT_OUTPUTS[mode]
 
@@ -158,8 +161,10 @@ def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--mode", choices=("carrick", "none", "manticore"),
-        default="carrick",
-        help="PPC reconstruction mode.")
+        default="manticore",
+        help="PPC reconstruction mode. Defaults to the Manticore baseline "
+             "so the paper-bound PPC figures are not C15/Carrick; the "
+             "`carrick` mode remains available as a diagnostic.")
     parser.add_argument(
         "--field-index", type=int, default=None,
         help=("Manticore realisation to draw from. Carrick defaults to field "
@@ -178,12 +183,33 @@ def parse_args():
         "--ppc-factor", type=int, default=None,
         help="Override config model.ppc_factor when --n-ppc is omitted.")
     parser.add_argument(
+        "--n-workers", type=int, default=None,
+        help="Parallel PPC worker processes. Defaults to runtime CPU env.")
+    parser.add_argument(
         "--manticore-root", type=Path, default=None,
         help="Root containing ManticoreLocalCOLA MAS subdirectories.")
     parser.add_argument(
         "--b-min", type=float, default=None,
         help=("Apply the same lower |Galactic latitude| cut, in degrees, "
               "to the observed EDD TRGB hosts and PPC sky positions."))
+    parser.add_argument(
+        "--vmono", action="store_true",
+        help="Include the constant Vext monopole term in the PPC.")
+    parser.add_argument(
+        "--voct", action="store_true",
+        help="Include the Vext octupole term in the PPC.")
+    parser.add_argument(
+        "--sky-mask-nside", type=int, default=None,
+        help=("Override the PPC HEALPix sky-mask nside. Defaults to "
+              "model.TRGB_sky_exposure; use 0 to disable."))
+    parser.add_argument(
+        "--sky-mask-kappa", type=float, default=None,
+        help=("Override the Dirichlet prior concentration for the angular "
+              "exposure. Defaults to model.TRGB_sky_exposure.kappa."))
+    parser.add_argument(
+        "--sky-mask-posterior-mean", action="store_true",
+        help=("Use the posterior-mean angular exposure instead of drawing "
+              "one Dirichlet realization."))
     parser.add_argument("--seed", type=int, default=SEED)
     parser.add_argument(
         "--no-progress", action="store_true",
@@ -212,6 +238,10 @@ def main():
         _set_nested(config, "model/ppc_factor", args.ppc_factor)
     if args.b_min is not None:
         _set_nested(config, "io/PV_main/EDD_TRGB/b_min", args.b_min)
+    if args.vmono:
+        _set_nested(config, "model/which_Vext_monopole", "constant")
+    if args.voct:
+        _set_nested(config, "model/use_Vext_octupole", True)
 
     data = load_observed_data(config)
     posterior = args.posterior or default_posterior(args.mode, field_index)
@@ -238,6 +268,10 @@ def main():
         seed=args.seed,
         field_index=field_index,
         progress=not args.no_progress,
+        sky_exposure_nside=args.sky_mask_nside,
+        sky_exposure_kappa=args.sky_mask_kappa,
+        sky_exposure_posterior_mean=args.sky_mask_posterior_mean,
+        n_workers=args.n_workers,
     )
 
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -246,6 +280,16 @@ def main():
         f"{output.stem}_distance_distribution{output.suffix}")
     distance_stats = plot_trgb_ppc_distance(
         ppc, str(distance_output), mnras=True)
+    sky_output = output.with_name(
+        f"{output.stem}_sky_distribution{output.suffix}")
+    sky_stats = plot_trgb_ppc_sky(ppc, str(sky_output), mnras=True)
+    exposure_output = None
+    exposure_stats = None
+    if "sky_exposure" in ppc:
+        exposure_output = output.with_name(
+            f"{output.stem}_sky_exposure{output.suffix}")
+        exposure_stats = plot_trgb_ppc_sky_exposure(
+            ppc, str(exposure_output), mnras=True)
 
     print_section("EDD TRGB PPC result")
     print(f"mode                      : {args.mode}")
@@ -253,8 +297,23 @@ def main():
     print(f"posterior                 : {posterior}")
     print(f"wrote                     : {output}")
     print(f"wrote                     : {distance_output}")
+    print(f"wrote                     : {sky_output}")
+    if exposure_output is not None:
+        print(f"wrote                     : {exposure_output}")
     print(f"n_obs                     : {len(ppc['mag_obs'])}")
     print(f"n_ppc                     : {len(ppc['mag_sim'])}")
+    print(f"sky n_obs                 : {sky_stats['n_obs']}")
+    print(f"sky n_ppc                 : {sky_stats['n_ppc']}")
+    if "sky_exposure" in ppc:
+        exposure = ppc["sky_exposure"]
+        print(f"sky mask nside            : {exposure['nside']}")
+        print(f"sky mask n_pix            : {exposure['n_pix']}")
+        print(f"sky mask kappa            : {exposure['kappa']:.3g}")
+        print("sky mask relative range   : "
+              f"{exposure_stats['ratio_min']:.3g}--"
+              f"{exposure_stats['ratio_max']:.3g}")
+        print("sky mask accept norm      : "
+              f"{exposure['exposure_acceptance_norm']:.3g}")
     print("retained distance median  : "
           f"{distance_stats['r_median']:.3g} Mpc "
           f"[{distance_stats['r_p16']:.3g}, "

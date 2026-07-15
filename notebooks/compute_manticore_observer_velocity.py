@@ -10,13 +10,12 @@ import numpy as np
 
 import candel
 
-
 ROOT = Path("/mnt/users/rstiskalek/CANDEL")
 DEFAULT_CACHE = ROOT / "notebooks/manticore_velocity_field_cache.npz"
 DEFAULT_POSTERIOR = (
     ROOT
     / "results/TRGBH0_paper/table/"
-    / "EDD_TRGB_sel-TRGB_magnitude_manticore_2MPP_MULTIBIN_N256_DES_V2_main.hdf5"
+    / "EDD_TRGB_sel-TRGB_magnitude_manticore_2MPP_MULTIBIN_N256_DES_V2_main.hdf5"  # noqa: E501
 )
 
 

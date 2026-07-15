@@ -1,7 +1,15 @@
 #!/usr/bin/env python
 """Plot TRGBH0 H0 posteriors against SH0ES and Planck bands."""
-from pathlib import Path
 import sys
+from pathlib import Path
+
+import h5py
+import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+from scipy.stats import gaussian_kde
+from trgbh0_plot_style import (FIGURE_DPI, OUTPUT_DIR, TRGBH0_COLOURS,
+                               TRGBH0_TABLE_RESULTS, paper_style, save_figure)
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PLOT_DIR = next(path for path in SCRIPT_DIR.parents
@@ -10,23 +18,9 @@ for path in (SCRIPT_DIR, PLOT_DIR):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-import h5py
-import matplotlib
+
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import numpy as np
-import scienceplots  # noqa: F401
-from scipy.stats import gaussian_kde
-
-from trgbh0_plot_style import (
-    FIGURE_DPI,
-    OUTPUT_DIR,
-    TRGBH0_COLOURS,
-    TRGBH0_TABLE_RESULTS,
-    paper_style,
-    save_figure,
-)
-
+import scienceplots  # noqa: E402,F401
 
 RESULTS = TRGBH0_TABLE_RESULTS
 OUTDIR = OUTPUT_DIR
@@ -43,14 +37,14 @@ POSTERIORS = [
     (
         r"\texttt{Manticore}, Gaussian",
         RESULTS
-        / "EDD_TRGB_rhoSmoothR4_MAS-PCS_sel-TRGB_magnitude_ManticoreLocalCOLA_main.hdf5",
+        / "EDD_TRGB_rhoSmoothR4_MAS-PCS_sel-TRGB_magnitude_ManticoreLocalCOLA_main.hdf5",  # noqa: E501
         H0_COLOURS["density_sigv"],
         "-",
     ),
     (
         r"\texttt{Manticore}, Student-$t$",
         RESULTS
-        / "EDD_TRGB_rhoSmoothR4_cz-student_t_MAS-PCS_sel-TRGB_magnitude_ManticoreLocalCOLA_main.hdf5",
+        / "EDD_TRGB_rhoSmoothR4_cz-student_t_MAS-PCS_sel-TRGB_magnitude_ManticoreLocalCOLA_main.hdf5",  # noqa: E501
         H0_COLOURS["student_t"],
         "--",
     ),

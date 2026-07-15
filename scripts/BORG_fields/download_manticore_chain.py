@@ -100,9 +100,8 @@ def require_boto3():
         from botocore.client import Config
     except ImportError as exc:
         raise SystemExit(
-            "This script requires boto3 in the BORG environment. "
-            f"Install with: {configured_path('borg_python')} -m pip install boto3"
-        ) from exc
+            "This script requires boto3 in the BORG environment. " f"Install with: {  # noqa: E501
+                configured_path('borg_python')} -m pip install boto3") from exc
     return boto3, Config
 
 
@@ -217,14 +216,16 @@ class Progress:
             self.last_percent = percent
 
 
-def planned_downloads(args: argparse.Namespace) -> list[tuple[int | None, str, int]]:
+def planned_downloads(
+        args: argparse.Namespace) -> list[tuple[int | None, str, int]]:
     manual_args = args.subchain is not None or args.mcmc is not None
     if manual_args:
         if args.subchain is None or args.mcmc is None:
-            raise SystemExit("Manual mode requires both --subchain and --mcmc.")
+            raise SystemExit(
+                "Manual mode requires both --subchain and --mcmc.")
         return [(None, args.subchain, args.mcmc)]
 
-    output_dir = args.output_dir.expanduser().resolve()
+    args.output_dir.expanduser().resolve()
     schedule_path = args.schedule.expanduser().resolve()
     schedule = read_schedule(schedule_path)
     steps = parse_steps(args.steps)
@@ -285,7 +286,8 @@ def main() -> int:
     print(f"planned downloads: {len(targets)}")
     for step, subchain, mcmc in targets:
         prefix = f"step {step}: " if step is not None else ""
-        print(f"{prefix}{subchain} mcmc_{mcmc} -> {output_path(output_dir, subchain, mcmc)}")
+        print(
+            f"{prefix}{subchain} mcmc_{mcmc} -> {output_path(output_dir, subchain, mcmc)}")  # noqa: E501
 
     if args.dry_run:
         return 0

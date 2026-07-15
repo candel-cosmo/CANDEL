@@ -1,5 +1,9 @@
 .claude/
-.codex
+.codex/*
+!.codex/
+!.codex/config.toml
+!.codex/repo-memory.md
+!.codex/update_repo_memory.py
 .vscode/
 venv_candel/
 venv_gpu_candel/
@@ -36,9 +40,7 @@ modules_arc.sh
 python.sh
 bash.sh
 *.out
-CLAUDE.md
 GEMINI.md
-AGENTS.md
 local_config.toml
 
 *.png
@@ -53,8 +55,9 @@ local_config.toml
 **/*plot*/**/*.pdf
 **/*plot*/**/*.csv
 **/*plot*/**/*.txt
-CLAUDE.md
 background_info/
+# Private Reid fit_disk source/build artifacts are not public.
+background_info/fit_disk_Reid/
 docs/plans/
 remote_logs/
 notebooks/paper_S8/sr_interp_cache/
@@ -63,3 +66,5 @@ notebooks/paper_TRGBH0/output/
 notebooks/paper_VFO/output/
 notebooks/manticore_velocity_field/
 notebooks/manticore_velocity_field_cache.npz
+scripts/megamaser/check_reid/reidlik_build/
+for_mark_reid/

@@ -8,10 +8,10 @@ from pathlib import Path
 
 import h5py
 import matplotlib
-
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+
+matplotlib.use("Agg")
 
 
 def parse_args() -> argparse.Namespace:
@@ -21,7 +21,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--iteration", type=int, required=True)
     parser.add_argument("--nprocs", type=int, required=True)
     parser.add_argument("--axis", type=int, choices=(0, 1, 2), default=2)
-    parser.add_argument("--index", type=int, help="Default: middle slice along --axis.")
+    parser.add_argument(
+        "--index",
+        type=int,
+        help="Default: middle slice along --axis.")
     parser.add_argument("--output", type=Path, required=True)
     return parser.parse_args()
 
@@ -34,7 +37,12 @@ def field_slice(dataset, axis: int, index: int) -> np.ndarray:
     return np.asarray(dataset[:, :, index])
 
 
-def generated_slice(output_pattern: Path, iteration: int, nprocs: int, axis: int, index: int) -> np.ndarray:
+def generated_slice(
+        output_pattern: Path,
+        iteration: int,
+        nprocs: int,
+        axis: int,
+        index: int) -> np.ndarray:
     output = Path(str(output_pattern) % iteration)
     pieces = []
     offset = 0
@@ -62,7 +70,8 @@ def generated_slice(output_pattern: Path, iteration: int, nprocs: int, axis: int
     return np.concatenate(pieces, axis=0)
 
 
-def robust_limits(image: np.ndarray, symmetric: bool = False) -> tuple[float, float]:
+def robust_limits(image: np.ndarray,
+                  symmetric: bool = False) -> tuple[float, float]:
     finite = image[np.isfinite(image)]
     if finite.size == 0:
         return 0.0, 1.0
@@ -75,9 +84,20 @@ def robust_limits(image: np.ndarray, symmetric: bool = False) -> tuple[float, fl
     return float(lo), float(hi)
 
 
-def draw_panel(fig, ax, image: np.ndarray, title: str, label: str, symmetric: bool = False) -> None:
+def draw_panel(
+        fig,
+        ax,
+        image: np.ndarray,
+        title: str,
+        label: str,
+        symmetric: bool = False) -> None:
     vmin, vmax = robust_limits(image, symmetric=symmetric)
-    im = ax.imshow(image.T, origin="lower", cmap="coolwarm", vmin=vmin, vmax=vmax)
+    im = ax.imshow(
+        image.T,
+        origin="lower",
+        cmap="coolwarm",
+        vmin=vmin,
+        vmax=vmax)
     ax.set_title(title)
     ax.set_xlabel("grid index")
     ax.set_ylabel("grid index")
@@ -88,18 +108,31 @@ def main() -> None:
     args = parse_args()
     with h5py.File(args.mcmc.expanduser().resolve(), "r") as handle:
         ref = handle["/scalars/BORG_final_density"]
-        index = args.index if args.index is not None else ref.shape[args.axis] // 2
+        index = args.index if args.index is not None else ref.shape[args.axis] // 2  # noqa: E501
         if index < 0 or index >= ref.shape[args.axis]:
-            raise ValueError(f"Slice index {index} outside axis {args.axis} with size {ref.shape[args.axis]}")
+            raise ValueError(
+                f"Slice index {index} outside axis {args.axis} with size {ref.shape[args.axis]}")  # noqa: E501
         ref_slice = field_slice(ref, args.axis, index)
 
-    gen_slice = generated_slice(args.output_pattern.expanduser().resolve(), args.iteration, args.nprocs, args.axis, index)
+    gen_slice = generated_slice(
+        args.output_pattern.expanduser().resolve(),
+        args.iteration,
+        args.nprocs,
+        args.axis,
+        index)
     diff = gen_slice - ref_slice
 
-    fig, axes = plt.subplots(1, 3, figsize=(14.4, 4.8), constrained_layout=True)
+    fig, axes = plt.subplots(1, 3, figsize=(
+        14.4, 4.8), constrained_layout=True)
     draw_panel(fig, axes[0], gen_slice, "generated RSD density", "density")
     draw_panel(fig, axes[1], ref_slice, "reference BORG density", "density")
-    draw_panel(fig, axes[2], diff, "generated - reference", "density difference", symmetric=True)
+    draw_panel(
+        fig,
+        axes[2],
+        diff,
+        "generated - reference",
+        "density difference",
+        symmetric=True)
     fig.suptitle(f"RSD validation: axis {args.axis} slice {index}")
 
     output = args.output.expanduser().resolve()

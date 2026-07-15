@@ -1,12 +1,15 @@
 #!/usr/bin/env python
 """Compare TRGBH0 single-field COLA MAS runs."""
 
+import csv
+import sys
 from argparse import ArgumentParser
 from dataclasses import dataclass
-import csv
 from itertools import combinations
 from pathlib import Path
-import sys
+
+import h5py
+import matplotlib
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PLOT_DIR = next(path for path in SCRIPT_DIR.parents
@@ -15,27 +18,19 @@ for path in (SCRIPT_DIR, PLOT_DIR):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-import h5py
-import matplotlib
 
 matplotlib.use("Agg")
+import tomllib  # noqa: E402
+
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import scienceplots  # noqa: F401,E402
-import tomllib  # noqa: E402
 from matplotlib.colors import Normalize  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
 from matplotlib.ticker import MaxNLocator  # noqa: E402
 from scipy.stats import gaussian_kde  # noqa: E402
-
-from trgbh0_plot_style import (  # noqa: E402
-    FIGURE_DPI,
-    ROOT,
-    save_pdf_png,
-    set_paper_rc,
-    trgbh0_cmap,
-)
-
+from trgbh0_plot_style import (FIGURE_DPI, ROOT,  # noqa: E501,E402,F401
+                               save_pdf_png, set_paper_rc, trgbh0_cmap)
 
 TASK_FILE = ROOT / "scripts" / "runs" / "tasks_TRGBH0_single.txt"
 DEFAULT_OUTDIR = (
@@ -357,6 +352,68 @@ def rows_for_mas(rows, mas):
     return [row for row in rows if row.mas == mas]
 
 
+def combined_field_marginalised_h0(rows):
+    """Field-marginalised H0 from the equal-weight pooled per-field samples.
+
+    Each COLA reconstruction field is treated as an equally probable
+    realisation, so the field-marginalised posterior is the equal-weight
+    mixture of the per-field H0 posteriors (the black "stacked posterior"
+    in the H0-posteriors figure). Returns ``(q16, q50, q84, n_fields)``.
+    """
+    pooled = []
+    for row in rows:
+        with h5py.File(row.source, "r") as handle:
+            samples = finite_samples(handle, "H0", row.source)
+        if samples is not None:
+            pooled.append(samples)
+    if not pooled:
+        return np.nan, np.nan, np.nan, 0
+    stacked = np.concatenate(pooled)
+    q16, q50, q84 = np.percentile(stacked, [16.0, 50.0, 84.0])
+    return float(q16), float(q50), float(q84), len(pooled)
+
+
+def _weighted_quantile(values, weights, quantiles):
+    order = np.argsort(values)
+    v = np.asarray(values, dtype=float)[order]
+    w = np.asarray(weights, dtype=float)[order]
+    cw = np.cumsum(w)
+    cw /= cw[-1]
+    return np.interp(quantiles, cw, v)
+
+
+def evidence_weighted_field_marginalised_h0(rows):
+    """Evidence-weighted field-marginalised H0 (contrast to equal-weight).
+
+    Weights each field's posterior by its harmonic-mean marginal evidence,
+    w_f propto exp(lnZ_f). For constrained reconstruction realisations this
+    is *not* the recommended marginalisation: with large field-to-field
+    lnZ spreads it collapses onto the single best-evidence field (small
+    effective field count n_eff). Reported only as a robustness contrast.
+    Returns ``(q16, q50, q84, n_eff)``.
+    """
+    samples_list, lnz_list = [], []
+    for row in rows:
+        with h5py.File(row.source, "r") as handle:
+            samples = finite_samples(handle, "H0", row.source)
+        lnz = row_value(row, "lnZ_harmonic")
+        if samples is not None and np.isfinite(lnz):
+            samples_list.append(samples)
+            lnz_list.append(lnz)
+    if not samples_list:
+        return np.nan, np.nan, np.nan, np.nan
+    w = np.exp(np.asarray(lnz_list) - np.max(lnz_list))
+    w /= w.sum()
+    n_eff = float(1.0 / np.sum(w ** 2))
+    all_samples = np.concatenate(samples_list)
+    sample_w = np.concatenate([
+        np.full(s.size, wf / s.size)
+        for s, wf in zip(samples_list, w)])
+    q16, q50, q84 = _weighted_quantile(
+        all_samples, sample_w, [0.16, 0.50, 0.84])
+    return float(q16), float(q50), float(q84), n_eff
+
+
 def active_mas_order(rows):
     return tuple(mas for mas in MAS_ORDER if rows_for_mas(rows, mas))
 
@@ -586,7 +643,7 @@ def write_plot_exclusions_csv(rows, out_csv):
 def add_best_label(ax, rows, x_key, y_key="H0_q50"):
     finite_rows = [
         row for row in rows
-        if np.isfinite(row_value(row, x_key)) and np.isfinite(row_value(row, y_key))
+        if np.isfinite(row_value(row, x_key)) and np.isfinite(row_value(row, y_key))  # noqa: E501
     ]
     if not finite_rows:
         return
@@ -979,7 +1036,8 @@ def plot_parameter_diagnostics(rows, mas_order, out_pdf):
         ]
         if handles:
             axes[0].legend(handles=handles, loc="best", frameon=False)
-        axes[0].set_title("H0 against bias and selection parameters", loc="left")
+        axes[0].set_title(
+            "H0 against bias and selection parameters", loc="left")
         return save_pdf_png(fig, out_pdf)
 
 
@@ -1134,7 +1192,7 @@ def plot_beta_diagnostics(rows, out_pdf):
         return save_pdf_png(fig, out_pdf)
 
 
-def print_summary(rows, mas_order, matched, missing, unusable, plot_exclusions):
+def print_summary(rows, mas_order, matched, missing, unusable, plot_exclusions):  # noqa: E501
     print(f"Loaded {len(rows)} outputs.")
     if unusable:
         print(f"Unusable outputs: {len(unusable)}.")
@@ -1169,11 +1227,19 @@ def print_summary(rows, mas_order, matched, missing, unusable, plot_exclusions):
             )
         else:
             best_summary = "best lnZ field=none"
+        q16, q50, q84, _ = combined_field_marginalised_h0(mas_rows)
+        ew16, ew50, ew84, n_eff = evidence_weighted_field_marginalised_h0(
+            mas_rows)
         print(
             f"{mas}: n={len(mas_rows)}, "
             f"median field H0={np.median(h0):.3f}, "
             f"field-to-field std={np.std(h0, ddof=1):.3f}, "
+            f"combined H0={q50:.2f} [{q16:.2f}, {q84:.2f}] (68%), "
             f"{best_summary}"
+        )
+        print(
+            f"      evidence-weighted H0={ew50:.2f} "
+            f"[{ew16:.2f}, {ew84:.2f}] (68%), n_eff={n_eff:.1f} fields"
         )
 
     print(f"Matched fields: {len(matched)}.")
@@ -1219,7 +1285,12 @@ def print_summary(rows, mas_order, matched, missing, unusable, plot_exclusions):
 def main():
     args = parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    variant = args.output_dir.name
+    tag_parts = [f"cz-{args.cz_likelihood}"]
+    if args.smooth_R is not None:
+        tag_parts.append(f"R{args.smooth_R:g}")
+    if args.beta_prior_dist != "all":
+        tag_parts.append(f"beta-{args.beta_prior_dist}")
+    tag = "_".join(tag_parts)
 
     rows, unusable = load_rows(
         args.task_file,
@@ -1236,10 +1307,12 @@ def main():
         plot_rows, mas_order, args.require_complete)
     deltas = delta_rows(matched, mas_order)
 
-    summary_csv = args.output_dir / "trgbh0_single_field_summary.csv"
-    delta_csv = args.output_dir / "trgbh0_single_matched_deltas.csv"
-    unusable_csv = args.output_dir / "trgbh0_single_unusable_outputs.csv"
-    exclusions_csv = args.output_dir / "trgbh0_single_plot_exclusions.csv"
+    summary_csv = args.output_dir / f"trgbh0_single_{tag}_field_summary.csv"
+    delta_csv = args.output_dir / f"trgbh0_single_{tag}_matched_deltas.csv"
+    unusable_csv = (
+        args.output_dir / f"trgbh0_single_{tag}_unusable_outputs.csv")
+    exclusions_csv = (
+        args.output_dir / f"trgbh0_single_{tag}_plot_exclusions.csv")
     write_summary_csv(rows, summary_csv)
     write_delta_csv(deltas, delta_csv)
     write_unusable_csv(unusable, unusable_csv)
@@ -1248,31 +1321,31 @@ def main():
     plot_h0_vs_harmonic_lnz(
         plot_rows,
         mas_order,
-        args.output_dir / f"trgbh0_single_{variant}_h0_vs_harmonic_lnz.pdf",
+        args.output_dir / f"trgbh0_single_{tag}_h0_vs_harmonic_lnz.pdf",
     )
     plot_h0_histograms(
         plot_rows,
         mas_order,
-        args.output_dir / f"trgbh0_single_{variant}_h0_posteriors.pdf",
+        args.output_dir / f"trgbh0_single_{tag}_h0_posteriors.pdf",
     )
     if len(mas_order) >= 2 and matched:
         plot_matched_fields(
             matched,
             mas_order,
-            args.output_dir / f"trgbh0_single_{variant}_matched_fields.pdf",
+            args.output_dir / f"trgbh0_single_{tag}_matched_fields.pdf",
         )
     plot_mas_deltas(
         deltas,
-        args.output_dir / f"trgbh0_single_{variant}_mas_deltas.pdf",
+        args.output_dir / f"trgbh0_single_{tag}_mas_deltas.pdf",
     )
     plot_parameter_diagnostics(
         plot_rows,
         mas_order,
-        args.output_dir / f"trgbh0_single_{variant}_h0_vs_parameters.pdf",
+        args.output_dir / f"trgbh0_single_{tag}_h0_vs_parameters.pdf",
     )
     plot_beta_diagnostics(
         plot_rows,
-        args.output_dir / f"trgbh0_single_{variant}_beta_diagnostics.pdf",
+        args.output_dir / f"trgbh0_single_{tag}_beta_diagnostics.pdf",
     )
 
     print_summary(
