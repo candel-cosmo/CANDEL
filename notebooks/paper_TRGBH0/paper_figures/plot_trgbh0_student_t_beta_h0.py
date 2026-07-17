@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Plot beta-free Student-t TRGBH0 H0 posterior diagnostics."""
+"""Plot fiducial fixed-beta Student-t TRGBH0 H0 per-field diagnostics."""
 import re
 import shutil
 import sys
@@ -43,6 +43,7 @@ FREE_BETA_POSTERIOR = (
     / "EDD_TRGB_rhoSmoothR4_cz-student_t_MAS-PCS_sel-TRGB_magnitude_"
       "ManticoreLocalCOLA_beta_free_main.hdf5"
 )
+# Fiducial: free-beta Student-t, 48-pixel sky exposure.
 SINGLE_PATTERN = (
     "EDD_TRGB_rhoSmoothR4_cz-student_t_MAS-PCS_sel-TRGB_magnitude_"
     "bmin10_skyhp_nside2_k192_ManticoreLocalCOLA_beta_free_field*_"
@@ -54,7 +55,8 @@ DEFAULT_OUTDIR = OUTDIR / "trgbh0_student_t_beta"
 H0_LABEL = (
     r"$H_0~[\mathrm{km}\,\mathrm{s}^{-1}\,\mathrm{Mpc}^{-1}]$"
 )
-LNZ_LABEL = r"$\ln \mathcal{Z}$"
+LNZ_LABEL = r"$\log \mathcal{Z}$"  # base-10, to match the paper convention
+LN10 = np.log(10.0)
 SIGMA_V_LABEL = r"$\sigma_v~[\mathrm{km}\,\mathrm{s}^{-1}]$"
 LNZ_CMAP = "Blues"
 SIGMA_V_CMAP = "magma"
@@ -248,7 +250,8 @@ def plot_marginal(rows, out_pdf):
 
 def plot_stacked(rows, out_pdf):
     x_grid = density_grid([row["samples"] for row in rows])
-    evidence = np.asarray([row["lnZ_harmonic"] for row in rows], dtype=float)
+    evidence = np.asarray([row["lnZ_harmonic"] for row in rows],
+                          dtype=float) / LN10
     medians = np.asarray([row["q50"] for row in rows], dtype=float)
     norm = Normalize(vmin=float(np.min(evidence)),
                      vmax=float(np.max(evidence)))
@@ -311,11 +314,13 @@ def plot_stacked(rows, out_pdf):
 
 
 def plot_h0_vs_lnz(rows, out_pdf):
-    evidence = np.asarray([row["lnZ_harmonic"] for row in rows], dtype=float)
+    evidence = np.asarray([row["lnZ_harmonic"] for row in rows],
+                          dtype=float) / LN10
     h0 = np.asarray([row["q50"] for row in rows], dtype=float)
     h0_lo = np.asarray([row["q16"] for row in rows], dtype=float)
     h0_hi = np.asarray([row["q84"] for row in rows], dtype=float)
-    xerr = np.asarray([row["err_lnZ_harmonic"] for row in rows], dtype=float)
+    xerr = np.asarray([row["err_lnZ_harmonic"] for row in rows],
+                      dtype=float) / LN10
     sigma_v = np.asarray([row["sigma_v_q50"] for row in rows], dtype=float)
     yerr = np.vstack([h0 - h0_lo, h0_hi - h0])
     finite_xerr = np.isfinite(xerr)

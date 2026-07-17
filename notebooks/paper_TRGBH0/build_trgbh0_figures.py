@@ -15,6 +15,8 @@ TARGETS = {
         PAPER_FIGURE_DIR / "plot_edd_trgb_sky_distribution.py",
     ],
     "h0": [PAPER_FIGURE_DIR / "plot_trgbh0_h0_comparison.py"],
+    "cz_likelihood": [
+        PAPER_FIGURE_DIR / "plot_trgbh0_cz_likelihood_pdfs.py"],
     "model": [PAPER_FIGURE_DIR / "render_trgb_forward_model_dag.py"],
     "student_t_beta": [PAPER_FIGURE_DIR / "plot_trgbh0_student_t_beta_h0.py"],
 }
@@ -25,6 +27,7 @@ TARGET_OUTPUTS = {
         "edd_trgb_sky_distribution.pdf",
     ],
     "h0": ["trgbh0_h0_comparison.pdf"],
+    "cz_likelihood": ["trgbh0_cz_likelihood_pdfs.pdf"],
     "model": ["trgb_forward_model_dag.pdf"],
     "student_t_beta": [
         (

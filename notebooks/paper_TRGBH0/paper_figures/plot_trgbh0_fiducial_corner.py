@@ -18,9 +18,10 @@ for path in (SCRIPT_DIR, PLOT_DIR):
 RESULTS = TRGBH0_TABLE_RESULTS
 OUTDIR = OUTPUT_DIR
 
+# Fiducial: free-beta Student-t, R4 smoothing, 48-pixel sky exposure.
 FIDUCIAL = (
     RESULTS
-    / "EDD_TRGB_rhoSmoothR4_MAS-PCS_sel-TRGB_magnitude_ManticoreLocalCOLA_main.hdf5"  # noqa: E501
+    / "EDD_TRGB_rhoSmoothR4_cz-student_t_MAS-PCS_sel-TRGB_magnitude_bmin10_skyhp_nside2_k192_ManticoreLocalCOLA_beta_free_main.hdf5"  # noqa: E501
 )
 
 CORNER_KEYS = [
@@ -33,6 +34,7 @@ CORNER_KEYS = [
     "mu_N4258",
     "sigma_int",
     "sigma_v",
+    "beta",
     "mag_lim_TRGB",
     "mag_lim_TRGB_width",
     "Vext_mag",
