@@ -43,7 +43,6 @@ setup(
         "jax==0.9.2",
         "jaxlib==0.9.2",
         "jax-cuda12-plugin==0.9.2",
-        "optax",
         "numpyro",
         "numpy",
         "scipy",
