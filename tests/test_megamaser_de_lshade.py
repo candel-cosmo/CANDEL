@@ -165,7 +165,8 @@ def test_resume_accepts_explicit_nfe_checkpoint(tmp_path):
     explicit = tmp_path / "new.npz"
     np.savez(explicit, algorithm=np.asarray("lshade"),
              seed_policy=np.asarray("data_sobol_only"),
-             population_schedule=np.asarray("nfe_linear"))
+             population_schedule=np.asarray("nfe_linear"),
+             objective_policy=np.asarray(de._DE_OBJECTIVE_POLICY))
     with np.load(explicit) as checkpoint:
         de._validate_de_checkpoint_policy(checkpoint, str(explicit))
 
@@ -185,6 +186,16 @@ def test_resume_rejects_legacy_generation_schedule(tmp_path):
     with np.load(wrong) as checkpoint:
         with pytest.raises(ValueError, match="population schedule"):
             de._validate_de_checkpoint_policy(checkpoint, str(wrong))
+
+
+def test_resume_rejects_legacy_objective(tmp_path):
+    legacy = tmp_path / "legacy_objective.npz"
+    np.savez(legacy, algorithm=np.asarray("lshade"),
+             seed_policy=np.asarray("data_sobol_only"),
+             population_schedule=np.asarray("nfe_linear"))
+    with np.load(legacy) as checkpoint:
+        with pytest.raises(ValueError, match="objective policy"):
+            de._validate_de_checkpoint_policy(checkpoint, str(legacy))
 
 
 def test_lshade_trials_are_reproducible_and_bounded():
@@ -302,7 +313,8 @@ def test_exact_archive_filters_new_keys_and_preserves_cache(tmp_path):
         calls.append(points.copy())
         return np.sum(points, axis=1)
 
-    archive = de._ExactArchive(str(path), dimension=2)
+    archive = de._ExactArchive(
+        str(path), dimension=2, objective_policy=de._DE_OBJECTIVE_POLICY)
     first = np.array([[1.0, 2.0], [3.0, 4.0], [1.0, 2.0]])
     np.testing.assert_allclose(
         archive(batch_eval, first), [3.0, 7.0, 3.0])
@@ -322,7 +334,9 @@ def test_exact_archive_filters_new_keys_and_preserves_cache(tmp_path):
     assert archive.lookup_queries == 1
     archive.close()
 
-    resumed = de._ExactArchive(str(path), dimension=2, resume=True)
+    resumed = de._ExactArchive(
+        str(path), dimension=2, resume=True,
+        objective_policy=de._DE_OBJECTIVE_POLICY)
 
     def should_not_evaluate(points, desc=None):
         raise AssertionError("persisted cache entry was evaluated again")
@@ -332,6 +346,11 @@ def test_exact_archive_filters_new_keys_and_preserves_cache(tmp_path):
     assert resumed.hits == 2
     assert resumed.lookup_queries == 1
     resumed.close()
+
+    with pytest.raises(ValueError, match="archive objective policy"):
+        de._ExactArchive(
+            str(path), dimension=2, resume=True,
+            objective_policy="different_objective")
 
 
 def test_exact_archive_backfills_compact_fingerprints(tmp_path):
@@ -368,6 +387,11 @@ def test_exact_archive_backfills_compact_fingerprints(tmp_path):
     assert archive.connection.execute(
         "SELECT COUNT(*) FROM evaluation_fingerprints").fetchone() == (1,)
     archive.close()
+
+    with pytest.raises(ValueError, match="'legacy'"):
+        de._ExactArchive(
+            str(path), dimension=2, resume=True,
+            objective_policy=de._DE_OBJECTIVE_POLICY)
 
 
 def test_exact_archive_fingerprint_collision_is_only_a_sql_probe(

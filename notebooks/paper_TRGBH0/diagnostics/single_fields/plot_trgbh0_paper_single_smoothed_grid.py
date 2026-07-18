@@ -36,31 +36,37 @@ DEFAULT_OUT = (
 LN10 = np.log(10.0)
 H0_LABEL = r"$H_0~[\mathrm{km}\,\mathrm{s}^{-1}\,\mathrm{Mpc}^{-1}]$"
 # Variants grouped by the model axis under test, so competing variants sit
-# next to each other. Within each group the Gaussian and Student-t partners
-# are adjacent. Labels match those built by `parse_run` ("sky"=48-pixel
-# nside=2, "sky12"=12-pixel nside=1). Cells with no run on disk are drawn as
-# empty placeholders.
+# next to each other. The group header carries the axis (sky resolution,
+# monopole, smoothing), so each column label only needs its redshift
+# likelihood and whether beta is free. Keys must match those built by
+# `parse_run` ("sky"=48-pixel nside=2, "sky12"=12-pixel nside=1); cells with
+# no run on disk are drawn as empty placeholders.
+GAUSS = "Gaussian"
+STUD = "Student-$t$"
+GAUSS_B = "Gaussian,\nfree $\\beta$"
+STUD_B = "Student-$t$,\nfree $\\beta$"
 GROUPS = [
     ("No sky", [
-        ("R4 Gauss", "R4\nGauss"),
-        ("R4 Stud", "R4\nStud"),
+        ("R4 Gauss", GAUSS),
+        ("R4 Stud", STUD),
     ]),
     ("12-pixel sky", [
-        ("R4 Gauss sky12", "R4\nGauss\nsky12"),
-        ("R4 Stud sky12", "R4\nStud\nsky12"),
+        ("R4 Gauss sky12", GAUSS),
+        ("R4 Stud sky12", STUD),
     ]),
     ("48-pixel sky", [
-        ("R4 Gauss sky", "R4\nGauss\nsky48"),
-        ("R4 Stud sky", "R4\nStud\nsky48"),
-        ("R4 Stud sky beta", "R4\nStud\nsky48\n$\\beta$"),
+        ("R4 Gauss sky", GAUSS),
+        ("R4 Stud sky", STUD),
+        ("R4 Gauss sky beta", GAUSS_B),
+        ("R4 Stud sky beta", STUD_B),
     ]),
     ("Velocity monopole", [
-        ("R4 Gauss Vmono sky", "R4\nGauss\nVmono"),
-        ("R4 Stud Vmono sky", "R4\nStud\nVmono"),
+        ("R4 Gauss Vmono sky", GAUSS),
+        ("R4 Stud Vmono sky", STUD),
     ]),
     ("8 Mpc/h smoothing", [
-        ("R8 Gauss sky", "R8\nGauss\nsky48"),
-        ("R8 Stud sky", "R8\nStud\nsky48"),
+        ("R8 Gauss sky", GAUSS),
+        ("R8 Stud sky", STUD),
     ]),
 ]
 # Colour the competing likelihoods distinctly.

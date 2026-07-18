@@ -17,7 +17,15 @@ num_samples=1000
 num_chains=1
 which_selection="TRGB_magnitude"
 use_field=true
+field_disable_arg=""
 field_name="Carrick2015"
+field_index=0
+field_index_set=false
+cz_likelihood="gaussian"
+nu_cz=""
+b_min=""
+field_smoothing_scale=""
+default_manticore=false
 fix_selection=true
 fix_Vext=false
 config="$ROOT/scripts/runs/configs/config_EDD_TRGB.toml"
@@ -188,6 +196,18 @@ options:
   --no-field              disable reconstruction-field sampling
   --use-field             enable reconstruction-field sampling (default)
   --field-name NAME       reconstruction field name (default: $field_name)
+  --field-index N         field realisation index, e.g. Manticore nsim
+                          (default: $field_index)
+  --default-manticore     TRGBH0 fiducial preset: Manticore COLA PCS field,
+                          double power-law bias, Student-t, |b| >= 10 deg,
+                          4 Mpc/h smoothing, inferred selection, paper-table
+                          truths; field picked as master seed % 80.
+                          Flags placed after it override the preset.
+  --cz-likelihood NAME    gaussian or student_t (default: $cz_likelihood)
+  --nu-cz X               true Student-t dof (student_t only)
+  --b-min X               Galactic-plane mask |b| >= X deg in mock and model
+  --field-smoothing-scale X
+                          Gaussian density smoothing [Mpc/h] in mock and model
   --single                run without MPI
   --plot-only             with --single: generate and plot, skip inference
   --local                 run locally (mpirun / plain python), no submission
@@ -223,9 +243,29 @@ while [[ $# -gt 0 ]]; do
         --infer-selection) fix_selection=false; shift ;;
         --fix-selection)   fix_selection=true; shift ;;
         --fix-Vext)        fix_Vext=true; shift ;;
-        --no-field|--disable-field) use_field=false; shift ;;
-        --use-field)       use_field=true; shift ;;
+        --no-field|--disable-field)
+            use_field=false; field_disable_arg="--no-field"; shift ;;
+        --use-field)
+            use_field=true; field_disable_arg=""; shift ;;
         --field-name)      field_name="$2"; shift 2 ;;
+        --field-index)     field_index="$2"; field_index_set=true; shift 2 ;;
+        --cz-likelihood)   cz_likelihood="$2"; shift 2 ;;
+        --nu-cz)           nu_cz="$2"; shift 2 ;;
+        --b-min)           b_min="$2"; shift 2 ;;
+        --field-smoothing-scale) field_smoothing_scale="$2"; shift 2 ;;
+        --default-manticore)
+            # TRGBH0 fiducial preset: flags after this one still override.
+            default_manticore=true
+            use_field=true
+            field_disable_arg=""
+            field_name="ManticoreLocalCOLA"
+            cz_likelihood="student_t"
+            nu_cz=2.33
+            b_min=10
+            field_smoothing_scale=4.0
+            fix_selection=false
+            extra_args="$extra_args --default-manticore"
+            shift ;;
         --single)          single_mode=true; extra_args="$extra_args --single"; shift ;;
         --plot-only)       extra_args="$extra_args --plot-only"; shift ;;
         --local)           local_mode=true; shift ;;
@@ -267,6 +307,18 @@ PY
     fi
 fi
 
+# Under the preset, pick one field for the whole batch from the master seed
+# (so all GPU shards share it). In --single mode defer to the Python rule
+# (seed-derived) unless an index was given explicitly.
+if $default_manticore && $use_field && ! $field_index_set; then
+    if $single_mode; then
+        field_index=""
+    else
+        field_index=$((master_seed % 80))
+        echo "[INFO] --default-manticore: using $field_name field $field_index (= master seed % 80)"
+    fi
+fi
+
 echo "TRGB mock closure test"
 echo "============================================================"
 echo "  Cluster:     $CANDEL_CLUSTER"
@@ -294,7 +346,13 @@ echo "  Selection:   $which_selection"
 echo "  Field:       $use_field"
 if $use_field; then
     echo "  Field name:  $field_name"
+    echo "  Field index: ${field_index:-seed-derived}"
+    $default_manticore && echo "  Field MAS:   PCS"
 fi
+echo "  cz like.:    $cz_likelihood"
+[[ -n "$nu_cz" ]] && echo "  nu_cz:       $nu_cz"
+[[ -n "$b_min" ]] && echo "  b_min:       $b_min deg"
+[[ -n "$field_smoothing_scale" ]] && echo "  Smoothing:   $field_smoothing_scale Mpc/h"
 echo "  Sel params:  $($fix_selection && echo fixed-to-truth || echo inferred)"
 echo "  Vext:        $($fix_Vext && echo fixed-to-truth || echo inferred)"
 echo "  Config:      $config"
@@ -314,7 +372,14 @@ $fix_selection && selection_args="--fix-selection"
 vext_args=""
 $fix_Vext && vext_args="--fix-Vext"
 field_args=""
-$use_field && field_args="--use-field --field-name $field_name"
+if $use_field; then
+    field_args="--use-field --field-name $field_name"
+    [[ -n "$field_index" ]] && field_args="$field_args --field-index $field_index"
+fi
+model_args="--cz-likelihood $cz_likelihood"
+[[ -n "$nu_cz" ]] && model_args="$model_args --nu-cz $nu_cz"
+[[ -n "$b_min" ]] && model_args="$model_args --b-min $b_min"
+[[ -n "$field_smoothing_scale" ]] && model_args="$model_args --field-smoothing-scale $field_smoothing_scale"
 
 pycmd="$CANDEL_PYTHON -u $ROOT/scripts/mocks/mock_TRGB.py \
     --n-mocks $n_mocks \
@@ -328,6 +393,8 @@ pycmd="$CANDEL_PYTHON -u $ROOT/scripts/mocks/mock_TRGB.py \
     $selection_args \
     $vext_args \
     $field_args \
+    $field_disable_arg \
+    $model_args \
     $extra_args"
 
 if $gpu_mode; then
@@ -348,12 +415,16 @@ if $gpu_mode; then
     dry_flag=()
     $dry && dry_flag=(--dry)
     field_tag="nofield"
-    $use_field && field_tag="field_$(safe_tag "$field_name")"
+    $use_field && field_tag="field_$(safe_tag "$field_name")${field_index}"
     selection_tag="fixedsel"
     $fix_selection || selection_tag="infersel"
+    extra_tag=""
+    [[ "$cz_likelihood" != "gaussian" ]] && extra_tag="${extra_tag}_$(safe_tag "$cz_likelihood")"
+    [[ -n "$b_min" ]] && extra_tag="${extra_tag}_bmin$(safe_tag "$b_min")"
+    [[ -n "$field_smoothing_scale" ]] && extra_tag="${extra_tag}_smooth$(safe_tag "$field_smoothing_scale")"
     vext_tag=""
     $fix_Vext && vext_tag="_fixedVext"
-    mode_tag="$(safe_tag "$which_selection")_${field_tag}_${selection_tag}${vext_tag}"
+    mode_tag="$(safe_tag "$which_selection")_${field_tag}_${selection_tag}${extra_tag}${vext_tag}"
     run_stamp="$(date -u +%Y%m%dT%H%M%SZ)"
     shard_root="$outdir/gpu_shards_${mode_tag}_seed_${master_seed}_${run_stamp}"
     merge_out="$outdir/mock_TRGB_biases_${mode_tag}_gpu_merged.npz"
@@ -386,6 +457,8 @@ if $gpu_mode; then
             $selection_args \
             $vext_args \
             $field_args \
+            $field_disable_arg \
+            $model_args \
             $extra_args"
         echo "  shard $i: queue=$shard_queue mocks=$shard_mocks seed=$shard_seed"
         submit_out=$(submit_job --queue "$shard_queue" --mem "$memory" \

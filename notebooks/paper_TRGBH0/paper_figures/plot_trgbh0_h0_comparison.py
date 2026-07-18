@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 """Plot TRGBH0 H0 posteriors against SH0ES and Planck bands."""
+import glob
 import sys
 from pathlib import Path
 
@@ -8,8 +9,6 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import gaussian_kde
-from trgbh0_plot_style import (FIGURE_DPI, OUTPUT_DIR, TRGBH0_COLOURS,
-                               TRGBH0_TABLE_RESULTS, paper_style, save_figure)
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PLOT_DIR = next(path for path in SCRIPT_DIR.parents
@@ -17,6 +16,10 @@ PLOT_DIR = next(path for path in SCRIPT_DIR.parents
 for path in (SCRIPT_DIR, PLOT_DIR):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
+
+from trgbh0_plot_style import (FIGURE_DPI, OUTPUT_DIR, TRGBH0_COLOURS,  # noqa: E402
+                               TRGBH0_TABLE_RESULTS, paper_style,
+                               save_figure)
 
 
 matplotlib.use("Agg")
@@ -33,22 +36,17 @@ H0_COLOURS = {
     "shoes": TRGBH0_COLOURS[3],
 }
 
-POSTERIORS = [
-    (
-        r"\texttt{Manticore}, Gaussian",
-        RESULTS
-        / "EDD_TRGB_rhoSmoothR4_MAS-PCS_sel-TRGB_magnitude_bmin10_skyhp_nside2_k192_ManticoreLocalCOLA_main.hdf5",  # noqa: E501
-        H0_COLOURS["density_sigv"],
-        "-",
-    ),
-    (
-        r"\texttt{Manticore}, Student-$t$",
-        RESULTS
-        / "EDD_TRGB_rhoSmoothR4_cz-student_t_MAS-PCS_sel-TRGB_magnitude_bmin10_skyhp_nside2_k192_ManticoreLocalCOLA_main.hdf5",  # noqa: E501
-        H0_COLOURS["student_t"],
-        "--",
-    ),
-]
+# Fiducial model: Student-t, beta free, 48-pixel sky exposure.
+# Realisation-marginalised chain (table/) vs equal-weight field-stacked
+# (the 80 single-field chains pooled with equal weight).
+FIDUCIAL_MARG = (
+    RESULTS
+    / "EDD_TRGB_rhoSmoothR4_cz-student_t_MAS-PCS_sel-TRGB_magnitude_bmin10_skyhp_nside2_k192_ManticoreLocalCOLA_beta_free_main.hdf5"  # noqa: E501
+)
+FIDUCIAL_FS_GLOB = str(
+    TRGBH0_TABLE_RESULTS.parent / "single_fields_smoothed"
+    / "EDD_TRGB_rhoSmoothR4_cz-student_t_MAS-PCS_sel-TRGB_magnitude_bmin10_skyhp_nside2_k192_ManticoreLocalCOLA_beta_free_field*_single_smoothed.hdf5"  # noqa: E501
+)
 
 
 REFERENCE_BANDS = [
@@ -60,6 +58,13 @@ REFERENCE_BANDS = [
 def read_h0(path):
     with h5py.File(path, "r") as handle:
         return np.asarray(handle["samples/H0"]).reshape(-1)
+
+
+def read_h0_stacked(glob_pattern):
+    files = sorted(glob.glob(glob_pattern))
+    if not files:
+        raise FileNotFoundError(f"No single-field chains match {glob_pattern}")
+    return np.concatenate([read_h0(path) for path in files]), len(files)
 
 
 def kde_line(ax, samples, label, color, fill=False, ls="-", bw=1.0):
@@ -89,15 +94,21 @@ def main():
                 zorder=0,
             )
 
-        for label, path, color, ls in POSTERIORS:
-            kde_line(
-                ax, read_h0(path), label, color,
-                fill=False, ls=ls, bw=1.5)
+        marginalised = read_h0(FIDUCIAL_MARG)
+        stacked, n_fields = read_h0_stacked(FIDUCIAL_FS_GLOB)
+        curves = [
+            ("Realisation-marginalised", marginalised,
+             H0_COLOURS["student_t"], "-", True),
+            (rf"Field-stacked (${n_fields}$ fields, equal weight)", stacked,
+             H0_COLOURS["density_sigv"], "--", False),
+        ]
+        for label, samples, color, ls, fill in curves:
+            kde_line(ax, samples, label, color, fill=fill, ls=ls, bw=1.5)
 
         ax.set_xlabel(
             r"$H_0 ~ [\mathrm{km}\,\mathrm{s}^{-1}\,\mathrm{Mpc}^{-1}]$")
         ax.set_ylabel("Normalised PDF")
-        ax.set_xlim(59.5, 75.8)
+        ax.set_xlim(56.0, 82.0)
         ax.set_ylim(bottom=0)
         ax.legend(
             loc="lower center",

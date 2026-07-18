@@ -42,7 +42,7 @@ REPO_ROOT = os.path.abspath(
         ".."))
 
 TRACKED_PARAMS = ["H0", "M_TRGB", "alpha_c", "c_star", "c_bar", "w_c",
-                  "sigma_int", "sigma_v",
+                  "sigma_int", "sigma_v", "nu_cz",
                   "Vext_mag", "Vext_phi", "Vext_cos_theta",
                   "beta", "b1", "b2", "b3", "alpha", "delta_b1",
                   "alpha_low", "alpha_high_frac",
@@ -50,6 +50,41 @@ TRACKED_PARAMS = ["H0", "M_TRGB", "alpha_c", "c_star", "c_bar", "w_c",
                   "mag_min_TRGB", "mag_lim_TRGB", "mag_lim_TRGB_width"]
 
 PERIODIC_PARAMS = {"Vext_phi": 2 * np.pi}
+
+N_MANTICORE_COLA_FIELDS = 80
+FIDUCIAL_MANTICORE_MAS = "PCS"
+
+# TRGBH0 fiducial-model preset (PCS, Student-t, free-beta row of the paper's
+# parameter table), without the sky-exposure term. Keys are argparse dests;
+# any explicitly passed flag overrides these defaults.
+# alpha_high_frac = 1.70 / 2.25 = 0.76; rmax = 50 Mpc/h at h = 0.722.
+FIDUCIAL_MANTICORE_DEFAULTS = {
+    "use_field": True,
+    "field_name": "ManticoreLocalCOLA",
+    "which_bias": "double_powerlaw",
+    "cz_likelihood": "student_t",
+    "nu_cz": 2.33,
+    "b_min": 10.0,
+    "field_smoothing_scale": 4.0,
+    "which_selection": "TRGB_magnitude",
+    "mag_min": 22.1,
+    "mag_lim": 24.06,
+    "mag_lim_width": 0.94,
+    "rmax": 69.3,
+    "nsamples": 400,
+    "H0": 72.2,
+    "M_TRGB": -4.03,
+    "sigma_int": 0.10,
+    "sigma_v": 66.0,
+    "beta": 1.04,
+    "Vext_mag": 332.0,
+    "Vext_ell": 285.0,
+    "Vext_b": -4.0,
+    "alpha_low": 2.25,
+    "alpha_high_frac": 0.76,
+    "log_rho_t": 0.54,
+    "log_rho_width": 0.71,
+}
 
 TAG_WORK = 1
 TAG_RESULT = 2
@@ -64,11 +99,20 @@ def _safe_tag(value):
 
 
 def _mode_tag(which_selection, use_field, field_name, infer_selection,
-              fix_Vext=False):
+              fix_Vext=False, field_index=None, cz_likelihood="gaussian",
+              b_min=None, field_smoothing_scale=None):
     """Tag output files by the mock/inference mode."""
     field = f"field_{_safe_tag(field_name)}" if use_field else "nofield"
+    if use_field and field_index is not None:
+        field += f"{field_index}"
     selection = "infersel" if infer_selection else "fixedsel"
     parts = [_safe_tag(which_selection), field, selection]
+    if cz_likelihood != "gaussian":
+        parts.append(_safe_tag(cz_likelihood))
+    if b_min is not None:
+        parts.append(f"bmin{b_min:g}")
+    if field_smoothing_scale is not None:
+        parts.append(f"smooth{field_smoothing_scale:g}")
     if fix_Vext:
         parts.append("fixedVext")
     return "_".join(parts)
@@ -166,7 +210,9 @@ def make_mock_config(base_config_path, seed, num_warmup=500,
                      cz_lim=None, cz_lim_width=None,
                      infer_selection=True, use_field=False, rmax=40.0,
                      num_chains=1, fix_Vext=False, true_params=None,
-                     which_bias=None):
+                     which_bias=None, cz_likelihood="gaussian",
+                     b_min=None, field_smoothing_scale=None,
+                     fiducial_manticore=False):
     """Build a config dict for mock inference."""
     config = candel.load_config(base_config_path, replace_los_prior=False)
 
@@ -174,6 +220,44 @@ def make_mock_config(base_config_path, seed, num_warmup=500,
     config["model"]["which_selection"] = which_selection
     if which_bias is not None:
         config["model"]["which_bias"] = which_bias
+    if fiducial_manticore:
+        config["io"]["reconstruction_main"]["ManticoreLocalCOLA"][
+            "which_MAS"] = FIDUCIAL_MANTICORE_MAS
+        config["model"]["use_density_dependent_sigma_v"] = False
+        config["model"]["priors"].update({
+            "H0": {"dist": "uniform", "low": 40.0, "high": 100.0},
+            "Vext": {
+                "dist": "vector_uniform_fixed", "low": 0.0, "high": 1000.0,
+            },
+            "beta": {"dist": "uniform", "low": 0.0, "high": 2.0},
+            "sigma_int": {
+                "dist": "truncated_normal", "mean": 0.1,
+                "scale": 0.01, "low": 0.01,
+            },
+            "alpha_c": {"dist": "delta", "value": 0.2},
+            "mag_lim_TRGB": {
+                "dist": "uniform", "low": 22.101, "high": 29.0,
+            },
+            "mag_lim_TRGB_width": {
+                "dist": "uniform", "low": 0.15, "high": 1.5,
+            },
+        })
+
+    config["model"]["cz_likelihood"] = cz_likelihood
+    if cz_likelihood == "student_t":
+        # Same nu_cz prior as the TRGBH0 production Student-t runs.
+        config["model"]["priors"]["nu_cz"] = {
+            "dist": "truncated_normal",
+            "low": 1.0,
+            "high": 100.0,
+            "mean": 30.0,
+            "scale": 10.0,
+        }
+    if b_min is not None:
+        config["model"]["selection_integral_b_min"] = float(b_min)
+    if field_smoothing_scale is not None:
+        config["model"]["field_3d_smoothing_scale"] = float(
+            field_smoothing_scale)
     # Match integration range to mock's distance range to avoid
     # extrapolation artefacts in the LOSInterpolator.
     config["model"]["r_limits_malmquist"] = [0.01, rmax]
@@ -224,7 +308,7 @@ def make_mock_config(base_config_path, seed, num_warmup=500,
     return config
 
 
-def _load_density_3d_data(config, field_name):
+def _load_density_3d_data(config, field_name, field_index=0):
     """Load and memoize 3D field data used by reconstruction integrals."""
     if not config["model"].get("use_reconstruction", False):
         return None
@@ -233,7 +317,8 @@ def _load_density_3d_data(config, field_name):
     if field_name is None:
         raise ValueError("`field_name` is required for field-based mocks.")
 
-    from candel.pvdata.volume_density import _load_volume_data_for_H0
+    from candel.pvdata.volume_density import (
+        _h0_volume_supersampling_from_config, _load_volume_data_for_H0)
 
     recon = config.get("io", {}).get("reconstruction_main", {})
     field_kwargs = recon.get(field_name)
@@ -243,8 +328,14 @@ def _load_density_3d_data(config, field_name):
 
     load_velocity = (config["model"].get("which_selection")
                      == "TRGB_magnitude_redshift")
+    field_smoothing_scale = config["model"].get(
+        "field_3d_smoothing_scale") or None
+    b_min = config["model"].get("selection_integral_b_min")
+    supersample_factor, supersample_radius, supersample_target_dx = (
+        _h0_volume_supersampling_from_config(config))
     key = (
         field_name,
+        int(field_index),
         repr(sorted(field_kwargs.items())),
         config["model"].get("which_bias", "linear"),
         config["model"].get("Om", config["model"].get("Om0", 0.3)),
@@ -252,11 +343,16 @@ def _load_density_3d_data(config, field_name):
         config["model"].get("density_3d_subsample_fraction", 1.0),
         config["model"].get("density_3d_subsample_seed", 42),
         config["model"].get("selection_integral_geometry", "sphere"),
+        field_smoothing_scale,
+        b_min,
+        supersample_factor,
+        supersample_radius,
+        supersample_target_dx,
         load_velocity,
     )
     if key not in _DENSITY_3D_CACHE:
         _DENSITY_3D_CACHE[key] = _load_volume_data_for_H0(
-            field_name, field_kwargs, field_indices=[0],
+            field_name, field_kwargs, field_indices=[int(field_index)],
             galaxy_bias=config["model"].get("which_bias", "linear"),
             Om0=config["model"].get("Om", config["model"].get("Om0", 0.3)),
             subcube_radius=config["model"].get(
@@ -268,6 +364,11 @@ def _load_density_3d_data(config, field_name):
             load_velocity=load_velocity,
             geometry=config["model"].get(
                 "selection_integral_geometry", "sphere"),
+            field_smoothing_scale=field_smoothing_scale,
+            supersample_factor=supersample_factor,
+            supersample_radius=supersample_radius,
+            supersample_target_dx=supersample_target_dx,
+            store_rhat=b_min is not None,
             cache_dir=config.get("io", {}).get("field_cache_dir"),
             cache_enabled=config["model"].get(
                 "density_3d_cache_enabled", True))
@@ -279,7 +380,9 @@ def run_one_mock(seed, base_config_path, true_params, mock_kwargs,
                  which_selection="TRGB_magnitude",
                  infer_selection=True, use_field=False, field_name=None,
                  quiet=True, progress_bar=False, num_chains=1,
-                 rhat_threshold=1.05, fix_Vext=False, which_bias=None):
+                 rhat_threshold=1.05, fix_Vext=False, which_bias=None,
+                 field_index=0, cz_likelihood="gaussian",
+                 fiducial_manticore=False):
     """Generate one mock, run inference, and return diagnostics."""
     config = make_mock_config(
         base_config_path, seed, num_warmup=num_warmup,
@@ -296,9 +399,13 @@ def run_one_mock(seed, base_config_path, true_params, mock_kwargs,
         num_chains=num_chains,
         fix_Vext=fix_Vext,
         true_params=true_params,
-        which_bias=which_bias)
+        which_bias=which_bias,
+        cz_likelihood=cz_likelihood,
+        b_min=mock_kwargs.get("b_min"),
+        field_smoothing_scale=mock_kwargs.get("field_smoothing_scale"),
+        fiducial_manticore=fiducial_manticore)
     density_3d_data = _load_density_3d_data(
-        config, field_name) if use_field else None
+        config, field_name, field_index=field_index) if use_field else None
     mock_gen_kwargs = {
         **mock_kwargs,
         "which_bias": config["model"].get("which_bias", "linear"),
@@ -525,7 +632,10 @@ def worker(comm, config_info):
     infer_selection = config_info["infer_selection"]
     use_field = config_info.get("use_field", False)
     field_name = config_info.get("field_name")
+    field_index = config_info.get("field_index", 0)
     which_bias = config_info.get("which_bias")
+    cz_likelihood = config_info.get("cz_likelihood", "gaussian")
+    fiducial_manticore = config_info.get("fiducial_manticore", False)
     num_chains = config_info.get("num_chains", 1)
     rhat_threshold = config_info.get("rhat_threshold", 1.05)
     fix_Vext = config_info.get("fix_Vext", False)
@@ -553,7 +663,9 @@ def worker(comm, config_info):
                 infer_selection=infer_selection,
                 use_field=use_field, field_name=field_name, quiet=True,
                 num_chains=num_chains, rhat_threshold=rhat_threshold,
-                fix_Vext=fix_Vext, which_bias=which_bias)
+                fix_Vext=fix_Vext, which_bias=which_bias,
+                field_index=field_index, cz_likelihood=cz_likelihood,
+                fiducial_manticore=fiducial_manticore)
             result = (*result, time.time() - t_start)
         except TimeoutError:
             result = None
@@ -752,7 +864,11 @@ def run_sequential(config_info):
                 num_chains=config_info.get("num_chains", 1),
                 rhat_threshold=config_info.get("rhat_threshold", 1.05),
                 fix_Vext=config_info.get("fix_Vext", False),
-                which_bias=config_info.get("which_bias"))
+                which_bias=config_info.get("which_bias"),
+                field_index=config_info.get("field_index", 0),
+                cz_likelihood=config_info.get("cz_likelihood", "gaussian"),
+                fiducial_manticore=config_info.get(
+                    "fiducial_manticore", False))
             dt = time.time() - t_start
             result = (*result, dt)
             results.append(result)
@@ -850,7 +966,8 @@ def run_single(seed, true_params, mock_kwargs, config_path,
                which_selection="TRGB_magnitude",
                infer_selection=True, use_field=False, field_name=None,
                outdir=None, plot_only=False, fix_Vext=False,
-               which_bias=None):
+               which_bias=None, field_index=0, cz_likelihood="gaussian",
+               fiducial_manticore=False):
     """Generate a single mock, optionally run inference, plot, and return data."""  # noqa: E501
     print(f"{'=' * 60}")
     print("Mock configuration")
@@ -866,6 +983,10 @@ def run_single(seed, true_params, mock_kwargs, config_path,
     print(f"  use_field       = {use_field}")
     if use_field:
         print(f"  field_loader    = {mock_kwargs.get('field_loader')}")
+        print(f"  field_index     = {field_index}")
+    print(f"  cz_likelihood   = {cz_likelihood}")
+    print(f"  b_min           = {mock_kwargs.get('b_min')}")
+    print(f"  field_smoothing = {mock_kwargs.get('field_smoothing_scale')}")
     print(f"  infer_selection = {infer_selection}")
     print(f"  fix_Vext        = {fix_Vext}")
     print(f"  plot_only       = {plot_only}")
@@ -888,9 +1009,13 @@ def run_single(seed, true_params, mock_kwargs, config_path,
         rmax=mock_kwargs.get("rmax", 40.0),
         fix_Vext=fix_Vext,
         true_params=true_params,
-        which_bias=which_bias)
+        which_bias=which_bias,
+        cz_likelihood=cz_likelihood,
+        b_min=mock_kwargs.get("b_min"),
+        field_smoothing_scale=mock_kwargs.get("field_smoothing_scale"),
+        fiducial_manticore=fiducial_manticore)
     density_3d_data = _load_density_3d_data(
-        config, field_name) if use_field else None
+        config, field_name, field_index=field_index) if use_field else None
     mock_gen_kwargs = {
         **mock_kwargs,
         "which_bias": config["model"].get("which_bias", "linear"),
@@ -903,6 +1028,12 @@ def run_single(seed, true_params, mock_kwargs, config_path,
     _ra, _dec = candel.galactic_to_radec(tp["Vext_ell"], tp["Vext_b"])
     tp["Vext_phi"] = np.deg2rad(_ra)
     tp["Vext_cos_theta"] = np.sin(np.deg2rad(_dec))
+    if mock_kwargs.get("mag_lim") is not None:
+        tp["mag_lim_TRGB"] = mock_kwargs["mag_lim"]
+    if mock_kwargs.get("mag_min") is not None:
+        tp["mag_min_TRGB"] = mock_kwargs["mag_min"]
+    if mock_kwargs.get("mag_lim_width") is not None:
+        tp["mag_lim_TRGB_width"] = mock_kwargs["mag_lim_width"]
     n = len(data["mag_obs"])
 
     print(f"\n{'=' * 60}")
@@ -994,7 +1125,12 @@ def run_single(seed, true_params, mock_kwargs, config_path,
                 use_field,
                 field_name,
                 infer_selection,
-                fix_Vext)}.png")
+                fix_Vext,
+                field_index=field_index if use_field else None,
+                cz_likelihood=cz_likelihood,
+                b_min=mock_kwargs.get('b_min'),
+                field_smoothing_scale=mock_kwargs.get(
+                    'field_smoothing_scale'))}.png")
     fig.savefig(fname, dpi=150)
     print(f"\nSaved plot to {fname}")
     plt.close(fig)
@@ -1078,10 +1214,38 @@ def main():
 
     # Field-based mock options
     parser.add_argument("--use-field", action="store_true",
+                        dest="use_field",
                         help="Enable field-based distance sampling "
                         "(inhomogeneous Malmquist)")
+    parser.add_argument("--no-field", action="store_false", dest="use_field",
+                        help="Disable field-based distance sampling")
+    parser.set_defaults(use_field=False)
     parser.add_argument("--field-name", type=str, default="Carrick2015",
                         help="Reconstruction field name")
+    parser.add_argument("--field-index", type=int, default=None,
+                        help="Reconstruction field realisation index "
+                        "(e.g. Manticore nsim). Default: 0, or seed-derived "
+                        "with --default-manticore")
+    parser.add_argument("--default-manticore", action="store_true",
+                        help="Apply the TRGBH0 fiducial-model preset "
+                        "(single Manticore COLA PCS field, double power-law "
+                        "bias, Student-t, |b| >= 10 deg, 4 Mpc/h smoothing, "
+                        "no sky exposure, paper-table truths). The field is "
+                        "picked as (master) seed %% "
+                        f"{N_MANTICORE_COLA_FIELDS} unless --field-index is "
+                        "given. Explicit flags override the preset.")
+    parser.add_argument("--field-smoothing-scale", type=float, default=None,
+                        help="Gaussian density smoothing scale [Mpc/h] "
+                        "applied in both mock generation and recovery")
+    parser.add_argument("--b-min", type=float, default=None,
+                        help="Galactic-plane mask |b| >= b_min [deg] applied "
+                        "in both mock generation and recovery")
+    parser.add_argument("--cz-likelihood", type=str, default="gaussian",
+                        choices=["gaussian", "student_t"],
+                        help="Redshift likelihood for mock draws and recovery")
+    parser.add_argument("--nu-cz", type=float, default=2.33,
+                        help="True Student-t degrees of freedom "
+                        "(used only with --cz-likelihood student_t)")
     parser.add_argument("--which-bias", choices=GALAXY_BIAS_MODELS,
                         help="Galaxy-bias model for mock generation and "
                         "inference. Defaults to the base config value.")
@@ -1140,8 +1304,30 @@ def main():
                         help="True sigma_int")
     parser.add_argument("--sigma-v", type=float, default=tp["sigma_v"],
                         help="True sigma_v")
+    parser.add_argument("--Vext-mag", type=float, default=tp["Vext_mag"],
+                        help="True external-velocity amplitude [km/s]")
+    parser.add_argument("--Vext-ell", type=float, default=tp["Vext_ell"],
+                        help="True external-velocity Galactic longitude [deg]")
+    parser.add_argument("--Vext-b", type=float, default=tp["Vext_b"],
+                        help="True external-velocity Galactic latitude [deg]")
 
+    # Apply the fiducial preset before the final parse so that explicitly
+    # passed flags override its defaults.
+    pre_args, _ = parser.parse_known_args()
+    if pre_args.default_manticore:
+        parser.set_defaults(**FIDUCIAL_MANTICORE_DEFAULTS)
     args = parser.parse_args()
+
+    if args.field_index is None:
+        if args.default_manticore and args.use_field:
+            pick_seed = args.seed if args.single else args.master_seed
+            args.field_index = pick_seed % N_MANTICORE_COLA_FIELDS
+            print(f"[INFO] --default-manticore: using {args.field_name} "
+                  f"field {args.field_index} "
+                  f"(= {'seed' if args.single else 'master seed'} "
+                  f"{pick_seed} % {N_MANTICORE_COLA_FIELDS})")
+        else:
+            args.field_index = 0
 
     # Resolve relative config paths against repo root.
     if not os.path.isabs(args.config):
@@ -1159,6 +1345,9 @@ def main():
         "w_c": args.w_c,
         "sigma_int": args.sigma_int,
         "sigma_v": args.sigma_v,
+        "Vext_mag": args.Vext_mag,
+        "Vext_ell": args.Vext_ell,
+        "Vext_b": args.Vext_b,
         "beta": args.beta,
         "b1": args.b1,
         "b2": args.b2,
@@ -1170,6 +1359,8 @@ def main():
         "log_rho_t": args.log_rho_t,
         "log_rho_width": args.log_rho_width,
     }
+    if args.cz_likelihood == "student_t":
+        true_params["nu_cz"] = args.nu_cz
 
     mock_kwargs = {
         "nsamples": args.nsamples,
@@ -1178,6 +1369,8 @@ def main():
         "mag_lim": args.mag_lim,
         "mag_lim_width": args.mag_lim_width,
         "e_colour_dered": args.e_colour_dered,
+        "b_min": args.b_min,
+        "field_smoothing_scale": args.field_smoothing_scale,
     }
     if args.which_selection == "TRGB_magnitude_redshift":
         mock_kwargs["cz_lim"] = args.cz_lim
@@ -1185,12 +1378,24 @@ def main():
 
     # Set up field loader if requested
     if args.use_field:
+        import inspect
+
         from candel.field import name2field_loader
+        from candel.pvdata.volume_density import _density_unit_normalization
         config = candel.load_config(args.config, replace_los_prior=False)
-        field_config = config["io"]["reconstruction_main"][args.field_name]
+        field_config = dict(
+            config["io"]["reconstruction_main"][args.field_name])
+        if (args.default_manticore
+                and args.field_name == "ManticoreLocalCOLA"):
+            field_config["which_MAS"] = FIDUCIAL_MANTICORE_MAS
         loader_cls = name2field_loader(args.field_name)
+        if "nsim" in inspect.signature(loader_cls.__init__).parameters:
+            field_config.setdefault("nsim", args.field_index)
         field_loader = loader_cls(**field_config)
         mock_kwargs["field_loader"] = field_loader
+        norm = _density_unit_normalization(args.field_name)
+        if norm is not None:
+            mock_kwargs["density_divisor"] = norm[0]
 
     if args.single:
         run_single(args.seed, true_params, mock_kwargs, args.config,
@@ -1202,7 +1407,10 @@ def main():
                    outdir=args.outdir,
                    plot_only=args.plot_only,
                    fix_Vext=args.fix_Vext,
-                   which_bias=args.which_bias)
+                   which_bias=args.which_bias,
+                   field_index=args.field_index,
+                   cz_likelihood=args.cz_likelihood,
+                   fiducial_manticore=args.default_manticore)
         return
 
     # Batch mode
@@ -1223,9 +1431,18 @@ def main():
         "which_bias": args.which_bias,
         "use_field": args.use_field,
         "field_name": args.field_name,
+        "field_index": args.field_index,
+        "cz_likelihood": args.cz_likelihood,
+        "fiducial_manticore": args.default_manticore,
         "mode_tag": _mode_tag(args.which_selection, args.use_field,
                               args.field_name, args.infer_selection,
-                              args.fix_Vext),
+                              args.fix_Vext,
+                              field_index=(args.field_index
+                                           if args.use_field else None),
+                              cz_likelihood=args.cz_likelihood,
+                              b_min=args.b_min,
+                              field_smoothing_scale=(
+                                  args.field_smoothing_scale)),
         "progress_bar": args.progress_bar,
         "fix_Vext": args.fix_Vext,
     }
