@@ -54,11 +54,11 @@ def main():
         ax.fill_between(x, 1e-7, pdf_student, where=heavier,
                         color=TRGBH0_COLOURS[1], alpha=0.12, lw=0, zorder=0)
 
+        # sigma_v and nu are quoted in the caption, not repeated in the legend.
         ax.plot(x, pdf_gauss, color=TRGBH0_COLOURS[0], ls="-",
-                label=rf"Gaussian, $\sigma_v={GAUSS_SIGMA_V:.0f}$")
+                label="Gaussian")
         ax.plot(x, pdf_student, color=TRGBH0_COLOURS[1], ls="--",
-                label=(rf"Student-$t$, $\sigma_v={STUDENT_SIGMA_V:.0f}$, "
-                       rf"$\nu={STUDENT_NU:.2f}$"))
+                label=r"Student-$t$")
 
         ax.set_yscale("log")
         ax.set_xlim(x.min(), x.max())
@@ -67,7 +67,7 @@ def main():
             r"$c z_{\rm obs} - c z_{\rm pred} ~ "
             r"[\mathrm{km}\,\mathrm{s}^{-1}]$")
         ax.set_ylabel("Redshift-residual PDF")
-        ax.legend(loc="upper right", frameon=False, handlelength=1.6,
+        ax.legend(loc="upper left", frameon=False, handlelength=1.6,
                   fontsize=6.5)
 
         fig.tight_layout()
