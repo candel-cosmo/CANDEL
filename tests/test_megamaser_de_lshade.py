@@ -47,7 +47,12 @@ def test_de_is_only_lshade_and_config_has_no_hybrid_settings():
     assert optimise["min_pop_size"] == 128
     assert "eval_chunk" not in optimise
     assert de._CANDIDATES_PER_GPU_WAVE == 1
+    assert de._PEAK_PARTITION_CANDIDATES_PER_GPU_WAVE == 8
     assert de._DEVICE_LOCAL_BLOCK_SIZE == 8
+    fixed = type("Model", (), {"phi_integration": "fixed-grid"})()
+    peak = type("Model", (), {"phi_integration": "peak-partition"})()
+    assert de._de_candidates_per_wave(fixed) == 1
+    assert de._de_candidates_per_wave(peak) == 8
     assert (optimise["population_reduction_evaluations"]
             >= optimise["pop_size"])
 
@@ -339,7 +344,29 @@ def test_fixed_device_block_evaluator_accepts_arbitrary_population_sizes():
     np.testing.assert_array_equal(profile["last_real_candidates"], [17])
     np.testing.assert_array_equal(profile["last_candidates"], [24])
     assert profile["block_size"] == 8
+    assert profile["candidates_per_wave"] == 1
     assert profile["rebalances"] == 0
+
+
+def test_peak_partition_device_block_evaluates_candidates_concurrently():
+    evaluate = de._make_batched_fitness(
+        lambda row: de.jnp.sum(row ** 2), 1, (),
+        candidates_per_wave=8)
+    points = np.arange(51.0).reshape(17, 3)
+
+    np.testing.assert_allclose(
+        evaluate(points), np.sum(points ** 2, axis=1))
+    profile = evaluate.device_profile()
+    assert profile["candidates_per_wave"] == 8
+    np.testing.assert_array_equal(profile["last_candidates"], [24])
+
+
+def test_candidate_wave_size_must_divide_fixed_device_block():
+    for size in (0, 3):
+        with pytest.raises(ValueError, match="positive divisor"):
+            de._make_batched_fitness(
+                lambda row: de.jnp.sum(row), 1, (),
+                candidates_per_wave=size)
 
 
 def test_homogeneous_devices_use_one_shared_pmap(monkeypatch):
