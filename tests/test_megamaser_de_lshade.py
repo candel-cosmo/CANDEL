@@ -53,6 +53,9 @@ def test_de_is_only_lshade_and_config_has_no_hybrid_settings():
     peak = type("Model", (), {"phi_integration": "peak-partition"})()
     assert de._de_candidates_per_wave(fixed) == 1
     assert de._de_candidates_per_wave(peak) == 8
+    assert de._de_candidates_per_wave(peak, 2) == 2
+    with pytest.raises(ValueError, match="requires peak-partition"):
+        de._de_candidates_per_wave(fixed, 2)
     assert (optimise["population_reduction_evaluations"]
             >= optimise["pop_size"])
 
@@ -69,6 +72,7 @@ def test_de_cli_has_no_algorithm_hybrid_or_pesce_seed_switch(capsys):
     assert "--eval-chunk" not in help_text
     assert "--population-reduction-evaluations" in help_text
     assert "--phi-integration {fixed-grid,peak-partition}" in help_text
+    assert "--peak-candidates-per-wave {1,2,4,8}" in help_text
     assert "{median,config}" in help_text
     assert "never uses the Pesce/Reid point" in " ".join(help_text.split())
 
@@ -207,9 +211,9 @@ def test_peak_partition_uses_distinct_checkpoint_policy(tmp_path):
     ("phi_integration", "use_ecc", "expected_reuse"),
     (("fixed-grid", False, True),
      ("fixed-grid", True, False),
-     ("peak-partition", False, False),
-     ("peak-partition", True, False)))
-def test_only_circular_fixed_grid_reuses_scan_cache(
+     ("peak-partition", False, True),
+     ("peak-partition", True, True)))
+def test_compatible_objectives_reuse_scan_cache(
         phi_integration, use_ecc, expected_reuse):
     class Model:
         def __init__(self):
