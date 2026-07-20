@@ -36,7 +36,11 @@ def test_de_is_only_lshade_and_config_has_no_hybrid_settings():
 
     path = os.path.join(MEGAMASER_DIR, "config_maser.toml")
     with open(path, "rb") as f:
-        optimise = tomli.load(f)["optimise"]
+        config = tomli.load(f)
+    optimise = config["optimise"]
+    assert config["model"]["phi_integration"] == "fixed-grid"
+    assert config["model"]["n_phi_partition_sys"] == 513
+    assert config["model"]["n_phi_partition_hv"] == 257
     assert "algorithm" not in optimise
     assert not any(key.startswith("adam_") for key in optimise)
     assert 4 <= optimise["min_pop_size"] <= optimise["pop_size"]
@@ -59,6 +63,7 @@ def test_de_cli_has_no_algorithm_hybrid_or_pesce_seed_switch(capsys):
     assert "--adam-" not in help_text
     assert "--eval-chunk" not in help_text
     assert "--population-reduction-evaluations" in help_text
+    assert "--phi-integration {fixed-grid,peak-partition}" in help_text
     assert "{median,config}" in help_text
     assert "never uses the Pesce/Reid point" in " ".join(help_text.split())
 
@@ -171,6 +176,74 @@ def test_resume_accepts_explicit_nfe_checkpoint(tmp_path):
         de._validate_de_checkpoint_policy(checkpoint, str(explicit))
 
 
+def test_peak_partition_uses_distinct_checkpoint_policy(tmp_path):
+    class Model:
+        phi_integration = "peak-partition"
+        _n_phi_partition_sys = 513
+        _n_phi_partition_hv = 257
+
+    policy = de._objective_policy(Model())
+    assert policy.startswith(de._DE_PEAK_PARTITION_POLICY)
+    assert policy != de._DE_OBJECTIVE_POLICY
+
+    explicit = tmp_path / "peak.npz"
+    np.savez(explicit, algorithm=np.asarray("lshade"),
+             seed_policy=np.asarray("data_sobol_only"),
+             population_schedule=np.asarray("nfe_linear"),
+             objective_policy=np.asarray(policy))
+    with np.load(explicit) as checkpoint:
+        de._validate_de_checkpoint_policy(
+            checkpoint, str(explicit), objective_policy=policy)
+        with pytest.raises(ValueError, match="objective policy"):
+            de._validate_de_checkpoint_policy(checkpoint, str(explicit))
+
+
+@pytest.mark.parametrize(
+    ("phi_integration", "use_ecc", "expected_reuse"),
+    (("fixed-grid", False, True),
+     ("fixed-grid", True, False),
+     ("peak-partition", False, False),
+     ("peak-partition", True, False)))
+def test_only_circular_fixed_grid_reuses_scan_cache(
+        phi_integration, use_ecc, expected_reuse):
+    class Model:
+        def __init__(self):
+            self.phi_integration = phi_integration
+            self.use_ecc = use_ecc
+            self.return_scan_cache = None
+            self.received_scan_cache = None
+
+        def phys_from_params_jax(self, theta, h):
+            del theta, h
+            return tuple(de.jnp.ones(()) for _ in range(17)), {}
+
+        def _build_conditional_r_grids(self, *args, return_scan_cache):
+            del args
+            self.return_scan_cache = return_scan_cache
+            return (([], ["cache"]) if return_scan_cache else [])
+
+        def _sum_phi_marginal(self, groups, phys_args, phys_kw,
+                              spot_batch, remat, scan_cache):
+            del groups, phys_args, phys_kw, spot_batch, remat
+            self.received_scan_cache = scan_cache
+            return de.jnp.asarray(0.0)
+
+    model = Model()
+
+    class Target:
+        h = 0.73
+        sites = ()
+        spot_batch = None
+        mass_parameterization = "log_mbh"
+
+    target = Target()
+    target.model = model
+    de._logp_2d_terms(target, {})
+
+    assert model.return_scan_cache is expected_reuse
+    assert (model.received_scan_cache is not None) is expected_reuse
+
+
 def test_resume_rejects_legacy_generation_schedule(tmp_path):
     legacy = tmp_path / "de_ckpt_rmap_lshade_nopesce.npz"
     np.savez(legacy, algorithm=np.asarray("lshade"),
@@ -266,6 +339,32 @@ def test_fixed_device_block_evaluator_accepts_arbitrary_population_sizes():
     np.testing.assert_array_equal(profile["last_real_candidates"], [17])
     np.testing.assert_array_equal(profile["last_candidates"], [24])
     assert profile["block_size"] == 8
+    assert profile["rebalances"] == 0
+
+
+def test_homogeneous_devices_use_one_shared_pmap(monkeypatch):
+    class Device:
+        device_kind = "A100"
+
+    calls = []
+
+    def fake_pmap(_, devices):
+        calls.append(tuple(devices))
+        return lambda blocks: np.sum(blocks ** 2, axis=-1)
+
+    devices = (Device(), Device())
+    monkeypatch.setattr(de.jax, "pmap", fake_pmap)
+    evaluate = de._make_batched_fitness(
+        lambda row: de.jnp.sum(row ** 2), 2, devices)
+    points = np.arange(51.0).reshape(17, 3)
+
+    np.testing.assert_allclose(
+        evaluate(points), np.sum(points ** 2, axis=1))
+    profile = evaluate.device_profile()
+    assert calls == [devices]
+    assert profile["execution_mode"] == "shared pmap"
+    np.testing.assert_array_equal(profile["last_real_candidates"], [9, 8])
+    np.testing.assert_array_equal(profile["last_candidates"], [16, 16])
     assert profile["rebalances"] == 0
 
 
