@@ -6,6 +6,7 @@ import sys
 import numpy as np
 import pytest
 import tomli
+from scipy.stats import chisquare, ks_2samp
 
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -18,6 +19,56 @@ import benchmark_de_batching as batching  # noqa: E402
 
 
 DATA_SEEDS = np.array([[140.0, 5.31], [150.0, 5.33]])
+
+
+def _reference_lshade_trials(population, fitness, mutation_archive, m_f, m_cr,
+                             rng, pbest_fraction=0.11):
+    """Pre-vectorisation reference implementation of ``de._lshade_trials``.
+
+    Verbatim copy of the original per-member Python loop, kept private to this
+    test file so the vectorised version can be checked distributionally.
+    """
+    pop = np.asarray(population)
+    n, dimension = pop.shape
+    if n < 4:
+        raise ValueError("L-SHADE requires at least four population members.")
+    archive = np.asarray(mutation_archive).reshape(-1, dimension)
+    union = np.vstack([pop, archive]) if archive.size else pop
+    order = np.argsort(fitness)
+    n_pbest = max(2, min(n, int(np.ceil(pbest_fraction * n))))
+    memory_slots = rng.integers(len(m_f), size=n)
+    f = np.empty(n)
+    cr = np.empty(n)
+    mutants = np.empty_like(pop)
+
+    def draw_index(limit, forbidden):
+        while True:
+            value = int(rng.integers(limit))
+            if value not in forbidden:
+                return value
+
+    for i, slot in enumerate(memory_slots):
+        value = -1.0
+        while value <= 0.0:
+            value = m_f[slot] + 0.1 * np.tan(np.pi * (rng.random() - 0.5))
+        f[i] = min(value, 1.0)
+        cr[i] = (0.0 if m_cr[slot] < 0.0 else
+                 np.clip(rng.normal(m_cr[slot], 0.1), 0.0, 1.0))
+        pbest_pool = order[:n_pbest]
+        pbest_pool = pbest_pool[pbest_pool != i]
+        pbest = int(rng.choice(pbest_pool))
+        r1 = draw_index(n, {i, pbest})
+        r2 = draw_index(len(union), {i, pbest, r1})
+        mutants[i] = (pop[i] + f[i] * (pop[pbest] - pop[i])
+                      + f[i] * (pop[r1] - union[r2]))
+
+    mutants = np.abs(mutants)
+    cycle = np.floor(mutants).astype(np.int32)
+    frac = mutants - np.floor(mutants)
+    mutants = np.where(cycle % 2 == 0, frac, 1.0 - frac)
+    cross = rng.random((n, dimension)) < cr[:, None]
+    cross[np.arange(n), rng.integers(dimension, size=n)] = True
+    return np.where(cross, mutants, pop), f, cr
 
 
 def test_initial_population_accepts_only_data_seeds():
@@ -185,6 +236,33 @@ def test_resume_accepts_explicit_nfe_checkpoint(tmp_path):
         de._validate_de_checkpoint_policy(checkpoint, str(explicit))
 
 
+@pytest.mark.parametrize(
+    ("enable_x64", "saved_dtype", "should_raise"),
+    ((False, np.float32, False), (True, np.float64, False),
+     (False, np.float64, True), (True, np.float32, True)))
+def test_resume_requires_matching_checkpoint_precision(
+        tmp_path, enable_x64, saved_dtype, should_raise):
+    path = tmp_path / f"checkpoint_{enable_x64}_{saved_dtype.__name__}.npz"
+    np.savez(
+        path, lo=np.array([0.0]), hi=np.array([1.0]),
+        names=np.array(["x"]), sizes=np.array([1]),
+        population=np.zeros((4, 1), dtype=saved_dtype),
+        fitness=np.zeros(4, dtype=saved_dtype))
+    original_x64 = de.jax.config.jax_enable_x64
+    try:
+        de.jax.config.update("jax_enable_x64", enable_x64)
+        if should_raise:
+            with pytest.raises(ValueError, match="DE-state precision"):
+                de._load_de_checkpoint(
+                    str(path), np.array([0.0]), np.array([1.0]), ["x"], [1])
+        else:
+            checkpoint = de._load_de_checkpoint(
+                str(path), np.array([0.0]), np.array([1.0]), ["x"], [1])
+            checkpoint.close()
+    finally:
+        de.jax.config.update("jax_enable_x64", original_x64)
+
+
 def test_peak_partition_uses_distinct_checkpoint_policy(tmp_path):
     class Model:
         phi_integration = "peak-partition"
@@ -301,6 +379,120 @@ def test_lshade_trials_are_reproducible_and_bounded():
     assert np.all((trials >= 0.0) & (trials <= 1.0))
     assert np.all((mutation > 0.0) & (mutation <= 1.0))
     assert np.all((crossover >= 0.0) & (crossover <= 1.0))
+
+
+@pytest.mark.parametrize("n,dimension", [(4, 2), (4, 6), (17, 3), (64, 6)])
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+@pytest.mark.parametrize("with_archive", [False, True])
+def test_lshade_trials_invariants(n, dimension, dtype, with_archive):
+    rng0 = np.random.default_rng(20240721)
+    pop = rng0.random((n, dimension)).astype(dtype)
+    fitness = rng0.random(n)
+    archive = (rng0.random((max(1, n // 2), dimension)).astype(dtype)
+               if with_archive else np.empty((0, dimension), dtype=dtype))
+    m_f = np.full(6, 0.5)
+    m_cr = np.array([0.5, 0.3, -1.0, 0.8, 0.6, 0.2])
+
+    trials, f, cr = de._lshade_trials(
+        pop, fitness, archive, m_f, m_cr, np.random.default_rng(1))
+
+    assert trials.shape == (n, dimension)
+    assert trials.dtype == pop.dtype
+    assert f.shape == (n,) and cr.shape == (n,)
+    assert np.all((trials >= 0.0) & (trials <= 1.0))
+    assert np.all((f > 0.0) & (f <= 1.0))
+    assert np.all((cr >= 0.0) & (cr <= 1.0))
+    # Forced-crossover column: every member differs from its parent somewhere.
+    assert np.all(np.any(trials != pop, axis=1))
+
+
+def test_lshade_trials_match_reference_distribution():
+    rng0 = np.random.default_rng(7)
+    n, dimension = 64, 6
+    pop = rng0.random((n, dimension))
+    fitness = rng0.random(n)
+    archive = rng0.random((32, dimension))
+    m_f = np.array([0.3, 0.5, 0.7, 0.5, 0.9, 0.4])
+    m_cr = np.array([0.5, 0.2, -1.0, 0.8, 0.6, 0.3])
+    n_batches = 400
+
+    def collect(fn):
+        fs, crs, disp, nocross = [], [], [], []
+        for b in range(n_batches):
+            rng = np.random.default_rng(1000 + b)
+            trials, f, cr = fn(pop, fitness, archive, m_f, m_cr, rng)
+            fs.append(f)
+            crs.append(cr)
+            disp.append(trials - pop)
+            nocross.append(trials == pop)
+        return (np.concatenate(fs), np.concatenate(crs),
+                np.concatenate(disp, axis=0), np.concatenate(nocross, axis=0))
+
+    f_new, cr_new, disp_new, nc_new = collect(de._lshade_trials)
+    f_ref, cr_ref, disp_ref, nc_ref = collect(_reference_lshade_trials)
+
+    ks_f = ks_2samp(f_new, f_ref)
+    assert ks_f.pvalue > 1e-3, ks_f
+    ks_cr = ks_2samp(cr_new[cr_new > 0], cr_ref[cr_ref > 0])
+    assert ks_cr.pvalue > 1e-3, ks_cr
+
+    np.testing.assert_allclose(
+        disp_new.mean(axis=0), disp_ref.mean(axis=0), atol=0.02)
+    np.testing.assert_allclose(
+        np.cov(disp_new, rowvar=False), np.cov(disp_ref, rowvar=False),
+        atol=0.02)
+    np.testing.assert_allclose(nc_new.mean(), nc_ref.mean(), rtol=0.05)
+
+
+def test_lshade_draw_indices_respect_exclusions():
+    rng = np.random.default_rng(2024)
+    for n, n_extra in [(4, 0), (8, 8), (17, 5), (32, 32)]:
+        n_union = n + n_extra
+        order = rng.permutation(n)
+        n_pbest = max(2, int(np.ceil(0.11 * n)))
+        pool = order[:n_pbest]
+        idx = np.arange(n)
+        for _ in range(400):
+            pbest, r1, r2 = de._lshade_draw_indices(
+                order, n_pbest, n, n_union, rng)
+            assert np.all(np.isin(pbest, pool))
+            assert np.all(pbest != idx)
+            assert np.all(r1 != idx) and np.all(r1 != pbest)
+            assert np.all((r2 != idx) & (r2 != pbest) & (r2 != r1))
+            assert np.all(r1 < n) and np.all(r2 < n_union)
+
+
+def test_lshade_draw_indices_marginals_are_uniform():
+    n, n_union = 8, 16
+    order = np.arange(n)          # pool = {0, 1}
+    n_pbest = 2
+    i0, p0, q0 = 5, 0, 1          # i0 outside the pbest pool
+    rng = np.random.default_rng(99)
+    pbest_s, r1_s, r2_s = [], [], []
+    for _ in range(20000):
+        pbest, r1, r2 = de._lshade_draw_indices(order, n_pbest, n, n_union, rng)
+        pbest_s.append(pbest[i0])
+        r1_s.append(r1[i0])
+        r2_s.append(r2[i0])
+    pbest_s = np.array(pbest_s)
+    r1_s = np.array(r1_s)
+    r2_s = np.array(r2_s)
+
+    # pbest uniform over the pool {0, 1}.
+    counts = np.bincount(pbest_s, minlength=2)[[0, 1]]
+    assert chisquare(counts).pvalue > 1e-4
+
+    # r1 | pbest==p0 uniform over [0, n) \ {i0, p0}.
+    sel = r1_s[pbest_s == p0]
+    support = [v for v in range(n) if v not in (i0, p0)]
+    counts = np.array([(sel == v).sum() for v in support])
+    assert chisquare(counts).pvalue > 1e-4
+
+    # r2 | pbest==p0, r1==q0 uniform over [0, n_union) \ {i0, p0, q0}.
+    sel = r2_s[(pbest_s == p0) & (r1_s == q0)]
+    support = [v for v in range(n_union) if v not in (i0, p0, q0)]
+    counts = np.array([(sel == v).sum() for v in support])
+    assert chisquare(counts).pvalue > 1e-4
 
 
 def test_weighted_round_robin_balances_counts_and_restores_order():
@@ -461,7 +653,8 @@ def test_exact_archive_filters_new_keys_and_preserves_cache(tmp_path):
     np.testing.assert_array_equal(calls[1], [[5.0, 6.0]])
     assert archive.evaluations == 3
     assert archive.hits == 3
-    assert archive.lookup_queries == 1
+    # Both cache hits resolve from the RAM write buffer, so no SQL is issued.
+    assert archive.lookup_queries == 0
     archive.close()
 
     resumed = de._ExactArchive(
@@ -540,9 +733,12 @@ def test_exact_archive_fingerprint_collision_is_only_a_sql_probe(
 
     np.testing.assert_allclose(
         archive(should_not_evaluate, points), expected)
+    # The colliding hit resolves from the RAM write buffer (no SQL probe); the
+    # persisted table still dedups the single fingerprint once flushed.
+    assert archive.lookup_queries == 0
+    archive.flush()
     assert archive.connection.execute(
         "SELECT COUNT(*) FROM evaluation_fingerprints").fetchone() == (1,)
-    assert archive.lookup_queries == 1
     archive.close()
 
 
