@@ -1117,20 +1117,12 @@ def run_single(seed, true_params, mock_kwargs, config_path,
     if outdir is None:
         outdir = os.path.dirname(os.path.abspath(__file__))
     os.makedirs(outdir, exist_ok=True)
-    fname = os.path.join(
-        outdir,
-        "mock_TRGB_single_" f"{
-            _mode_tag(
-                which_selection,
-                use_field,
-                field_name,
-                infer_selection,
-                fix_Vext,
-                field_index=field_index if use_field else None,
-                cz_likelihood=cz_likelihood,
-                b_min=mock_kwargs.get('b_min'),
-                field_smoothing_scale=mock_kwargs.get(
-                    'field_smoothing_scale'))}.png")
+    mode_tag = _mode_tag(
+        which_selection, use_field, field_name, infer_selection, fix_Vext,
+        field_index=field_index if use_field else None,
+        cz_likelihood=cz_likelihood, b_min=mock_kwargs.get("b_min"),
+        field_smoothing_scale=mock_kwargs.get("field_smoothing_scale"))
+    fname = os.path.join(outdir, f"mock_TRGB_single_{mode_tag}.png")
     fig.savefig(fname, dpi=150)
     print(f"\nSaved plot to {fname}")
     plt.close(fig)
