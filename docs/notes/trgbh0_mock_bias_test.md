@@ -19,11 +19,12 @@ Fiducial model WITHOUT the angular sky-exposure term:
 - 4 Mpc/h Gaussian density smoothing (velocity unsmoothed),
 - Galactic-plane mask |b| >= 10 deg,
 - soft TRGB-magnitude window (edge and width inferred in recovery),
-- Student-t redshift likelihood.
+- Student-t redshift likelihood,
+- beta fixed to 1 in generation and recovery.
 
-Recovery uses the same priors as the corresponding `TRGBH0_main` free-beta
-paper model, including the H0, Vext, beta, sigma_int, and selection-width
-priors.
+Recovery uses the same priors as the corresponding fixed-beta
+`TRGBH0_main` paper model, including the H0, Vext, sigma_int, and
+selection-width priors; beta has the same delta prior at unity.
 
 Every component is applied consistently in BOTH mock generation and
 recovery: the mock samples hosts from the smoothed, unit-normalised density
@@ -35,8 +36,7 @@ smoothing, supersampling, and `store_rhat` (needed for the b_min mask).
 
 ## Injected truths
 
-Fiducial posterior medians (Student-t, free-beta row of the paper's
-parameter table), held in `FIDUCIAL_MANTICORE_DEFAULTS` in
+Paper-motivated truth point held in `FIDUCIAL_MANTICORE_DEFAULTS` in
 `scripts/mocks/mock_TRGB.py`:
 
 | Parameter | Value |
@@ -46,7 +46,7 @@ parameter table), held in `FIDUCIAL_MANTICORE_DEFAULTS` in
 | sigma_int | 0.10 |
 | sigma_v | 66 km/s |
 | nu_cz | 2.33 |
-| beta | 1.04 |
+| beta | 1 (fixed) |
 | Vext | 332 km/s towards (l, b) = (285, -4) deg |
 | mag window | 22.1 < m < 24.06, width 0.94 |
 | alpha_low | 2.25 |
@@ -63,7 +63,8 @@ consistently on both sides.
 ## How injected parameters are chosen
 
 `--default-manticore` applies the preset via `parser.set_defaults()`, so
-any explicitly passed flag overrides it (e.g. `--H0 70`). The Manticore
+any explicitly passed flag except beta overrides it (e.g. `--H0 70`); beta
+remains fixed to unity. The Manticore
 field is picked deterministically as `master seed % 80` in batch mode
 (`seed % 80` in `--single` mode) unless `--field-index` is given;
 `mock_TRGB.sh` resolves the index once before GPU sharding so all shards

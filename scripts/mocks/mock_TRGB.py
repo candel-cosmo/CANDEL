@@ -54,9 +54,9 @@ PERIODIC_PARAMS = {"Vext_phi": 2 * np.pi}
 N_MANTICORE_COLA_FIELDS = 80
 FIDUCIAL_MANTICORE_MAS = "PCS"
 
-# TRGBH0 fiducial-model preset (PCS, Student-t, free-beta row of the paper's
-# parameter table), without the sky-exposure term. Keys are argparse dests;
-# any explicitly passed flag overrides these defaults.
+# TRGBH0 paper-motivated closure preset (PCS and Student-t), without the
+# sky-exposure term. Beta is fixed to unity in generation and recovery.
+# Other keys are argparse dests; explicitly passed flags override them.
 # alpha_high_frac = 1.70 / 2.25 = 0.76; rmax = 50 Mpc/h at h = 0.722.
 FIDUCIAL_MANTICORE_DEFAULTS = {
     "use_field": True,
@@ -76,7 +76,7 @@ FIDUCIAL_MANTICORE_DEFAULTS = {
     "M_TRGB": -4.03,
     "sigma_int": 0.10,
     "sigma_v": 66.0,
-    "beta": 1.04,
+    "beta": 1.0,
     "Vext_mag": 332.0,
     "Vext_ell": 285.0,
     "Vext_b": -4.0,
@@ -229,7 +229,7 @@ def make_mock_config(base_config_path, seed, num_warmup=500,
             "Vext": {
                 "dist": "vector_uniform_fixed", "low": 0.0, "high": 1000.0,
             },
-            "beta": {"dist": "uniform", "low": 0.0, "high": 2.0},
+            "beta": {"dist": "delta", "value": 1.0},
             "sigma_int": {
                 "dist": "truncated_normal", "mean": 0.1,
                 "scale": 0.01, "low": 0.01,
@@ -1317,6 +1317,8 @@ def main():
     if pre_args.default_manticore:
         parser.set_defaults(**FIDUCIAL_MANTICORE_DEFAULTS)
     args = parser.parse_args()
+    if args.default_manticore:
+        args.beta = 1.0
 
     if args.field_index is None:
         if args.default_manticore and args.use_field:
