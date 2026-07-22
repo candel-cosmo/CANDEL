@@ -163,11 +163,12 @@
  docs/plans/
  remote_logs/
  notebooks/paper_S8/sr_interp_cache/
-@@ -66,4 +64,3 @@
+@@ -66,5 +64,4 @@
  notebooks/paper_VFO/output/
  notebooks/manticore_velocity_field/
  notebooks/manticore_velocity_field_cache.npz
 -scripts/megamaser/check_reid/reidlik_build/
+ for_mark_reid/
 --- a/scripts/H0_convergence/posterior_selection_integral_subsample.py
 +++ b/scripts/H0_convergence/posterior_selection_integral_subsample.py
 @@ -34,7 +34,7 @@
@@ -179,51 +180,3 @@
      local_config = ROOT / "local_config.toml"
      if not local_config.exists():
          return
---- a/CLAUDE.md
-+++ b/CLAUDE.md
-@@ -1,5 +1,3 @@
--**FIRST, before anything else:** read `AGENT_MEMORY.md` and `.codex/repo-memory.md` (if they exist) at the start of every session.
--
- Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
- 
- **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
-@@ -73,39 +71,6 @@
- 4. Note that the instructions below apply only to Python. But the sense of it applies to other languages too.
- 
- 
--Repository memory
-------------------
--
--This repo has shared agent memory in `AGENT_MEMORY.md` and
--`.codex/repo-memory.md`.
--Codex and Claude must use the same two memory files; do not create
--tool-specific repo memory files.
--Treat memory as context, not as a replacement for reading source files.
--
--At the start of a session:
--- Read `AGENT_MEMORY.md` if it exists.
--- Read `.codex/repo-memory.md` if it exists.
--- Then read `README.md`, `candel://repo-map`, and the relevant MCP guide
--  resource for the task.
--
--To navigate the repo and generate run/config commands, use the project-scoped
--`candel` MCP server (registered for Codex in `.codex/config.toml` and for
--Claude Code in `.mcp.json`, code in `tools/mcp/`). Prefer
--its `locate_scripts` tool and `candel://repo-map` resource for finding things,
--its guide resources for workflow instructions, and its command-generation
--tools for megamaser/runs workflows.
--
--After every substantive task, before the final response:
--- Run `python3 .codex/update_repo_memory.py --note "<one-line durable summary>"` from the repo root.
--- Update `AGENT_MEMORY.md` when the task produced durable cross-agent knowledge worth tracking in git.
--- Use a durable note only for facts worth carrying into future sessions: changed workflow, new command, known caveat, or important file location.
--- If no durable semantic note is needed, do not update memory.
--- Keep `.codex/repo-memory.md` concise. Remove or overwrite stale notes instead of accumulating noise.
--
--Never put secrets, passwords, tokens, full logs, generated data, local absolute paths, transient branch/dirty-state metadata, or speculative plans in repo memory.
--Do not treat memory as authoritative when it conflicts with live files.
--
--
- Basics
- ------
- 
