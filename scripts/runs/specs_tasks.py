@@ -629,11 +629,15 @@ def _trgbh0_main_datasets():
         # Source-density smoothing R_rho=8 Mpc/h.
         student_t({**base, **sky, "model/field_3d_smoothing_scale": 8.0}),
         gaussian({**base, **sky, "model/field_3d_smoothing_scale": 8.0}),
+        # Source-density smoothing removed entirely (R_rho=0).
+        student_t({**base, **sky, "model/field_3d_smoothing_scale": 0.0}),
+        gaussian({**base, **sky, "model/field_3d_smoothing_scale": 0.0}),
         # Angular sky exposure off (Galactic-plane mask only).
         student_t(base),
         gaussian(base),
         # Angular sky exposure at the 12-pixel (Nside=1) resolution.
         student_t({**base, **sky_12pix}),
+        gaussian({**base, **sky_12pix}),
         # Coherent-flow sector: free velocity amplitude beta.
         student_t({**base, **sky, "model/priors/beta": free_beta}),
         gaussian({**base, **sky, "model/priors/beta": free_beta}),
@@ -1601,7 +1605,7 @@ TASK_SPECS = {
             **_with_root(f"{TRGBH0_ROOT}/table"),
         },
         "datasets": _trgbh0_main_datasets(),
-        "expected_tasks": 14,
+        "expected_tasks": 17,
     },
     "TRGBH0_single": {
         "description": (

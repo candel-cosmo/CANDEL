@@ -72,7 +72,7 @@ git rm -r -q --ignore-unmatch \
   notebooks/paper_MMH0 \
   'tests/test_megamaser_*.py' tests/test_reid_chain_loader.py \
   tools/mcp \
-  .codex AGENT_MEMORY.md AGENTS.md .mcp.json \
+  .agents .claude .codex AGENT_MEMORY.md AGENTS.md CLAUDE.md .mcp.json \
   local_config_backup.toml \
   release
 

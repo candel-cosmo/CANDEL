@@ -1,9 +1,9 @@
-.claude/
+.claude/*
+!.claude/skills/
+!.claude/skills/**
 .codex/*
 !.codex/
 !.codex/config.toml
-!.codex/repo-memory.md
-!.codex/update_repo_memory.py
 .vscode/
 venv_candel/
 venv_gpu_candel/

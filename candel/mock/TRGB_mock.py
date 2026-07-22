@@ -18,8 +18,9 @@ from scipy.stats import norm
 
 from ..cosmo.cosmography import Distance2Distmod, Distance2Redshift
 from ..util import (SPEED_OF_LIGHT, galactic_to_radec_cartesian,
-                    radec_to_cartesian)
-from ._field_utils import (field_xyz_to_radec, galaxy_bias_log_weight,
+                    radec_to_cartesian, radec_to_galactic)
+from ._field_utils import (build_field_pool_evaluator, field_xyz_to_radec,
+                           galaxy_bias_log_weight,
                            galaxy_bias_params_from_values)
 
 DEFAULT_TRUE_PARAMS = {
@@ -85,12 +86,17 @@ def _gen_field_path(nsamples, h, beta, rmin, rmax, e_mag, e_czcmb,
                     mag_min, mag_lim, mag_lim_width,
                     which_bias, bias_params,
                     field_loader, r2mu, r2z, gen, verbose,
-                    cz_lim=None, cz_lim_width=None):
+                    cz_lim=None, cz_lim_width=None, nu_cz=None, b_min=None,
+                    density_divisor=None, field_smoothing_scale=None):
     """Sample TRGB hosts from a field, or from unit density if absent.
 
     With a 3D density field, galaxies are sampled using accept/reject with the
     configured model galaxy-bias law so that p(r, Ω) ∝ b[ρ(r,Ω)] * r².
     Without a field, the density is unity everywhere and velocities are zero.
+    With `nu_cz`, the observed cz noise is drawn from a Student-t with that
+    many degrees of freedom instead of a Gaussian. With `b_min`, hosts with
+    Galactic latitude |b| < b_min are rejected, matching the model's
+    selection-integral sky mask.
     """
     has_field = field_loader is not None
     if has_field:
@@ -117,33 +123,26 @@ def _gen_field_path(nsamples, h, beta, rmin, rmax, e_mag, e_czcmb,
 
     # --- Load fields and build 3D interpolators ---
     if has_field:
-        from ..field.field_interp import build_regular_interpolator
+        evaluator = build_field_pool_evaluator(
+            field_loader, density_divisor=density_divisor,
+            field_smoothing_scale=field_smoothing_scale,
+            max_radius_h=r_sphere, verbose=verbose)
+        eps = evaluator["eps"]
+        f_density_3d = evaluator["f_density"]
+        f_vel_3d = evaluator["f_vel"]
+        obs = evaluator["observer_pos"]
+        coord_frame = evaluator["coordinate_frame"]
 
-        eps = 1e-4
-        density_raw = field_loader.load_density()
-        density_log = np.log(density_raw + eps).astype(np.float32)
-        f_density_3d = build_regular_interpolator(
-            density_log, field_loader.boxsize,
-            fill_value=np.float32(np.log(1 + eps)))
-
+        # The global grid maximum also bounds log-interpolated densities near
+        # the spherical boundary, whose interpolation stencil extends outside.
+        delta_max = evaluator["delta_max"]
+        rho_grid = np.linspace(eps, max(1.0 + delta_max, 1.0), 4096)
         log_weight_max = float(np.max(galaxy_bias_log_weight(
-            density_raw, bias_params, which_bias)))
-        del density_raw, density_log
-
-        velocity_3d = field_loader.load_velocity()
-        f_vel_3d = []
-        for i in range(3):
-            f_vel_3d.append(build_regular_interpolator(
-                velocity_3d[i], field_loader.boxsize,
-                fill_value=np.float32(0)))
-        del velocity_3d
+            rho_grid, bias_params, which_bias)))
 
         if verbose:
             print(f"  galaxy bias = {which_bias}, "
                   f"max log weight = {log_weight_max:.3f}")
-
-        obs = field_loader.observer_pos
-        coord_frame = field_loader.coordinate_frame
     else:
         obs = None
         coord_frame = "icrs"
@@ -178,7 +177,6 @@ def _gen_field_path(nsamples, h, beta, rmin, rmax, e_mag, e_czcmb,
             p_accept = np.exp(np.minimum(log_weight - log_weight_max, 0.0))
             accept = gen.random(len(p_accept)) < p_accept
             xyz = xyz[accept]
-        n_total_density_accepted += len(xyz)
 
         if len(xyz) == 0:
             continue
@@ -187,6 +185,17 @@ def _gen_field_path(nsamples, h, beta, rmin, rmax, e_mag, e_czcmb,
 
         # Convert to RA/dec
         RA, dec = field_xyz_to_radec(xyz, r_h, coord_frame)
+
+        # Galactic-plane mask, matching the model's selection-integral cut
+        if b_min is not None:
+            _, b_gal = radec_to_galactic(RA, dec)
+            keep = np.abs(b_gal) >= b_min
+            xyz, r_h = xyz[keep], r_h[keep]
+            RA, dec = RA[keep], dec[keep]
+        n_total_density_accepted += len(xyz)
+
+        if len(xyz) == 0:
+            continue
 
         # Radial velocity at 3D positions
         rhat = xyz / r_h[:, None]
@@ -215,7 +224,12 @@ def _gen_field_path(nsamples, h, beta, rmin, rmax, e_mag, e_czcmb,
             sigma_mag_tot)
         cz_true = SPEED_OF_LIGHT * (
             (1 + z_cosmo) * (1 + Vpec / SPEED_OF_LIGHT) - 1)
-        cz_obs = gen.normal(cz_true, sigma_cz_tot)
+        if nu_cz is None:
+            cz_obs = gen.normal(cz_true, sigma_cz_tot)
+        else:
+            # Location-scale Student-t matching `student_t_logpdf_var`.
+            cz_obs = cz_true + sigma_cz_tot * gen.standard_t(
+                nu_cz, size=len(cz_true))
 
         # Apply selection
         sel = _apply_selection(mag_obs, mag_min, mag_lim, mag_lim_width, gen,
@@ -261,7 +275,9 @@ def _gen_field_path(nsamples, h, beta, rmin, rmax, e_mag, e_czcmb,
         from ..field import interpolate_los_density_velocity
         los_density, los_velocity = interpolate_los_density_velocity(
             field_loader, r_grid, collected["RA"], collected["dec"],
-            verbose=verbose)
+            field_smoothing_scale=field_smoothing_scale, verbose=verbose)
+        if density_divisor is not None:
+            los_density = los_density / density_divisor
         # Host LOS data: (1, nsamples, n_r)
         result["host_los_density"] = los_density[None, ...]
         result["host_los_velocity"] = los_velocity[None, ...]
@@ -279,17 +295,26 @@ def gen_TRGB_mock(nsamples=480, Om=0.3, e_mag=0.05, e_czcmb=10.0,
                   colour_mean=None, colour_std=None,
                   e_colour_dered=DEFAULT_COLOUR_ERR,
                   noisy_anchors=True, field_loader=None,
-                  density_3d_data=None, seed=42, verbose=True):
+                  density_3d_data=None, seed=42, verbose=True,
+                  b_min=None, density_divisor=None,
+                  field_smoothing_scale=None):
     """Generate a mock TRGB survey compatible with TRGBModel.
 
     When ``field_loader`` is None (default), distances are drawn from unit
     density on [rmin, rmax].  When a field loader is provided, distances are
     drawn from p(r) ~ b[rho(r)] * r^2 using the density field, and the field's
-    radial peculiar velocity is included in the observed cz.
+    radial peculiar velocity is included in the observed cz.  The density is
+    optionally divided by ``density_divisor`` (mean-density normalisation for
+    fields stored in mass units) and Gaussian-smoothed with
+    ``field_smoothing_scale`` (Mpc/h), matching the recovery model.
+
+    When ``true_params`` contains ``nu_cz``, the observed cz noise is drawn
+    from a Student-t with that many degrees of freedom instead of a Gaussian.
 
     Selection (optional):
       - mag_min, mag_lim: finite sigmoid window in observed TRGB magnitude
       - cz_lim: upper sigmoid cut in observed cz (joint mag + redshift)
+      - b_min: reject hosts with Galactic latitude |b| < b_min
 
     Returns
     -------
@@ -330,7 +355,10 @@ def gen_TRGB_mock(nsamples=480, Om=0.3, e_mag=0.05, e_czcmb=10.0,
         mag_min, mag_lim, mag_lim_width,
         which_bias, bias_params,
         field_loader, r2mu, r2z, gen, verbose,
-        cz_lim=cz_lim, cz_lim_width=cz_lim_width)
+        cz_lim=cz_lim, cz_lim_width=cz_lim_width,
+        nu_cz=tp.get("nu_cz"), b_min=b_min,
+        density_divisor=density_divisor,
+        field_smoothing_scale=field_smoothing_scale)
     n_parent = collected.pop("n_parent")
 
     # --- Anchor observations ---

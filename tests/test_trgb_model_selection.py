@@ -1,7 +1,13 @@
+from pathlib import Path
+
 import numpy as np
 import pytest
 
 from candel.model import TRGBModel
+from scripts.mocks.mock_TRGB import make_mock_config
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _write_trgb_config(tmp_path, selection):
@@ -89,3 +95,26 @@ def test_trgb_model_accepts_magnitude_redshift_selection(tmp_path):
     config_path = _write_trgb_config(tmp_path, "TRGB_magnitude_redshift")
 
     TRGBModel(config_path, _minimal_trgb_data())
+
+
+def test_fiducial_manticore_mock_uses_paper_field_and_priors():
+    config = make_mock_config(
+        REPO_ROOT / "scripts/runs/configs/config_EDD_TRGB.toml", 42,
+        use_field=True, rmax=69.3, infer_selection=True,
+        which_bias="double_powerlaw", cz_likelihood="student_t",
+        b_min=10.0, field_smoothing_scale=4.0,
+        fiducial_manticore=True)
+
+    assert config["io"]["reconstruction_main"]["ManticoreLocalCOLA"][
+        "which_MAS"] == "PCS"
+    priors = config["model"]["priors"]
+    assert priors["H0"] == {
+        "dist": "uniform", "low": 40.0, "high": 100.0}
+    assert priors["Vext"] == {
+        "dist": "vector_uniform_fixed", "low": 0.0, "high": 1000.0}
+    assert priors["beta"] == {
+        "dist": "uniform", "low": 0.0, "high": 2.0}
+    assert priors["sigma_int"] == {
+        "dist": "truncated_normal", "mean": 0.1,
+        "scale": 0.01, "low": 0.01}
+    assert priors["mag_lim_TRGB_width"]["low"] == 0.15

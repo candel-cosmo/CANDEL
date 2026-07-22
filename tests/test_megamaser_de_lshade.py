@@ -6,6 +6,7 @@ import sys
 import numpy as np
 import pytest
 import tomli
+from scipy.stats import chisquare, ks_2samp
 
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -18,6 +19,56 @@ import benchmark_de_batching as batching  # noqa: E402
 
 
 DATA_SEEDS = np.array([[140.0, 5.31], [150.0, 5.33]])
+
+
+def _reference_lshade_trials(population, fitness, mutation_archive, m_f, m_cr,
+                             rng, pbest_fraction=0.11):
+    """Pre-vectorisation reference implementation of ``de._lshade_trials``.
+
+    Verbatim copy of the original per-member Python loop, kept private to this
+    test file so the vectorised version can be checked distributionally.
+    """
+    pop = np.asarray(population)
+    n, dimension = pop.shape
+    if n < 4:
+        raise ValueError("L-SHADE requires at least four population members.")
+    archive = np.asarray(mutation_archive).reshape(-1, dimension)
+    union = np.vstack([pop, archive]) if archive.size else pop
+    order = np.argsort(fitness)
+    n_pbest = max(2, min(n, int(np.ceil(pbest_fraction * n))))
+    memory_slots = rng.integers(len(m_f), size=n)
+    f = np.empty(n)
+    cr = np.empty(n)
+    mutants = np.empty_like(pop)
+
+    def draw_index(limit, forbidden):
+        while True:
+            value = int(rng.integers(limit))
+            if value not in forbidden:
+                return value
+
+    for i, slot in enumerate(memory_slots):
+        value = -1.0
+        while value <= 0.0:
+            value = m_f[slot] + 0.1 * np.tan(np.pi * (rng.random() - 0.5))
+        f[i] = min(value, 1.0)
+        cr[i] = (0.0 if m_cr[slot] < 0.0 else
+                 np.clip(rng.normal(m_cr[slot], 0.1), 0.0, 1.0))
+        pbest_pool = order[:n_pbest]
+        pbest_pool = pbest_pool[pbest_pool != i]
+        pbest = int(rng.choice(pbest_pool))
+        r1 = draw_index(n, {i, pbest})
+        r2 = draw_index(len(union), {i, pbest, r1})
+        mutants[i] = (pop[i] + f[i] * (pop[pbest] - pop[i])
+                      + f[i] * (pop[r1] - union[r2]))
+
+    mutants = np.abs(mutants)
+    cycle = np.floor(mutants).astype(np.int32)
+    frac = mutants - np.floor(mutants)
+    mutants = np.where(cycle % 2 == 0, frac, 1.0 - frac)
+    cross = rng.random((n, dimension)) < cr[:, None]
+    cross[np.arange(n), rng.integers(dimension, size=n)] = True
+    return np.where(cross, mutants, pop), f, cr
 
 
 def test_initial_population_accepts_only_data_seeds():
@@ -36,14 +87,54 @@ def test_de_is_only_lshade_and_config_has_no_hybrid_settings():
 
     path = os.path.join(MEGAMASER_DIR, "config_maser.toml")
     with open(path, "rb") as f:
-        optimise = tomli.load(f)["optimise"]
+        config = tomli.load(f)
+    optimise = config["optimise"]
+    assert config["model"]["phi_integration"] == "peak-partition"
+    assert config["model"]["n_phi_partition_sys"] == 129
+    assert config["model"]["n_phi_partition_hv"] == 65
+    assert config["model"]["global_r_full_support"] is True
+    assert config["model"]["asymmetric_r_local"] is True
+    assert config["model"]["peak_r_refine_steps"] == 0
+    assert config["model"]["peak_r_refine_order"] == 7
+    assert config["model"]["peak_r_refine_hv_only"] is False
+    assert config["model"]["peak_r_width_steps"] == 0
+    cgcg = config["model"]["galaxies"]["CGCG074-064"]
+    assert cgcg["n_phi_partition_sys"] == 97
+    assert cgcg["n_phi_partition_hv"] == 49
+    ngc4258 = config["model"]["galaxies"]["NGC4258"]
+    assert ngc4258["phi_integration"] == "peak-partition"
+    assert ngc4258["n_phi_partition_sys"] == 513
+    assert ngc4258["n_phi_partition_hv"] == 65
+    assert ngc4258["conditional_spot_batch"] == 32
+    assert ngc4258["peak_r_refine_steps"] == 3
+    assert ngc4258["peak_r_refine_hv_only"] is False
+    assert ngc4258["peak_r_width_steps"] == 8
+    ngc5765b = config["model"]["galaxies"]["NGC5765b"]
+    assert ngc5765b["n_phi_partition_sys"] == 97
+    assert ngc5765b["n_phi_partition_hv"] == 49
+    assert ngc5765b["n_r_local"] == 321
+    assert config["model"]["galaxies"]["NGC6264"][
+        "conditional_spot_batch"] == 32
+    ugc3789 = config["model"]["galaxies"]["UGC3789"]
+    assert ugc3789["n_phi_partition_sys"] == 97
+    assert ugc3789["n_phi_partition_hv"] == 49
+    assert ugc3789["n_r_local"] == 384
+    assert ugc3789["scan_width_drop"] == 50.0
     assert "algorithm" not in optimise
     assert not any(key.startswith("adam_") for key in optimise)
     assert 4 <= optimise["min_pop_size"] <= optimise["pop_size"]
     assert optimise["min_pop_size"] == 128
     assert "eval_chunk" not in optimise
     assert de._CANDIDATES_PER_GPU_WAVE == 1
+    assert de._PEAK_PARTITION_CANDIDATES_PER_GPU_WAVE == 8
     assert de._DEVICE_LOCAL_BLOCK_SIZE == 8
+    fixed = type("Model", (), {"phi_integration": "fixed-grid"})()
+    peak = type("Model", (), {"phi_integration": "peak-partition"})()
+    assert de._de_candidates_per_wave(fixed) == 1
+    assert de._de_candidates_per_wave(peak) == 8
+    assert de._de_candidates_per_wave(peak, 2) == 2
+    with pytest.raises(ValueError, match="requires peak-partition"):
+        de._de_candidates_per_wave(fixed, 2)
     assert (optimise["population_reduction_evaluations"]
             >= optimise["pop_size"])
 
@@ -59,6 +150,8 @@ def test_de_cli_has_no_algorithm_hybrid_or_pesce_seed_switch(capsys):
     assert "--adam-" not in help_text
     assert "--eval-chunk" not in help_text
     assert "--population-reduction-evaluations" in help_text
+    assert "--phi-integration {fixed-grid,peak-partition}" in help_text
+    assert "--peak-candidates-per-wave {1,2,4,8}" in help_text
     assert "{median,config}" in help_text
     assert "never uses the Pesce/Reid point" in " ".join(help_text.split())
 
@@ -79,17 +172,45 @@ def test_production_de_has_no_candidate_vectorisation_option(capsys):
     assert "unrecognized arguments: --eval-chunk 1" in capsys.readouterr().err
 
 
-def test_batching_benchmark_only_varies_spots(capsys):
+def test_batching_benchmark_only_varies_exact_gpu_tiling(capsys):
     parser = batching._parser()
     help_text = parser.format_help()
     assert "--eval-chunk" not in help_text
     assert parser.parse_args(
         ["UGC3789", "--spot-batch", "all"]).spot_batch is None
+    peak = parser.parse_args([
+        "UGC3789", "--phi-integration", "peak-partition",
+        "--candidate-wave", "4"])
+    assert peak.phi_integration == "peak-partition"
+    assert peak.candidate_wave == 4
 
     with pytest.raises(SystemExit) as exc:
         parser.parse_args(["UGC3789", "--eval-chunk", "1"])
     assert exc.value.code == 2
     assert "unrecognized arguments: --eval-chunk 1" in capsys.readouterr().err
+
+
+def test_batching_memory_geometry_uses_partition_scans():
+    class PeakModel:
+        phi_integration = "peak-partition"
+        _n_r_local = 256
+        _n_r_global = 128
+        _n_sys = 3
+        _n_red = 2
+        _n_blue = 1
+
+        @staticmethod
+        def _phi_partition_scan_size(name):
+            return 129 if name == "sys" else 65
+
+    geometry = batching._memory_geometry(PeakModel(), dtype_bytes=4)
+    assert geometry["n_r"] == 256
+    assert geometry["groups"]["sys"]["n_phi_scan"] == 129
+    assert geometry["groups"]["red"]["n_phi_scan"] == 65
+    assert geometry["groups"]["sys"]["n_half_planes"] == 2
+    assert geometry["groups"]["red"]["n_half_planes"] == 1
+    assert geometry["groups"]["sys"][
+        "all_spots_one_candidate_bytes"] == 2 * 3 * 256 * 129 * 4
 
 
 def test_batching_benchmark_has_deterministic_sobol_fallback(tmp_path):
@@ -107,6 +228,14 @@ def test_batching_benchmark_has_deterministic_sobol_fallback(tmp_path):
         @staticmethod
         def _variant_suffix(model):
             return ""
+
+        @staticmethod
+        def _phi_integration_suffix(model):
+            return "_peakpartition"
+
+        @staticmethod
+        def _objective_policy(model):
+            return "peak-policy"
 
     master = {
         "optimise": {"sobol_n_sigma": 5},
@@ -165,9 +294,118 @@ def test_resume_accepts_explicit_nfe_checkpoint(tmp_path):
     explicit = tmp_path / "new.npz"
     np.savez(explicit, algorithm=np.asarray("lshade"),
              seed_policy=np.asarray("data_sobol_only"),
-             population_schedule=np.asarray("nfe_linear"))
+             population_schedule=np.asarray("nfe_linear"),
+             objective_policy=np.asarray(de._DE_OBJECTIVE_POLICY))
     with np.load(explicit) as checkpoint:
         de._validate_de_checkpoint_policy(checkpoint, str(explicit))
+
+
+@pytest.mark.parametrize(
+    ("enable_x64", "saved_dtype", "should_raise"),
+    ((False, np.float32, False), (True, np.float64, False),
+     (False, np.float64, True), (True, np.float32, True)))
+def test_resume_requires_matching_checkpoint_precision(
+        tmp_path, enable_x64, saved_dtype, should_raise):
+    path = tmp_path / f"checkpoint_{enable_x64}_{saved_dtype.__name__}.npz"
+    np.savez(
+        path, lo=np.array([0.0]), hi=np.array([1.0]),
+        names=np.array(["x"]), sizes=np.array([1]),
+        population=np.zeros((4, 1), dtype=saved_dtype),
+        fitness=np.zeros(4, dtype=saved_dtype))
+    original_x64 = de.jax.config.jax_enable_x64
+    try:
+        de.jax.config.update("jax_enable_x64", enable_x64)
+        if should_raise:
+            with pytest.raises(ValueError, match="DE-state precision"):
+                de._load_de_checkpoint(
+                    str(path), np.array([0.0]), np.array([1.0]), ["x"], [1])
+        else:
+            checkpoint = de._load_de_checkpoint(
+                str(path), np.array([0.0]), np.array([1.0]), ["x"], [1])
+            checkpoint.close()
+    finally:
+        de.jax.config.update("jax_enable_x64", original_x64)
+
+
+def test_peak_partition_uses_distinct_checkpoint_policy(tmp_path):
+    class Model:
+        phi_integration = "peak-partition"
+        _n_phi_partition_sys = 129
+        _n_phi_partition_hv = 65
+        _phi_partition_root_capacity = 4
+        _n_r_local = 256
+        _n_r_global = 128
+        _K_sigma = 10.0
+        _global_r_full_support = True
+        _asymmetric_r_local = True
+        _scan_width_drop = 0.0
+        _peak_r_refine_steps = 4
+        _peak_r_refine_order = 7
+        _peak_r_refine_hv_only = True
+        _peak_r_width_steps = 12
+
+    policy = de._objective_policy(Model())
+    assert policy.startswith(de._DE_PEAK_PARTITION_POLICY)
+    assert ":rrhv:" in policy
+    assert ":rw12:" in policy
+    assert policy != de._DE_OBJECTIVE_POLICY
+
+    explicit = tmp_path / "peak.npz"
+    np.savez(explicit, algorithm=np.asarray("lshade"),
+             seed_policy=np.asarray("data_sobol_only"),
+             population_schedule=np.asarray("nfe_linear"),
+             objective_policy=np.asarray(policy))
+    with np.load(explicit) as checkpoint:
+        de._validate_de_checkpoint_policy(
+            checkpoint, str(explicit), objective_policy=policy)
+        with pytest.raises(ValueError, match="objective policy"):
+            de._validate_de_checkpoint_policy(checkpoint, str(explicit))
+
+
+@pytest.mark.parametrize(
+    ("phi_integration", "use_ecc", "expected_reuse"),
+    (("fixed-grid", False, True),
+     ("fixed-grid", True, False),
+     ("peak-partition", False, True),
+     ("peak-partition", True, True)))
+def test_compatible_objectives_reuse_scan_cache(
+        phi_integration, use_ecc, expected_reuse):
+    class Model:
+        def __init__(self):
+            self.phi_integration = phi_integration
+            self.use_ecc = use_ecc
+            self.return_scan_cache = None
+            self.received_scan_cache = None
+
+        def phys_from_params_jax(self, theta, h):
+            del theta, h
+            return tuple(de.jnp.ones(()) for _ in range(17)), {}
+
+        def _build_conditional_r_grids(self, *args, return_scan_cache):
+            del args
+            self.return_scan_cache = return_scan_cache
+            return (([], ["cache"]) if return_scan_cache else [])
+
+        def _sum_phi_marginal(self, groups, phys_args, phys_kw,
+                              spot_batch, remat, scan_cache):
+            del groups, phys_args, phys_kw, spot_batch, remat
+            self.received_scan_cache = scan_cache
+            return de.jnp.asarray(0.0)
+
+    model = Model()
+
+    class Target:
+        h = 0.73
+        sites = ()
+        spot_batch = None
+        mass_parameterization = "log_mbh"
+
+    target = Target()
+    target.model = model
+    de._logp_2d_terms(target, {})
+
+    assert model.return_scan_cache is expected_reuse
+    assert (model.received_scan_cache is not None) is expected_reuse
 
 
 def test_resume_rejects_legacy_generation_schedule(tmp_path):
@@ -185,6 +423,16 @@ def test_resume_rejects_legacy_generation_schedule(tmp_path):
     with np.load(wrong) as checkpoint:
         with pytest.raises(ValueError, match="population schedule"):
             de._validate_de_checkpoint_policy(checkpoint, str(wrong))
+
+
+def test_resume_rejects_legacy_objective(tmp_path):
+    legacy = tmp_path / "legacy_objective.npz"
+    np.savez(legacy, algorithm=np.asarray("lshade"),
+             seed_policy=np.asarray("data_sobol_only"),
+             population_schedule=np.asarray("nfe_linear"))
+    with np.load(legacy) as checkpoint:
+        with pytest.raises(ValueError, match="objective policy"):
+            de._validate_de_checkpoint_policy(checkpoint, str(legacy))
 
 
 def test_lshade_trials_are_reproducible_and_bounded():
@@ -208,6 +456,120 @@ def test_lshade_trials_are_reproducible_and_bounded():
     assert np.all((trials >= 0.0) & (trials <= 1.0))
     assert np.all((mutation > 0.0) & (mutation <= 1.0))
     assert np.all((crossover >= 0.0) & (crossover <= 1.0))
+
+
+@pytest.mark.parametrize("n,dimension", [(4, 2), (4, 6), (17, 3), (64, 6)])
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+@pytest.mark.parametrize("with_archive", [False, True])
+def test_lshade_trials_invariants(n, dimension, dtype, with_archive):
+    rng0 = np.random.default_rng(20240721)
+    pop = rng0.random((n, dimension)).astype(dtype)
+    fitness = rng0.random(n)
+    archive = (rng0.random((max(1, n // 2), dimension)).astype(dtype)
+               if with_archive else np.empty((0, dimension), dtype=dtype))
+    m_f = np.full(6, 0.5)
+    m_cr = np.array([0.5, 0.3, -1.0, 0.8, 0.6, 0.2])
+
+    trials, f, cr = de._lshade_trials(
+        pop, fitness, archive, m_f, m_cr, np.random.default_rng(1))
+
+    assert trials.shape == (n, dimension)
+    assert trials.dtype == pop.dtype
+    assert f.shape == (n,) and cr.shape == (n,)
+    assert np.all((trials >= 0.0) & (trials <= 1.0))
+    assert np.all((f > 0.0) & (f <= 1.0))
+    assert np.all((cr >= 0.0) & (cr <= 1.0))
+    # Forced-crossover column: every member differs from its parent somewhere.
+    assert np.all(np.any(trials != pop, axis=1))
+
+
+def test_lshade_trials_match_reference_distribution():
+    rng0 = np.random.default_rng(7)
+    n, dimension = 64, 6
+    pop = rng0.random((n, dimension))
+    fitness = rng0.random(n)
+    archive = rng0.random((32, dimension))
+    m_f = np.array([0.3, 0.5, 0.7, 0.5, 0.9, 0.4])
+    m_cr = np.array([0.5, 0.2, -1.0, 0.8, 0.6, 0.3])
+    n_batches = 400
+
+    def collect(fn):
+        fs, crs, disp, nocross = [], [], [], []
+        for b in range(n_batches):
+            rng = np.random.default_rng(1000 + b)
+            trials, f, cr = fn(pop, fitness, archive, m_f, m_cr, rng)
+            fs.append(f)
+            crs.append(cr)
+            disp.append(trials - pop)
+            nocross.append(trials == pop)
+        return (np.concatenate(fs), np.concatenate(crs),
+                np.concatenate(disp, axis=0), np.concatenate(nocross, axis=0))
+
+    f_new, cr_new, disp_new, nc_new = collect(de._lshade_trials)
+    f_ref, cr_ref, disp_ref, nc_ref = collect(_reference_lshade_trials)
+
+    ks_f = ks_2samp(f_new, f_ref)
+    assert ks_f.pvalue > 1e-3, ks_f
+    ks_cr = ks_2samp(cr_new[cr_new > 0], cr_ref[cr_ref > 0])
+    assert ks_cr.pvalue > 1e-3, ks_cr
+
+    np.testing.assert_allclose(
+        disp_new.mean(axis=0), disp_ref.mean(axis=0), atol=0.02)
+    np.testing.assert_allclose(
+        np.cov(disp_new, rowvar=False), np.cov(disp_ref, rowvar=False),
+        atol=0.02)
+    np.testing.assert_allclose(nc_new.mean(), nc_ref.mean(), rtol=0.05)
+
+
+def test_lshade_draw_indices_respect_exclusions():
+    rng = np.random.default_rng(2024)
+    for n, n_extra in [(4, 0), (8, 8), (17, 5), (32, 32)]:
+        n_union = n + n_extra
+        order = rng.permutation(n)
+        n_pbest = max(2, int(np.ceil(0.11 * n)))
+        pool = order[:n_pbest]
+        idx = np.arange(n)
+        for _ in range(400):
+            pbest, r1, r2 = de._lshade_draw_indices(
+                order, n_pbest, n, n_union, rng)
+            assert np.all(np.isin(pbest, pool))
+            assert np.all(pbest != idx)
+            assert np.all(r1 != idx) and np.all(r1 != pbest)
+            assert np.all((r2 != idx) & (r2 != pbest) & (r2 != r1))
+            assert np.all(r1 < n) and np.all(r2 < n_union)
+
+
+def test_lshade_draw_indices_marginals_are_uniform():
+    n, n_union = 8, 16
+    order = np.arange(n)          # pool = {0, 1}
+    n_pbest = 2
+    i0, p0, q0 = 5, 0, 1          # i0 outside the pbest pool
+    rng = np.random.default_rng(99)
+    pbest_s, r1_s, r2_s = [], [], []
+    for _ in range(20000):
+        pbest, r1, r2 = de._lshade_draw_indices(order, n_pbest, n, n_union, rng)
+        pbest_s.append(pbest[i0])
+        r1_s.append(r1[i0])
+        r2_s.append(r2[i0])
+    pbest_s = np.array(pbest_s)
+    r1_s = np.array(r1_s)
+    r2_s = np.array(r2_s)
+
+    # pbest uniform over the pool {0, 1}.
+    counts = np.bincount(pbest_s, minlength=2)[[0, 1]]
+    assert chisquare(counts).pvalue > 1e-4
+
+    # r1 | pbest==p0 uniform over [0, n) \ {i0, p0}.
+    sel = r1_s[pbest_s == p0]
+    support = [v for v in range(n) if v not in (i0, p0)]
+    counts = np.array([(sel == v).sum() for v in support])
+    assert chisquare(counts).pvalue > 1e-4
+
+    # r2 | pbest==p0, r1==q0 uniform over [0, n_union) \ {i0, p0, q0}.
+    sel = r2_s[(pbest_s == p0) & (r1_s == q0)]
+    support = [v for v in range(n_union) if v not in (i0, p0, q0)]
+    counts = np.array([(sel == v).sum() for v in support])
+    assert chisquare(counts).pvalue > 1e-4
 
 
 def test_weighted_round_robin_balances_counts_and_restores_order():
@@ -255,6 +617,54 @@ def test_fixed_device_block_evaluator_accepts_arbitrary_population_sizes():
     np.testing.assert_array_equal(profile["last_real_candidates"], [17])
     np.testing.assert_array_equal(profile["last_candidates"], [24])
     assert profile["block_size"] == 8
+    assert profile["candidates_per_wave"] == 1
+    assert profile["rebalances"] == 0
+
+
+def test_peak_partition_device_block_evaluates_candidates_concurrently():
+    evaluate = de._make_batched_fitness(
+        lambda row: de.jnp.sum(row ** 2), 1, (),
+        candidates_per_wave=8)
+    points = np.arange(51.0).reshape(17, 3)
+
+    np.testing.assert_allclose(
+        evaluate(points), np.sum(points ** 2, axis=1))
+    profile = evaluate.device_profile()
+    assert profile["candidates_per_wave"] == 8
+    np.testing.assert_array_equal(profile["last_candidates"], [24])
+
+
+def test_candidate_wave_size_must_divide_fixed_device_block():
+    for size in (0, 3):
+        with pytest.raises(ValueError, match="positive divisor"):
+            de._make_batched_fitness(
+                lambda row: de.jnp.sum(row), 1, (),
+                candidates_per_wave=size)
+
+
+def test_homogeneous_devices_use_one_shared_pmap(monkeypatch):
+    class Device:
+        device_kind = "A100"
+
+    calls = []
+
+    def fake_pmap(_, devices):
+        calls.append(tuple(devices))
+        return lambda blocks: np.sum(blocks ** 2, axis=-1)
+
+    devices = (Device(), Device())
+    monkeypatch.setattr(de.jax, "pmap", fake_pmap)
+    evaluate = de._make_batched_fitness(
+        lambda row: de.jnp.sum(row ** 2), 2, devices)
+    points = np.arange(51.0).reshape(17, 3)
+
+    np.testing.assert_allclose(
+        evaluate(points), np.sum(points ** 2, axis=1))
+    profile = evaluate.device_profile()
+    assert calls == [devices]
+    assert profile["execution_mode"] == "shared pmap"
+    np.testing.assert_array_equal(profile["last_real_candidates"], [9, 8])
+    np.testing.assert_array_equal(profile["last_candidates"], [16, 16])
     assert profile["rebalances"] == 0
 
 
@@ -302,7 +712,8 @@ def test_exact_archive_filters_new_keys_and_preserves_cache(tmp_path):
         calls.append(points.copy())
         return np.sum(points, axis=1)
 
-    archive = de._ExactArchive(str(path), dimension=2)
+    archive = de._ExactArchive(
+        str(path), dimension=2, objective_policy=de._DE_OBJECTIVE_POLICY)
     first = np.array([[1.0, 2.0], [3.0, 4.0], [1.0, 2.0]])
     np.testing.assert_allclose(
         archive(batch_eval, first), [3.0, 7.0, 3.0])
@@ -319,10 +730,13 @@ def test_exact_archive_filters_new_keys_and_preserves_cache(tmp_path):
     np.testing.assert_array_equal(calls[1], [[5.0, 6.0]])
     assert archive.evaluations == 3
     assert archive.hits == 3
-    assert archive.lookup_queries == 1
+    # Both cache hits resolve from the RAM write buffer, so no SQL is issued.
+    assert archive.lookup_queries == 0
     archive.close()
 
-    resumed = de._ExactArchive(str(path), dimension=2, resume=True)
+    resumed = de._ExactArchive(
+        str(path), dimension=2, resume=True,
+        objective_policy=de._DE_OBJECTIVE_POLICY)
 
     def should_not_evaluate(points, desc=None):
         raise AssertionError("persisted cache entry was evaluated again")
@@ -332,6 +746,11 @@ def test_exact_archive_filters_new_keys_and_preserves_cache(tmp_path):
     assert resumed.hits == 2
     assert resumed.lookup_queries == 1
     resumed.close()
+
+    with pytest.raises(ValueError, match="archive objective policy"):
+        de._ExactArchive(
+            str(path), dimension=2, resume=True,
+            objective_policy="different_objective")
 
 
 def test_exact_archive_backfills_compact_fingerprints(tmp_path):
@@ -369,6 +788,11 @@ def test_exact_archive_backfills_compact_fingerprints(tmp_path):
         "SELECT COUNT(*) FROM evaluation_fingerprints").fetchone() == (1,)
     archive.close()
 
+    with pytest.raises(ValueError, match="'legacy'"):
+        de._ExactArchive(
+            str(path), dimension=2, resume=True,
+            objective_policy=de._DE_OBJECTIVE_POLICY)
+
 
 def test_exact_archive_fingerprint_collision_is_only_a_sql_probe(
         tmp_path, monkeypatch):
@@ -386,9 +810,12 @@ def test_exact_archive_fingerprint_collision_is_only_a_sql_probe(
 
     np.testing.assert_allclose(
         archive(should_not_evaluate, points), expected)
+    # The colliding hit resolves from the RAM write buffer (no SQL probe); the
+    # persisted table still dedups the single fingerprint once flushed.
+    assert archive.lookup_queries == 0
+    archive.flush()
     assert archive.connection.execute(
         "SELECT COUNT(*) FROM evaluation_fingerprints").fetchone() == (1,)
-    assert archive.lookup_queries == 1
     archive.close()
 
 

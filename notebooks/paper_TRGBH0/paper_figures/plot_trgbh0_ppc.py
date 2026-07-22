@@ -7,10 +7,11 @@ tip-magnitude, redshift, distance, and sky distributions with the observed
 EDD TRGB hosts. Writes the magnitude-redshift PPC (main text), the sky PPC
 (appendix), and the distance PPC.
 
-Two fiducial-family variants are supported: ``skyexp`` includes the angular
-sky-exposure selection term (12-pixel HEALPix, the only sky-exposure Student-t
-Manticore run on disk), and ``baseline`` omits it. The sky-exposure variant
-is required for the angular PPC to reproduce the observed host concentration.
+Three variants are supported: ``fiducial`` is the baseline model (48-pixel
+HEALPix angular sky-exposure, free beta), evaluated on its dominant realisation
+(field 66); ``skyexp`` is the superseded 12-pixel fixed-beta run; and
+``baseline`` omits the sky-exposure term. The sky-exposure term is required for
+the angular PPC to reproduce the observed host concentration.
 """
 import argparse
 import copy
@@ -27,7 +28,7 @@ import matplotlib  # noqa: E402
 import numpy as np  # noqa: E402
 import tomli_w  # noqa: E402
 from trgbh0_plot_style import (OUTPUT_DIR, ROOT,  # noqa: E402
-                               TRGBH0_TABLE_RESULTS)
+                               TRGBH0_RESULTS, TRGBH0_TABLE_RESULTS)
 
 import candel  # noqa: E402
 from candel.mock import (generate_trgb_ppc, plot_trgb_ppc,  # noqa: E402
@@ -35,18 +36,35 @@ from candel.mock import (generate_trgb_ppc, plot_trgb_ppc,  # noqa: E402
 
 matplotlib.use("Agg")
 
-# Exact fiducial run configs (Student-t, 4 Mpc/h smoothing, beta=1) and their
-# realisation-marginalised posteriors, with and without the angular
-# sky-exposure selection term.
+# Fiducial run: Student-t, 4 Mpc/h smoothing, free beta, 48-pixel angular
+# sky-exposure. Its realisation-marginalised posterior has an effective sample
+# of ~1 field, so it collapses onto its single dominant realisation; the PPC
+# therefore uses that field's single-field posterior and realisation. Field 66
+# dominates (highest harmonic evidence, median H0=72.2 and Vext toward
+# (285, -3), matching the marginalised result). The superseded 12-pixel
+# fixed-beta (skyexp) and no-exposure (baseline) marginalised variants are kept
+# for reference.
 GENERATED = ROOT / "scripts/runs/generated_configs/TRGBH0_main"
+SINGLE_SMOOTHED = TRGBH0_RESULTS / "single_fields_smoothed"
 _STEM = "EDD_TRGB_rhoSmoothR4_cz-student_t_MAS-PCS_sel-TRGB_magnitude_bmin10_"
-VARIANTS = {
-    "skyexp": _STEM + "skyhp_nside1_k48_ManticoreLocalCOLA_main",
-    "baseline": _STEM + "ManticoreLocalCOLA_main",
-}
 
-# One representative Manticore realisation supplies the galaxy positions.
-FIELD_INDEX = 0
+# variant -> (config stem, posterior path, Manticore realisation index).
+VARIANTS = {
+    "fiducial": (
+        _STEM + "skyhp_nside2_k192_ManticoreLocalCOLA_beta_free_main",
+        SINGLE_SMOOTHED / (_STEM + "skyhp_nside2_k192_ManticoreLocalCOLA"
+                           "_beta_free_field66_single_smoothed.hdf5"),
+        66),
+    "skyexp": (
+        _STEM + "skyhp_nside1_k48_ManticoreLocalCOLA_main",
+        TRGBH0_TABLE_RESULTS / (_STEM + "skyhp_nside1_k48"
+                                "_ManticoreLocalCOLA_main.hdf5"),
+        0),
+    "baseline": (
+        _STEM + "ManticoreLocalCOLA_main",
+        TRGBH0_TABLE_RESULTS / (_STEM + "ManticoreLocalCOLA_main.hdf5"),
+        0),
+}
 SEED = 42
 N_WORKERS = 6
 
@@ -70,14 +88,14 @@ def load_observed_data(config):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--variant", choices=tuple(VARIANTS),
-                        default="skyexp")
+                        default="fiducial")
     parser.add_argument("--figdir", type=Path, default=None,
                         help="Extra directory to copy the paper PDFs into.")
     parser.add_argument("--replot", action="store_true",
                         help="Re-plot from the cached PPC without regenerating.")
     args = parser.parse_args()
 
-    stem = VARIANTS[args.variant]
+    config_stem, posterior, field_index = VARIANTS[args.variant]
     cache = OUTPUT_DIR / f"trgbh0_ppc_{args.variant}_cache.npz"
     _keys = ("mag_sim", "cz_sim", "r_sim", "ra_sim", "dec_sim",
              "mag_obs", "cz_obs", "ra_obs", "dec_obs")
@@ -86,16 +104,16 @@ def main():
         print(f"variant   : {args.variant} (replot from {cache})", flush=True)
         ppc = dict(np.load(cache))
     else:
-        config = candel.load_config(str(GENERATED / f"{stem}.toml"),
+        config = candel.load_config(str(GENERATED / f"{config_stem}.toml"),
                                     replace_los_prior=False)
-        posterior = TRGBH0_TABLE_RESULTS / f"{stem}.hdf5"
         data = load_observed_data(config)
         samples = candel.read_samples("", str(posterior))
         print(f"variant   : {args.variant}", flush=True)
         print(f"posterior : {posterior}", flush=True)
+        print(f"field     : {field_index}", flush=True)
         print(f"n_hosts   : {len(data['mag_obs'])}", flush=True)
         ppc = generate_trgb_ppc(
-            samples, data, config, seed=SEED, field_index=FIELD_INDEX,
+            samples, data, config, seed=SEED, field_index=field_index,
             n_workers=N_WORKERS)
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         np.savez(cache, **{k: ppc[k] for k in _keys if k in ppc})

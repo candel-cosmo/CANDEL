@@ -237,7 +237,7 @@ submit_job() {
         return 2
     fi
     if [[ -z "$cpus" ]]; then
-        if (( gpu )); then cpus=$((4 * gpu_count)); else cpus=1; fi
+        if (( gpu )); then cpus=$((2 * gpu_count)); else cpus=1; fi
     elif (( gpu )); then
         cpus=$((cpus * gpu_count))
     fi
