@@ -19,8 +19,10 @@ from scripts.megamaser.convergence.convergence_utils import (  # noqa: E402
 from scripts.megamaser.convergence.validate_phi_partition import (  # noqa: E402
     INTEGRATION_SCHEMES, METHODS, REFERENCE_CACHE_TTL_SECONDS,
     _add_pesce_deltas, _aggregate, _calibrate_gate, _candidate_table_row,
-    _case_rankings, _case_worst, _clean_reference_cache, _gate,
-    _irrelevant_decision, _load_reference_cache, _paired, _parser,
+    _apply_partition_overrides, _case_rankings, _case_worst,
+    _candidate_rows, _clean_reference_cache, _gate, _git_metadata,
+    _irrelevant_decision,
+    _load_checkpoint_candidate, _load_reference_cache, _paired, _parser,
     _reference_grids, _reference_levels, _reference_metadata,
     _reflect_unit_box,
     _relevant_pass, _save_reference_cache, _scheme_overrides,
@@ -41,9 +43,12 @@ def test_parser_defaults_to_all_galaxies_and_accepts_subset():
     assert _reference_grids("NGC4258", defaults) == (
         (5001, 50001), (10001, 100001), (20001, 200001))
     assert defaults.reference_spot_batch == 4
+    assert not defaults.force_production_f64
     assert not defaults.clean_cache
     assert parser.parse_args(
         ["--galaxies", "NGC6323"]).galaxies == ["NGC6323"]
+    assert parser.parse_args(
+        ["--force-production-f64"]).force_production_f64
 
     override = parser.parse_args([
         "--reference-r-levels", "5,9",
@@ -57,18 +62,54 @@ def test_integration_scheme_config_is_centralised():
             for spec in INTEGRATION_SCHEMES.values()] == list(METHODS)
 
 
+def test_local_cloud_seed_is_stable_when_another_anchor_is_omitted(
+        monkeypatch):
+    case = {
+        "names": ("value",),
+        "lo": np.asarray([0.0]),
+        "hi": np.asarray([1.0]),
+        "init_note": None,
+        "init_status": None,
+        "init_params": {"value": 0.25},
+        "init_block_name": "init",
+        "target": object(),
+        "galaxy": "test",
+    }
+    monkeypatch.setattr(
+        de, "_pesce_init",
+        lambda target, galaxy, master: ({"value": 0.75}, ()))
+    common = ["--sobol-candidates", "0", "--local-sobol", "1"]
+    full, _ = _candidate_rows(case, _parser().parse_args(common), seed=44)
+    pesce_only, _ = _candidate_rows(
+        case, _parser().parse_args(common + ["--no-config-point"]), seed=44)
+    full_local = next(
+        row for row in full
+        if row["source_kind"] == "local-pesce-reid")
+    only_local = next(
+        row for row in pesce_only
+        if row["source_kind"] == "local-pesce-reid")
+    np.testing.assert_array_equal(full_local["values"], only_local["values"])
+
+
 def test_scheme_settings_are_typed_whitelisted_and_duplicate_safe():
     parser = _parser()
     args = parser.parse_args([
         "--scheme-setting",
         "peak-partition.n_phi_partition_sys=257",
         "--scheme-setting", "peak-partition.K_sigma=6.5",
+        "--scheme-setting", "peak-partition.global_r_full_support=true",
+        "--scheme-setting", "peak-partition.peak_r_refine_hv_only=true",
+        "--scheme-setting", "peak-partition.peak_r_width_steps=16",
+        "--scheme-setting", "peak-partition.root_steps=8",
         "--scheme-setting", "fixed-grid.refine_r_center=false",
     ])
     assert _scheme_overrides(args.scheme_setting) == {
         "fixed-grid": {"refine_r_center": False},
         "peak-partition": {
-            "n_phi_partition_sys": 257, "K_sigma": 6.5},
+            "n_phi_partition_sys": 257, "K_sigma": 6.5,
+            "root_steps": 8, "global_r_full_support": True,
+            "peak_r_refine_hv_only": True,
+            "peak_r_width_steps": 16},
     }
 
     with pytest.raises(SystemExit):
@@ -80,6 +121,23 @@ def test_scheme_settings_are_typed_whitelisted_and_duplicate_safe():
     ])
     with pytest.raises(ValueError, match="duplicate"):
         _validate_args(duplicate)
+
+
+def test_partition_function_overrides_bind_to_model_instance():
+    class Model:
+        _phi_partition_root_capacity = 4
+
+        def _phi_partition_log_integral(self, value, root_steps=6,
+                                        core_order=24):
+            return value, root_steps, core_order
+
+    model = Model()
+    _apply_partition_overrides(
+        model, {"root_capacity": 7, "root_steps": 9,
+                "core_order": 16, "K_sigma": 5.0})
+
+    assert model._phi_partition_log_integral("x") == ("x", 9, 16)
+    assert model._phi_partition_root_capacity == 7
 
 
 def test_reference_grid_levels_must_be_paired():
@@ -184,6 +242,16 @@ def test_reference_metadata_excludes_production_policy_and_git():
     assert "scheme_setting_overrides" not in metadata
 
 
+def test_git_metadata_tolerates_compute_node_without_git(monkeypatch):
+    def missing_git(*args, **kwargs):
+        raise FileNotFoundError
+
+    monkeypatch.setattr(
+        "scripts.megamaser.convergence.validate_phi_partition.subprocess.run",
+        missing_git)
+    assert _git_metadata() == {"revision": None, "dirty": None}
+
+
 def test_reference_cache_rejects_stale_metadata(tmp_path):
     metadata = {"candidate": [1.0, 2.0], "grid": [5, 9]}
     path = tmp_path / f"{reference_cache_key(metadata)}.npz"
@@ -254,6 +322,67 @@ def test_clean_reference_cache_removes_only_npz_files(tmp_path):
     assert _clean_reference_cache(tmp_path) == 2
     assert list(tmp_path.glob("*.npz")) == []
     assert keep.is_file()
+
+
+def test_checkpoint_candidate_requires_matching_layout_and_policy(tmp_path):
+    class Model:
+        phi_integration = "peak-partition"
+        _n_phi_partition_sys = 129
+        _n_phi_partition_hv = 65
+        _phi_partition_root_capacity = 4
+        _peak_r_refine_steps = 0
+        _peak_r_refine_order = 7
+        _peak_r_refine_hv_only = False
+        _peak_r_width_steps = 0
+        _n_r_local = 256
+        _n_r_global = 128
+        _K_sigma = 10.0
+        _global_r_full_support = True
+        _asymmetric_r_local = True
+        _scan_width_drop = 0.0
+
+    case = {
+        "galaxy": "toy", "variant": "circular",
+        "names": ["x", "y"], "sizes": np.array([1, 1]),
+        "lo": np.array([-2.0, 10.0]), "hi": np.array([2.0, 20.0]),
+        "models": {"peak-partition": Model()},
+    }
+    path = tmp_path / "de.npz"
+    np.savez(
+        path, best_solution=np.array([0.25, 0.8]),
+        best_fitness=np.asarray(12.5), lo=case["lo"], hi=case["hi"],
+        names=np.array(case["names"]), sizes=case["sizes"],
+        objective_policy=np.asarray(de._objective_policy(Model())))
+
+    values, fitness, policy = _load_checkpoint_candidate(path, case)
+    np.testing.assert_allclose(values, [-1.0, 18.0])
+    assert fitness == 12.5
+    assert policy["matched"]
+
+    bad = tmp_path / "bad.npz"
+    np.savez(
+        bad, best_solution=np.array([0.25, 0.8]),
+        best_fitness=np.asarray(12.5), lo=case["lo"], hi=case["hi"],
+        names=np.array(case["names"]), sizes=case["sizes"],
+        objective_policy=np.asarray("stale"))
+    with pytest.raises(ValueError, match="objective policy"):
+        _load_checkpoint_candidate(bad, case)
+    _, _, mismatch = _load_checkpoint_candidate(
+        bad, case, allow_policy_mismatch=True)
+    assert mismatch == {
+        "saved": "stale",
+        "evaluated": de._objective_policy(Model()),
+        "matched": False,
+    }
+
+    nonfinite = tmp_path / "nonfinite.npz"
+    np.savez(
+        nonfinite, best_solution=np.array([0.25, 0.8]),
+        best_fitness=np.asarray(np.inf), lo=case["lo"], hi=case["hi"],
+        names=np.array(case["names"]), sizes=case["sizes"],
+        objective_policy=np.asarray(de._objective_policy(Model())))
+    with pytest.raises(ValueError, match="best_fitness"):
+        _load_checkpoint_candidate(nonfinite, case)
 
 
 def test_local_cloud_reflection_stays_in_unit_box():

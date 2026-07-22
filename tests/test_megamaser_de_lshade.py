@@ -89,9 +89,37 @@ def test_de_is_only_lshade_and_config_has_no_hybrid_settings():
     with open(path, "rb") as f:
         config = tomli.load(f)
     optimise = config["optimise"]
-    assert config["model"]["phi_integration"] == "fixed-grid"
-    assert config["model"]["n_phi_partition_sys"] == 513
-    assert config["model"]["n_phi_partition_hv"] == 257
+    assert config["model"]["phi_integration"] == "peak-partition"
+    assert config["model"]["n_phi_partition_sys"] == 129
+    assert config["model"]["n_phi_partition_hv"] == 65
+    assert config["model"]["global_r_full_support"] is True
+    assert config["model"]["asymmetric_r_local"] is True
+    assert config["model"]["peak_r_refine_steps"] == 0
+    assert config["model"]["peak_r_refine_order"] == 7
+    assert config["model"]["peak_r_refine_hv_only"] is False
+    assert config["model"]["peak_r_width_steps"] == 0
+    cgcg = config["model"]["galaxies"]["CGCG074-064"]
+    assert cgcg["n_phi_partition_sys"] == 97
+    assert cgcg["n_phi_partition_hv"] == 49
+    ngc4258 = config["model"]["galaxies"]["NGC4258"]
+    assert ngc4258["phi_integration"] == "peak-partition"
+    assert ngc4258["n_phi_partition_sys"] == 513
+    assert ngc4258["n_phi_partition_hv"] == 65
+    assert ngc4258["conditional_spot_batch"] == 32
+    assert ngc4258["peak_r_refine_steps"] == 3
+    assert ngc4258["peak_r_refine_hv_only"] is False
+    assert ngc4258["peak_r_width_steps"] == 8
+    ngc5765b = config["model"]["galaxies"]["NGC5765b"]
+    assert ngc5765b["n_phi_partition_sys"] == 97
+    assert ngc5765b["n_phi_partition_hv"] == 49
+    assert ngc5765b["n_r_local"] == 321
+    assert config["model"]["galaxies"]["NGC6264"][
+        "conditional_spot_batch"] == 32
+    ugc3789 = config["model"]["galaxies"]["UGC3789"]
+    assert ugc3789["n_phi_partition_sys"] == 97
+    assert ugc3789["n_phi_partition_hv"] == 49
+    assert ugc3789["n_r_local"] == 384
+    assert ugc3789["scan_width_drop"] == 50.0
     assert "algorithm" not in optimise
     assert not any(key.startswith("adam_") for key in optimise)
     assert 4 <= optimise["min_pop_size"] <= optimise["pop_size"]
@@ -144,17 +172,45 @@ def test_production_de_has_no_candidate_vectorisation_option(capsys):
     assert "unrecognized arguments: --eval-chunk 1" in capsys.readouterr().err
 
 
-def test_batching_benchmark_only_varies_spots(capsys):
+def test_batching_benchmark_only_varies_exact_gpu_tiling(capsys):
     parser = batching._parser()
     help_text = parser.format_help()
     assert "--eval-chunk" not in help_text
     assert parser.parse_args(
         ["UGC3789", "--spot-batch", "all"]).spot_batch is None
+    peak = parser.parse_args([
+        "UGC3789", "--phi-integration", "peak-partition",
+        "--candidate-wave", "4"])
+    assert peak.phi_integration == "peak-partition"
+    assert peak.candidate_wave == 4
 
     with pytest.raises(SystemExit) as exc:
         parser.parse_args(["UGC3789", "--eval-chunk", "1"])
     assert exc.value.code == 2
     assert "unrecognized arguments: --eval-chunk 1" in capsys.readouterr().err
+
+
+def test_batching_memory_geometry_uses_partition_scans():
+    class PeakModel:
+        phi_integration = "peak-partition"
+        _n_r_local = 256
+        _n_r_global = 128
+        _n_sys = 3
+        _n_red = 2
+        _n_blue = 1
+
+        @staticmethod
+        def _phi_partition_scan_size(name):
+            return 129 if name == "sys" else 65
+
+    geometry = batching._memory_geometry(PeakModel(), dtype_bytes=4)
+    assert geometry["n_r"] == 256
+    assert geometry["groups"]["sys"]["n_phi_scan"] == 129
+    assert geometry["groups"]["red"]["n_phi_scan"] == 65
+    assert geometry["groups"]["sys"]["n_half_planes"] == 2
+    assert geometry["groups"]["red"]["n_half_planes"] == 1
+    assert geometry["groups"]["sys"][
+        "all_spots_one_candidate_bytes"] == 2 * 3 * 256 * 129 * 4
 
 
 def test_batching_benchmark_has_deterministic_sobol_fallback(tmp_path):
@@ -172,6 +228,14 @@ def test_batching_benchmark_has_deterministic_sobol_fallback(tmp_path):
         @staticmethod
         def _variant_suffix(model):
             return ""
+
+        @staticmethod
+        def _phi_integration_suffix(model):
+            return "_peakpartition"
+
+        @staticmethod
+        def _objective_policy(model):
+            return "peak-policy"
 
     master = {
         "optimise": {"sobol_n_sigma": 5},
@@ -266,11 +330,24 @@ def test_resume_requires_matching_checkpoint_precision(
 def test_peak_partition_uses_distinct_checkpoint_policy(tmp_path):
     class Model:
         phi_integration = "peak-partition"
-        _n_phi_partition_sys = 513
-        _n_phi_partition_hv = 257
+        _n_phi_partition_sys = 129
+        _n_phi_partition_hv = 65
+        _phi_partition_root_capacity = 4
+        _n_r_local = 256
+        _n_r_global = 128
+        _K_sigma = 10.0
+        _global_r_full_support = True
+        _asymmetric_r_local = True
+        _scan_width_drop = 0.0
+        _peak_r_refine_steps = 4
+        _peak_r_refine_order = 7
+        _peak_r_refine_hv_only = True
+        _peak_r_width_steps = 12
 
     policy = de._objective_policy(Model())
     assert policy.startswith(de._DE_PEAK_PARTITION_POLICY)
+    assert ":rrhv:" in policy
+    assert ":rw12:" in policy
     assert policy != de._DE_OBJECTIVE_POLICY
 
     explicit = tmp_path / "peak.npz"
