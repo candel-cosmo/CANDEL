@@ -329,6 +329,45 @@ def test_resume_requires_matching_checkpoint_precision(
         de.jax.config.update("jax_enable_x64", original_x64)
 
 
+def test_checkpoint_updates_progress_plot_and_restores_history(tmp_path):
+    checkpoint = tmp_path / "de.npz"
+    history = {
+        "history_generation": np.arange(600),
+        "history_logp": np.linspace(-12.0, -7.0, 600),
+        "history_D_A": np.linspace(7.0, 7.2, 600),
+    }
+    args = [
+        str(checkpoint), np.zeros((4, 2), dtype=np.float32),
+        np.zeros(4, dtype=np.float32), np.array([0.5, 0.5]),
+        np.array(7.0), 599, np.array([0, 1], dtype=np.uint32), 0, -7.0,
+        np.zeros(2), np.ones(2), ["D_A", "eta"], [1, 1],
+    ]
+
+    de._save_de_checkpoint(*args, extra=history)
+
+    plot = tmp_path / "de_progress.png"
+    png = plot.read_bytes()
+    assert png.startswith(b"\x89PNG")
+    assert tuple(
+        int.from_bytes(png[i:i + 4], "big") for i in (16, 20)
+    ) == (2700, 2100)
+    with np.load(checkpoint) as saved:
+        restored = de._load_de_history(saved, 599, -7.0, 7.2)
+    for values, expected in zip(restored, history.values()):
+        np.testing.assert_allclose(values, expected)
+
+    first_plot = plot.read_bytes()
+    extended = {
+        key: np.append(values, value)
+        for (key, values), value in zip(
+            history.items(), (600, -6.5, 7.25))
+    }
+    args[4:6] = [np.array(6.5), 600]
+    args[8] = -6.5
+    de._save_de_checkpoint(*args, extra=extended)
+    assert plot.read_bytes() != first_plot
+
+
 def test_peak_partition_uses_distinct_checkpoint_policy(tmp_path):
     class Model:
         phi_integration = "peak-partition"

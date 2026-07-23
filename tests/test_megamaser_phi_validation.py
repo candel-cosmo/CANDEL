@@ -14,6 +14,7 @@ import pytest  # noqa: E402
 import candel.model.model_H0_maser as maser_module  # noqa: E402
 from candel.model.integration import trapz_log_weights  # noqa: E402
 from candel.model.model_H0_maser import MaserDiskModel  # noqa: E402
+import scripts.megamaser.convergence.validate_phi_partition as validation  # noqa: E402
 from scripts.megamaser.convergence.convergence_utils import (  # noqa: E402
     dense_phi_reference_per_spot, dense_r_phi_reference_per_spot)
 from scripts.megamaser.convergence.validate_phi_partition import (  # noqa: E402
@@ -36,7 +37,7 @@ def test_parser_defaults_to_all_galaxies_and_accepts_subset():
     defaults = parser.parse_args([])
     assert defaults.galaxies == expected
     assert defaults.sobol_candidates == 4
-    assert defaults.reference_r_levels is None
+    assert defaults.reference_r_levels == ()
     assert defaults.reference_phi_levels is None
     assert defaults.reference_tail_levels == 3
     assert _reference_grids("NGC6264", defaults) == (
@@ -56,6 +57,19 @@ def test_parser_defaults_to_all_galaxies_and_accepts_subset():
         "--reference-r-levels", "5,9",
         "--reference-phi-levels", "7,11"])
     assert _reference_grids("NGC4258", override) == ((5, 7), (9, 11))
+
+
+def test_main_builds_metadata_with_default_reference_levels(
+        monkeypatch, tmp_path):
+    def stop_after_metadata(*args, **kwargs):
+        del args, kwargs
+        raise RuntimeError("case build reached")
+
+    monkeypatch.setattr(validation, "_build_case", stop_after_metadata)
+    with pytest.raises(RuntimeError, match="case build reached"):
+        validation.main([
+            "--galaxies", "NGC6323", "--sobol-candidates", "0",
+            "--output-dir", str(tmp_path), "--allow-cpu"])
 
 
 def test_integration_scheme_config_is_centralised():
