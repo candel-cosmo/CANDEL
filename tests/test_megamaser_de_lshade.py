@@ -346,11 +346,17 @@ def test_peak_partition_uses_distinct_checkpoint_policy(tmp_path):
         _peak_r_refine_hv_only = True
         _peak_r_width_steps = 12
 
-    policy = de._objective_policy(Model())
+    model = Model()
+    model.use_ecc = False
+    policy = de._objective_policy(model)
     assert policy.startswith(de._DE_PEAK_PARTITION_POLICY)
     assert ":rrhv:" in policy
     assert ":rw12:" in policy
     assert policy != de._DE_OBJECTIVE_POLICY
+    model.use_ecc = True
+    eccentric_policy = de._objective_policy(model)
+    assert ":ecc_hybrid_qf1:" in eccentric_policy
+    assert eccentric_policy != policy
 
     explicit = tmp_path / "peak.npz"
     np.savez(explicit, algorithm=np.asarray("lshade"),

@@ -36,12 +36,14 @@ def test_parser_defaults_to_all_galaxies_and_accepts_subset():
     defaults = parser.parse_args([])
     assert defaults.galaxies == expected
     assert defaults.sobol_candidates == 4
-    assert defaults.reference_r_levels == (5001, 10001, 20001)
+    assert defaults.reference_r_levels is None
     assert defaults.reference_phi_levels is None
+    assert defaults.reference_tail_levels == 3
     assert _reference_grids("NGC6264", defaults) == (
         (5001, 2501), (10001, 5001), (20001, 10001))
     assert _reference_grids("NGC4258", defaults) == (
-        (5001, 50001), (10001, 100001), (20001, 200001))
+        (20001, 50001), (40001, 50001),
+        (80001, 50001), (160001, 50001))
     assert defaults.reference_spot_batch == 4
     assert not defaults.force_production_f64
     assert not defaults.clean_cache
@@ -410,6 +412,9 @@ def test_float32_phi_eval_does_not_take_float64_quadform(monkeypatch):
         "var_x": jnp.ones(1, dtype=jnp.float32),
         "var_y": jnp.ones(1, dtype=jnp.float32),
         "var_v": jnp.ones(1, dtype=jnp.float32),
+        "weight_x": -0.5 * jnp.ones(1, dtype=jnp.float32),
+        "weight_y": -0.5 * jnp.ones(1, dtype=jnp.float32),
+        "weight_v": -0.5 * jnp.ones(1, dtype=jnp.float32),
         "has_any_accel": False,
     }
     got = model._phi_eval(
@@ -463,9 +468,9 @@ def test_dense_acceptance_reference_uses_partition_support():
 
 def test_dense_2d_reference_integrates_full_radial_support_in_chunks():
     class Model:
-        n_spots = 1
+        n_spots = 2
         _idx_sys = jnp.array([], dtype=int)
-        _idx_red = jnp.array([0])
+        _idx_red = jnp.array([0, 1])
         _idx_blue = jnp.array([], dtype=int)
         _phi_subranges = {"red": ((0.0, np.pi, 3),)}
 
@@ -503,6 +508,11 @@ def test_dense_2d_reference_integrates_full_radial_support_in_chunks():
         + trapz_log_weights(r)[:, None]
         + trapz_log_weights(phi)[None, :])
     np.testing.assert_allclose(got, expected, rtol=0.0, atol=1e-12)
+    selected = dense_r_phi_reference_per_spot(
+        Model(), phys_args, {}, 101, 201, 16, 1, spot_indices=[1])
+    assert np.isneginf(selected[0])
+    np.testing.assert_allclose(
+        selected[1], expected, rtol=0.0, atol=1e-12)
     with pytest.raises(ValueError, match="requires float64"):
         dense_r_phi_reference_per_spot(
             Model(), (None, None, jnp.asarray(1.0, dtype=jnp.float32)),
