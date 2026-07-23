@@ -85,12 +85,19 @@ cd scripts/mocks
 # smoke test (one mock, field = seed % 80)
 ./submit_TRGBH0_mock_bias.sh --local --single --seed 42
 
-# production batch (GPU shards + merge job; field = master seed % 80)
-./submit_TRGBH0_mock_bias.sh -q gpulong --gpu --n-mocks 100 --master-seed 3
+# production batch: 10 GPU jobs x 10 mocks, then an automatic merge job
+# (field = master seed % 80)
+./submit_TRGBH0_mock_bias.sh -q gpulong --n-mocks 100 \
+    --master-seed 3 --gpu-shards 10
 ```
 
 `submit_TRGBH0_mock_bias.sh` is a thin wrapper for
 `mock_TRGB.sh --default-manticore`; all submission options are forwarded.
+On glamdring, `-q gpulong`, `-q cmbgpu`, or `-q optgpu` automatically enables
+GPU mode on that queue. Each GPU job requests one GPU and two CPU cores.
+`--gpu-shards N` requires `--n-mocks` to be divisible by `N` and divides the
+mocks equally before submission; alternatively, `--mocks-per-batch N` allows
+the final GPU job to contain fewer mocks.
 Outputs land in `results/mocks_TRGB/mock_TRGB_biases_<mode_tag>.npz` with
 bias/percentile summary plots alongside; the mode tag encodes field name +
 index, likelihood, b_min, and smoothing, e.g.

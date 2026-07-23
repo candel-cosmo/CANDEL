@@ -35,7 +35,8 @@ masks, zero ranking inversions, and zero root-capacity overflows.  A reference
 is called converged only when its required final consecutive transitions pass
 total <= 0.01, worst spot <= 0.001, and RMS <= 0.0001.  Ordinary reference
 levels are `5001x2501`, `10001x5001`, and `20001x10001` in `(r, phi)`;
-NGC4258 uses `5001x50001`, `10001x100001`, and `20001x200001`.
+NGC4258 uses radial levels `20001`, `40001`, `80001`, and `160001` at
+`50001` phi nodes, with the same final-two-transition requirement.
 
 Broad Sobol proposals are always evaluated completely.  A proposal can be
 excluded from an accuracy verdict only after both production and reference

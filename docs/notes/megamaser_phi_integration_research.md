@@ -204,8 +204,12 @@ high-probability basin without a published-point seed.
 The repository validator compares both complete production objectives against
 the same independent float64 full-support two-dimensional reference. Default
 cheap-galaxy reference levels are 5,001 x 2,501, 10,001 x 5,001, and
-20,001 x 10,001 in `(r, phi)`. NGC4258 uses 5,001 x 50,001 through
-20,001 x 200,001. The production acceptance limits are:
+20,001 x 10,001 in `(r, phi)`. NGC4258 uses radial levels 20,001, 40,001,
+80,001, and 160,001 at 50,001 phi nodes. Individual-spot tests of the former
+offenders pass both final radial transitions after the paired ladder was shown
+to over-resolve phi while remaining pre-asymptotic in radius; the full
+all-spot GPU run remains the acceptance gate. The production acceptance
+limits are:
 
 - absolute total log-likelihood error <= 0.1;
 - worst spot <= 0.01, p99 <= 0.005, RMS <= 0.001;
