@@ -98,6 +98,8 @@ def test_de_is_only_lshade_and_config_has_no_hybrid_settings():
     assert config["model"]["peak_r_refine_order"] == 7
     assert config["model"]["peak_r_refine_hv_only"] is False
     assert config["model"]["peak_r_width_steps"] == 0
+    assert config["model"]["priors"]["sigma_v_sys"]["low"] == 0.1
+    assert config["model"]["priors"]["sigma_v_hv"]["low"] == 0.1
     cgcg = config["model"]["galaxies"]["CGCG074-064"]
     assert cgcg["n_phi_partition_sys"] == 97
     assert cgcg["n_phi_partition_hv"] == 49
@@ -122,8 +124,9 @@ def test_de_is_only_lshade_and_config_has_no_hybrid_settings():
     assert ugc3789["scan_width_drop"] == 50.0
     assert "algorithm" not in optimise
     assert not any(key.startswith("adam_") for key in optimise)
+    assert optimise["pop_size"] == 2000
     assert 4 <= optimise["min_pop_size"] <= optimise["pop_size"]
-    assert optimise["min_pop_size"] == 128
+    assert optimise["min_pop_size"] == 1024
     assert "eval_chunk" not in optimise
     assert de._CANDIDATES_PER_GPU_WAVE == 1
     assert de._PEAK_PARTITION_CANDIDATES_PER_GPU_WAVE == 8
@@ -135,8 +138,7 @@ def test_de_is_only_lshade_and_config_has_no_hybrid_settings():
     assert de._de_candidates_per_wave(peak, 2) == 2
     with pytest.raises(ValueError, match="requires peak-partition"):
         de._de_candidates_per_wave(fixed, 2)
-    assert (optimise["population_reduction_evaluations"]
-            >= optimise["pop_size"])
+    assert optimise["population_reduction_evaluations"] == 5_000_000
 
 
 def test_de_cli_has_no_algorithm_hybrid_or_pesce_seed_switch(capsys):
@@ -820,19 +822,19 @@ def test_exact_archive_fingerprint_collision_is_only_a_sql_probe(
 
 
 def test_lshade_population_reduction_uses_evaluations_not_generations():
-    assert de._linear_population_size(2000, 128, 0, 3_400_000) == 2000
+    assert de._linear_population_size(2000, 1024, 0, 5_000_000) == 2000
     assert de._linear_population_size(
-        2000, 128, 1_700_000, 3_400_000) == 1064
+        2000, 1024, 2_500_000, 5_000_000) == 1512
     assert de._linear_population_size(
-        2000, 128, 3_400_000, 3_400_000) == 128
+        2000, 1024, 5_000_000, 5_000_000) == 1024
     assert de._linear_population_size(
-        2000, 128, 6_800_000, 3_400_000) == 128
+        2000, 1024, 10_000_000, 5_000_000) == 1024
 
     evaluations = 2000
     population = 2000
     for _ in range(5000):
         evaluations += population
         population = de._linear_population_size(
-            2000, 128, evaluations, 3_400_000)
-    assert population == 128
-    assert 3_400_000 <= evaluations < 3_402_000
+            2000, 1024, evaluations, 5_000_000)
+    assert population == 1024
+    assert evaluations > 5_000_000

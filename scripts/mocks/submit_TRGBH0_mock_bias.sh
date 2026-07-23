@@ -12,7 +12,7 @@
 #
 # All submission options (queue, --gpu, --n-mocks, --single, --local, --dry,
 # --field-index, ...) are forwarded, e.g.:
-#   ./submit_TRGBH0_mock_bias.sh -q gpulong --gpu --n-mocks 100
+#   ./submit_TRGBH0_mock_bias.sh -q gpulong --n-mocks 100 --gpu-shards 10
 #   ./submit_TRGBH0_mock_bias.sh --local --single --seed 42
 set -euo pipefail
 
