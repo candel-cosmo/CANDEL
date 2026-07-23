@@ -466,7 +466,8 @@ if $gpu_mode; then
         shard_seed=$((master_seed + i + 1))
         shard_dir="$shard_root/shard_$(printf '%03d' "$i")"
         mkdir -p "$shard_dir"
-        shard_cmd="$CANDEL_PYTHON -u $ROOT/scripts/mocks/mock_TRGB.py \
+        shard_cmd="/usr/bin/env CANDEL_MOCK_SEQUENTIAL=1 \
+            $CANDEL_PYTHON -u $ROOT/scripts/mocks/mock_TRGB.py \
             --n-mocks $shard_mocks \
             --master-seed $shard_seed \
             --num-warmup $num_warmup \

@@ -127,7 +127,9 @@ def _true_Vext_cartesian(true_params):
 
 
 def _expected_mpi_tasks_from_env():
-    """Return scheduler-advertised MPI tasks, or 1 when not allocated."""
+    """Return expected MPI tasks, respecting explicit sequential jobs."""
+    if os.environ.get("CANDEL_MOCK_SEQUENTIAL") == "1":
+        return 1
     for name in (
         "SLURM_NTASKS",
         "SLURM_NPROCS",
