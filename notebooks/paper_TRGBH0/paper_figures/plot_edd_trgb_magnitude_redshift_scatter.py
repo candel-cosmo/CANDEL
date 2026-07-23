@@ -25,6 +25,7 @@ os.environ.setdefault("MPLCONFIGDIR", "/tmp/candel_mplconfig")
 mpl.use("Agg")
 
 OUTNAME = "edd_trgb_magnitude_redshift_scatter"
+MAG_CUT = 22.1  # bright-end truncation mobs > 22.1 mag
 
 
 def parse_args():
@@ -62,17 +63,20 @@ def make_figure(data):
         cz_limits = _axis_limits(czcmb)
         mag_limits = _axis_limits(mag)
 
+        kept = mag > MAG_CUT
+        removed = ~kept
         ax.scatter(
-            czcmb, mag, s=12, color=TRGBH0_COLOURS[0],
+            czcmb[kept], mag[kept], s=12, color=TRGBH0_COLOURS[0],
             edgecolor="black", linewidth=0.15, alpha=0.82)
+        ax.scatter(
+            czcmb[removed], mag[removed], s=12, facecolor="none",
+            edgecolors=TRGBH0_COLOURS[0], linewidth=0.6, alpha=0.82)
+        ax.axhline(MAG_CUT, color="0.35", lw=0.8, ls="--", zorder=1)
         ax.axvline(0.0, color="0.45", lw=0.8, zorder=0)
         ax.set_xlim(*cz_limits)
         ax.set_ylim(*mag_limits)
         ax.set_xlabel(r"$cz_{\rm CMB}\ [\mathrm{km}\,\mathrm{s}^{-1}]$")
         ax.set_ylabel(r"$T_{814} - A_{814}\ [\mathrm{mag}]$")
-        ax.text(
-            0.04, 0.95, rf"$N={len(czcmb)}$",
-            transform=ax.transAxes, ha="left", va="top")
 
         cz_bins = np.arange(-1000, 2400 + 200, 200)
         ax_hist_cz.hist(czcmb, bins=cz_bins, color=TRGBH0_COLOURS[0])
@@ -83,6 +87,7 @@ def make_figure(data):
         ax_hist_mag.hist(
             mag, bins=mag_bins, orientation="horizontal",
             color=TRGBH0_COLOURS[1])
+        ax_hist_mag.axhline(MAG_CUT, color="0.35", lw=0.8, ls="--", zorder=1)
         ax_hist_mag.set_ylim(*mag_limits)
 
         ax_hist_cz.tick_params(axis="x", labelbottom=False)
