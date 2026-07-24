@@ -82,6 +82,61 @@ def test_initial_population_puts_required_base_model_seed_first():
     assert de._initial_de_seed_points(None) is None
 
 
+def test_expanded_model_seed_cloud_varies_around_vanilla_map(monkeypatch):
+    names = (
+        "D_A", "eta", "x0", "d2i_dr2", "d2Omega_dr2",
+        "e_x", "e_y", "dperiapsis_dr")
+    bounds = {
+        "D_A": (6.0, 9.0),
+        "eta": (3.0, 9.0),
+        "x0": (-750.0, 750.0),
+        "d2i_dr2": (-450.0, 450.0),
+        "d2Omega_dr2": (-450.0, 450.0),
+        "e_x": (-0.125, 0.125),
+        "e_y": (-0.125, 0.125),
+        "dperiapsis_dr": (-360.0, 360.0),
+    }
+    monkeypatch.setattr(
+        de, "_prior_bounds",
+        lambda prior, sobol_n_sigma=5: bounds[prior])
+    model = type("Model", (), {
+        "_r_ang_ref_i": 5.1,
+        "_r_ang_ref_Omega": 5.1,
+        "_r_ang_ref_periapsis": 5.1,
+    })()
+    target = type("Target", (), {
+        "names": names,
+        "sites": [(name, None, name) for name in names],
+    })()
+    base = {
+        "D_A": 7.416,
+        "eta": 6.7223,
+        "x0": -168.3482,
+        "d2i_dr2": 0.0,
+        "d2Omega_dr2": 0.0,
+        "e_x": 0.0,
+        "e_y": 0.0,
+        "dperiapsis_dr": 0.0,
+        "r_ang": np.array([3.2, 5.1, 8.1]),
+    }
+
+    seeds, info = de._base_model_variation_seeds(
+        model, target, base, 2048, seed=45)
+
+    assert seeds.shape == (2048, len(names))
+    np.testing.assert_allclose(
+        seeds[:, :3],
+        np.tile([7.416, 6.7223, -168.3482], (len(seeds), 1)))
+    for i in range(3, len(names)):
+        assert np.std(seeds[:, i]) > 0.0
+    for i, name in enumerate(names):
+        assert np.all(seeds[:, i] >= bounds[name][0])
+        assert np.all(seeds[:, i] <= bounds[name][1])
+    assert "all fitted linear-model coordinates are copied exactly" in info
+    assert "e_x, e_y, dperiapsis_dr, d2i_dr2, d2Omega_dr2" in info
+    assert "0.01-10 deg sigma" in info
+
+
 def test_required_base_model_seed_cannot_be_dropped():
     def evaluate(points, desc=None):
         del desc
@@ -102,11 +157,28 @@ def test_required_base_model_seed_cannot_be_dropped():
             required_seed_points=1)
 
 
+def test_required_base_model_seed_audit_prints_values_and_score(capsys):
+    de._print_required_de_seeds(
+        ("D_A", "eta", "d2i_dr2", "d2Omega_dr2"),
+        np.array([[7.416, 6.7223, 0.0, 0.0]]),
+        np.array([5694.6675, 20000.0]), 1)
+
+    output = capsys.readouterr().out
+    assert "Required NGC4258 base-model seed (injected)" in output
+    assert "[model.galaxies.NGC4258.init]" in output
+    assert "normalised priors can shift absolute logP" in output
+    assert "d2i_dr2" in output and "= 0" in output
+    assert "d2Omega_dr2" in output
+    assert "log_MBH (derived)" in output
+    assert "logP = -5694.667500" in output
+    assert "initial-population rank = 1/2" in output
+
+
 def test_de_is_only_lshade_and_config_has_no_hybrid_settings():
     assert de._DE_ALGORITHM == "lshade"
     assert de._DE_SEED_POLICY == "data_sobol_only"
     assert de._DE_BASE_MODEL_SEED_POLICY == (
-        "data_sobol_ngc4258_base_config")
+        "vanilla_expansion_variations_sobol_ngc4258_base_config_v3")
 
     path = os.path.join(MEGAMASER_DIR, "config_maser.toml")
     with open(path, "rb") as f:
@@ -135,6 +207,44 @@ def test_de_is_only_lshade_and_config_has_no_hybrid_settings():
     assert ngc4258["peak_r_refine_steps"] == 3
     assert ngc4258["peak_r_refine_hv_only"] is False
     assert ngc4258["peak_r_width_steps"] == 8
+    linear_map = ngc4258["init"]
+    assert {
+        key: linear_map[key]
+        for key in (
+            "D_A", "Omega0", "dOmega_dr", "di_dr", "dv_sys", "eta", "i0",
+            "log_MBH", "sigma_a_floor", "sigma_v_hv", "sigma_v_sys",
+            "sigma_x_floor", "sigma_y_floor", "x0", "y0")
+    } == {
+        "D_A": 7.416,
+        "Omega0": 86.205,
+        "dOmega_dr": 2.0856,
+        "di_dr": -2.2856,
+        "dv_sys": -192.6809,
+        "eta": 6.7223,
+        "i0": 95.7056,
+        "log_MBH": 7.5925,
+        "sigma_a_floor": 0.4666,
+        "sigma_v_hv": 4.0889,
+        "sigma_v_sys": 0.1707,
+        "sigma_x_floor": 2.1823,
+        "sigma_y_floor": 5.4207,
+        "x0": -168.3482,
+        "y0": 557.1408,
+    }
+    assert len(linear_map["r_ang"]) == 358
+    expanded = type("Model", (), {
+        "_D_A_uniform": True,
+        "mass_parameterization": "eta",
+        "use_ecc": True,
+        "ecc_cartesian": True,
+        "use_quadratic_warp": True,
+    })()
+    lifted = de._clean_init(expanded, linear_map)
+    assert float(lifted["e_x"]) == 0.0
+    assert float(lifted["e_y"]) == 0.0
+    assert float(lifted["dperiapsis_dr"]) == 0.0
+    assert float(lifted["d2i_dr2"]) == 0.0
+    assert float(lifted["d2Omega_dr2"]) == 0.0
     ngc5765b = config["model"]["galaxies"]["NGC5765b"]
     assert ngc5765b["n_phi_partition_sys"] == 97
     assert ngc5765b["n_phi_partition_hv"] == 49
