@@ -92,6 +92,7 @@ def test_de_is_only_lshade_and_config_has_no_hybrid_settings():
     assert config["model"]["phi_integration"] == "peak-partition"
     assert config["model"]["n_phi_partition_sys"] == 129
     assert config["model"]["n_phi_partition_hv"] == 65
+    assert config["model"]["n_r_global"] == 176
     assert config["model"]["global_r_full_support"] is True
     assert config["model"]["asymmetric_r_local"] is True
     assert config["model"]["peak_r_refine_steps"] == 0
@@ -122,6 +123,9 @@ def test_de_is_only_lshade_and_config_has_no_hybrid_settings():
     assert ugc3789["n_phi_partition_hv"] == 49
     assert ugc3789["n_r_local"] == 384
     assert ugc3789["scan_width_drop"] == 50.0
+    assert all(
+        "n_r_global" not in galaxy
+        for galaxy in config["model"]["galaxies"].values())
     assert "algorithm" not in optimise
     assert not any(key.startswith("adam_") for key in optimise)
     assert optimise["pop_size"] == 2000

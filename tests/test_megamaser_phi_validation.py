@@ -114,6 +114,7 @@ def test_scheme_settings_are_typed_whitelisted_and_duplicate_safe():
         "peak-partition.n_phi_partition_sys=257",
         "--scheme-setting", "peak-partition.K_sigma=6.5",
         "--scheme-setting", "peak-partition.global_r_full_support=true",
+        "--scheme-setting", "peak-partition.n_r_global=176",
         "--scheme-setting", "peak-partition.peak_r_refine_hv_only=true",
         "--scheme-setting", "peak-partition.peak_r_width_steps=16",
         "--scheme-setting", "peak-partition.root_steps=8",
@@ -124,6 +125,7 @@ def test_scheme_settings_are_typed_whitelisted_and_duplicate_safe():
         "peak-partition": {
             "n_phi_partition_sys": 257, "K_sigma": 6.5,
             "root_steps": 8, "global_r_full_support": True,
+            "n_r_global": 176,
             "peak_r_refine_hv_only": True,
             "peak_r_width_steps": 16},
     }

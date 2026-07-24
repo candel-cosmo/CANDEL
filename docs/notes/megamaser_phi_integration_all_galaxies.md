@@ -291,12 +291,12 @@ grid remains available through `--phi-integration fixed-grid` for diagnostics.
 
 | Galaxy | Precision | Systemic/HV scan | Local/global r nodes | Extra radial policy | DE spot batch | Candidate wave |
 |---|---|---:|---:|---|---:|---:|
-| CGCG074-064 | f32 | 97/49 | 256/128 | none | all | 8 |
-| NGC5765b | f32 | 97/49 | 321/128 | centred odd local grid | all | 8 |
-| NGC6264 | f32 | 129/65 | 256/128 | none | 32 | 8 |
-| NGC6323 | f32 | 129/65 | 256/128 | none | all | 8 |
-| UGC3789 | f32 | 97/49 | 384/128 | scan-width drop 50 | all | 8 |
-| NGC4258 | f64 | 513/65 | 256/128 | 3x7-point refinement for all classes; 8-step width solve | 32 | 8 |
+| CGCG074-064 | f32 | 97/49 | 256/176 | none | all | 8 |
+| NGC5765b | f32 | 97/49 | 321/176 | centred odd local grid | all | 8 |
+| NGC6264 | f32 | 129/65 | 256/176 | none | 32 | 8 |
+| NGC6323 | f32 | 129/65 | 256/176 | none | all | 8 |
+| UGC3789 | f32 | 97/49 | 384/176 | scan-width drop 50 | all | 8 |
+| NGC4258 | f64 | 513/65 | 256/176 | 3x7-point refinement for all classes; 8-step width solve | 32 | 8 |
 
 All profiles retain full-physical-support global discovery, independent
 left/right local spans, four/eight circular/eccentric root capacity, root
@@ -311,9 +311,12 @@ still compile efficiently and avoid data-dependent GPU control flow.
 
 ## Matched sustained GPU speed and memory
 
-The final benchmark uses deterministic scrambled Sobol coordinates with seed
-123 for both methods.  The five f32 cases use 128 candidates; NGC4258 uses 64
-f64 candidates.  Each method/tiling runs in a fresh child process with three
+This benchmark predates the 2026-07-24 uniform 176-node radial policy and used
+the former 128-node global grids.  It remains the controlled historical
+comparison but is not a current-policy throughput calibration.  The benchmark
+uses deterministic scrambled Sobol coordinates with seed 123 for both
+methods.  The five f32 cases use 128 candidates; NGC4258 uses 64 f64
+candidates.  Each method/tiling runs in a fresh child process with three
 warmups and three timed repeats on one RTX 3090.  Fixed grid uses one candidate
 per GPU wave; selected peak partition uses eight.  The rate is the best
 repeated tiling's median warmed throughput.
@@ -419,14 +422,81 @@ peak sustained benchmarks were jobs 794442--794447.  Slurm stdout retains the
 full benchmark JSON, candidate source, digests, JAX memory, warmups, and timed
 repeats.
 
+## NGC4258 V4 eccentric-plus-warp radial follow-up
+
+A 2026-07-23 follow-up tested the two-anchor NGC4258
+eccentric-plus-quadratic-warp case after the V4 eccentric-kernel checks.  At
+the former 256-local/128-global profile, fixed grid and peak partition had
+the same large errors to reported precision: config was about `0.702` total
+and `0.272` worst spot, while the fully converged Pesce/Reid reference was
+missed by `85.2` total and `34.3` at the worst spot.  The shared failure
+therefore lay in conditional-radius discovery, not angular peak quadrature.
+The three Pesce offenders were systemic spots 115, 117, and 120.
+
+Eight sequential one-GPU `cmbgpu` experiments changed only whitelisted peak
+settings and reused the same independent four-level float64 reference after
+the first V4 cache fill.  Steady time is for the validator's two real
+candidates padded through the production eight-candidate wave; ratios use
+the supplied 1.049-second baseline.
+
+| Loop | Peak override | Config total / worst | Pesce total / worst | Steady time | Baseline ratio | Decision |
+|---:|---|---:|---:|---:|---:|---|
+| 1 | local r 384 | 0.442 / 0.111 | 85.2 / 34.3 | 1.337 s | 1.274x | Local density helps config but cannot discover Pesce modes |
+| 2 | local r 257 | 0.718 / 1.339 | 85.2 / 34.3 | 1.017 s | 0.969x | Reject odd-grid resonance |
+| 3 | global r 256 | 0.705 / 0.272 | 0.0381 / 0.00653 | 1.376 s | 1.311x | Passes Pesce; bracket downward |
+| 4 | global r 192 | 0.704 / 0.272 | 0.0293 / 0.00326 | 1.198 s | 1.142x | Passes Pesce |
+| 5 | global r 160 | 0.703 / 0.272 | 0.00602 / 0.0117 | 1.125 s | 1.072x | Reject: worst, p99, and RMS narrowly fail |
+| 6 | global r 176 | 0.704 / 0.272 | 0.0273 / 0.00522 | 1.144 s | 1.091x | Selected minimal passing discovery grid |
+| 7 | global r 176, K=5 | 0.715 / 0.272 | 0.0377 / 0.0154 | 1.145 s | 1.091x | Reject narrower support |
+| 8 | global r 176, local r 384 | 0.491 / 0.121 | 0.00922 / 0.00527 | 1.427 s | 1.360x | Accurate Pesce, but extra cost tunes an unconverged config reference |
+
+The experiment's minimal passing NGC4258 eccentric-plus-quadratic-warp count
+was 176 global nodes.  On the converged Pesce point its p99 and RMS spot
+errors are `9.37e-5` and `2.90e-4`; all comparison gates pass, and the steady
+cost is about 9% above the old profile.  The 160-node boundary fails, while
+176, 192, and 256 all recover the disconnected modes.  The 384-local
+combination is not selected: the config ladder's
+40,001-to-80,001 transition still misses the strict reference gate, so its
+apparent improvement cannot justify another 25% steady cost.  The formal
+two-candidate report remains `FAIL` for that explicit reference-convergence
+reason rather than weakening the gate.
+
+A config-authoritative transfer audit then evaluated circular and
+quadratic-warp production values against their archived converged dense
+arrays.  Applying 176 globally degraded the circular config to `2.12` total
+and `2.15` worst-spot error; 192 behaved similarly (`2.09` and `2.12`).
+Both counts also left large circular Pesce and quadratic-warp errors.  This
+establishes the numerical cost of broadening the setting beyond the validated
+eccentric-plus-quadratic-warp case.
+
+On 2026-07-24 the production policy was explicitly broadened despite that
+tradeoff: the shared `n_r_global = 176` now applies to every galaxy, disk
+variant, and phi-integration method.  This is a uniform operational choice,
+not a claim that the transfer audit favours 176 for the circular profile; the
+known NGC4258 circular regression is deliberately accepted.
+
+Artifacts are under
+`results/Megamaser/convergence/agent_extreme_20260723/iter01_r384` through
+`iter08_g176_r384`; Slurm jobs are 796346 and 796357--796363.  The supplied
+baseline is job 796345.  Transfer-audit artifacts are
+`transfer_g176_circular_qw` and `transfer_g192_circular_qw` (jobs 796364 and
+796366).  A final config-authoritative scope audit is
+`final_config_scope_audit` (job 796372): its log resolves circular peak
+partition to 128 global nodes and eccentric-plus-quadratic-warp to 176.  Both
+production spot arrays exactly reproduce their matching archived runs
+(`max |delta| = 0`); accuracy was rescored against those full dense references
+rather than the audit's deliberately small execution-harness grids.
+
 ## Final recommendation
 
-Use the checked-in peak-partition profiles and candidate wave eight for DE.
-Keep fixed grid only as an explicit diagnostic.  These settings preserve the
-validated circular and eccentric-plus-warp fit neighbourhood, improve one
-converged UGC3789 bad-fit point that fixed grid misses, stay finite on every
-tested pathological proposal, reduce measured GPU memory, and provide
-7.47--23.46x sustained speedup over the old fixed-grid configuration.
+Use the checked-in peak-partition profiles, 176 global radial nodes, and
+candidate wave eight for DE.  Keep fixed grid only as an explicit diagnostic.
+The uniform 176-node policy improves the validated eccentric-plus-warp stress
+point but deliberately accepts the NGC4258 circular transfer regression.  The
+other settings retain their prior fit-neighbourhood and pathological-proposal
+evidence.  The 7.47--23.46x sustained speedups and memory reductions above are
+historical 128-node measurements; the uniform policy needs a new all-galaxy
+throughput calibration before quoting them as current.
 
 The remaining numerical limitation is explicit rather than hidden: one
 converged UGC3789 local-Pesce point is missed by the shared conditional-radius
