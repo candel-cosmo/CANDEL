@@ -528,11 +528,11 @@ properties rather than host-driven adaptive recursion.
   scope, asymmetric support, full-radius vectorization/cache reuse, setting
   overrides, checkpoint-candidate validation, and compute-node metadata.
 
-The global default remains `fixed-grid`; changing every untested galaxy was
-outside the evidence gathered here.  The NGC4258 galaxy block now selects the
-validated 385/65 peak policy explicitly.  That choice is based on the
-relevant-fit cross-check, not on the unconverged configured-point stress
-reference.
+Historical status at the end of this tuning phase: the global default remained
+`fixed-grid`, and only NGC4258 selected the validated peak policy. This was
+superseded by the all-galaxy validation recorded in
+`megamaser_phi_integration_all_galaxies.md`, after which `peak-partition`
+became the production default.
 
 ## Test status
 

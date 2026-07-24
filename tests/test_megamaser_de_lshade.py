@@ -184,7 +184,7 @@ def test_linear_map_mass_anchors_data_ridge(monkeypatch):
     }
 
     seeds, info = de._data_driven_seed(
-        model, target, base, 73.0, 64, seed=46, eta_anchor=base["eta"])
+        model, target, base, 64, seed=46, eta_anchor=base["eta"])
 
     np.testing.assert_allclose(seeds[:, names.index("eta")], base["eta"])
     assert np.std(seeds[:, names.index("D_A")]) > 0.0
@@ -622,6 +622,60 @@ def test_peak_partition_uses_distinct_checkpoint_policy(tmp_path):
             checkpoint, str(explicit), objective_policy=policy)
         with pytest.raises(ValueError, match="objective policy"):
             de._validate_de_checkpoint_policy(checkpoint, str(explicit))
+
+
+def test_objective_policy_tracks_support_geometry_data_and_fixed_values():
+    class Model:
+        phi_integration = "fixed-grid"
+        use_ecc = False
+        _n_r_local = 64
+        _n_r_global = 32
+        _K_sigma = 5.0
+        _global_r_full_support = True
+        _asymmetric_r_local = True
+        _scan_width_drop = 0.0
+        _R_phys_lo = 0.01
+        _R_phys_hi = 1.5
+        _refine_r_center = True
+        _n_refine_steps = 16
+        _r_ang_ref_i = 0.4
+        _r_ang_ref_Omega = 0.5
+        _r_ang_ref_periapsis = 0.2
+        _phi_hv_inner_deg = 45.0
+        _phi_hv_outer_deg = 90.0
+        _n_phi_hv_high = 101
+        _n_phi_hv_low = 33
+        _phi_sys_ranges_deg = [[-180.0, 180.0]]
+        _n_phi_sys = 257
+        _all_x = np.array([1.0, 2.0])
+        v_sys_obs = 500.0
+        priors = {"dv_sys": np.array([0.0, 300.0])}
+
+    model = Model()
+    baseline = de._objective_policy(model)
+    model._R_phys_hi = 2.0
+    assert de._objective_policy(model) != baseline
+    model._R_phys_hi = 1.5
+    model._r_ang_ref_i = 0.41
+    assert de._objective_policy(model) != baseline
+    model._r_ang_ref_i = 0.4
+    model._all_x[0] = 1.1
+    assert de._objective_policy(model) != baseline
+    model._all_x[0] = 1.0
+    model.priors["dv_sys"][1] = 250.0
+    assert de._objective_policy(model) != baseline
+    model.priors["dv_sys"][1] = 300.0
+    assert de._objective_policy(
+        model, {"sigma_x_floor": 0.5}) != baseline
+    assert de._objective_policy(
+        model, {"sigma_x_floor": 0.5}) != de._objective_policy(
+            model, {"sigma_x_floor": 0.6})
+    saved_C_v = de.maser_physics.C_v
+    try:
+        de.maser_physics.C_v *= 1.001
+        assert de._objective_policy(model) != baseline
+    finally:
+        de.maser_physics.C_v = saved_C_v
 
 
 @pytest.mark.parametrize(
