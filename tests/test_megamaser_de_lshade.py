@@ -137,6 +137,61 @@ def test_expanded_model_seed_cloud_varies_around_vanilla_map(monkeypatch):
     assert "0.01-10 deg sigma" in info
 
 
+def test_linear_map_mass_anchors_data_ridge(monkeypatch):
+    names = (
+        "D_A", "eta", "x0", "y0", "i0", "Omega0", "dv_sys",
+        "di_dr", "dOmega_dr", "e_x")
+    bounds = {
+        "D_A": (6.0, 9.0),
+        "eta": (3.0, 9.0),
+        "x0": (-750.0, 750.0),
+        "y0": (-750.0, 750.0),
+        "i0": (0.0, 180.0),
+        "Omega0": (0.0, 360.0),
+        "dv_sys": (-900.0, 900.0),
+        "di_dr": (-20.0, 20.0),
+        "dOmega_dr": (-20.0, 20.0),
+        "e_x": (-0.125, 0.125),
+    }
+    monkeypatch.setattr(
+        de, "_prior_bounds",
+        lambda prior, sobol_n_sigma=5: bounds[prior])
+    model = type("Model", (), {
+        "_all_x": np.array([-1.0, 0.0, 1.0, 2.0]),
+        "_all_y": np.array([0.0, 0.1, 0.0, 0.2]),
+        "_all_v": np.array([500.0, 510.0, 1000.0, -100.0]),
+        "is_highvel": np.array([False, False, True, True]),
+        "v_sys_obs": 500.0,
+        "priors": {"D": "D_A"},
+        "_D_A_uniform": True,
+    })()
+    target = type("Target", (), {
+        "names": names,
+        "sites": [(name, None, name) for name in names],
+        "mass_parameterization": "eta",
+    })()
+    base = {
+        "D_A": 7.416,
+        "eta": 6.7223,
+        "x0": -168.3482,
+        "y0": 557.1408,
+        "i0": 95.7056,
+        "Omega0": 86.205,
+        "dv_sys": -192.6809,
+        "di_dr": -2.2856,
+        "dOmega_dr": 2.0856,
+        "e_x": 0.0,
+    }
+
+    seeds, info = de._data_driven_seed(
+        model, target, base, 73.0, 64, seed=46, eta_anchor=base["eta"])
+
+    np.testing.assert_allclose(seeds[:, names.index("eta")], base["eta"])
+    assert np.std(seeds[:, names.index("D_A")]) > 0.0
+    assert np.std(seeds[:, names.index("e_x")]) > 0.0
+    assert "from linear-model MAP" in info
+
+
 def test_required_base_model_seed_cannot_be_dropped():
     def evaluate(points, desc=None):
         del desc
@@ -178,7 +233,7 @@ def test_de_is_only_lshade_and_config_has_no_hybrid_settings():
     assert de._DE_ALGORITHM == "lshade"
     assert de._DE_SEED_POLICY == "data_sobol_only"
     assert de._DE_BASE_MODEL_SEED_POLICY == (
-        "vanilla_expansion_variations_sobol_ngc4258_base_config_v3")
+        "vanilla_expansion_ridge_sobol_ngc4258_base_config_v5")
 
     path = os.path.join(MEGAMASER_DIR, "config_maser.toml")
     with open(path, "rb") as f:
@@ -364,13 +419,7 @@ def test_batching_benchmark_has_deterministic_sobol_fallback(tmp_path):
         def results_path(*parts):
             return os.path.join(*map(str, parts))
 
-        @staticmethod
-        def _variant_suffix(model):
-            return ""
-
-        @staticmethod
-        def _phi_integration_suffix(model):
-            return "_peakpartition"
+        _de_checkpoint_filename = staticmethod(de._de_checkpoint_filename)
 
         @staticmethod
         def _objective_policy(model):
@@ -380,10 +429,15 @@ def test_batching_benchmark_has_deterministic_sobol_fallback(tmp_path):
         "optimise": {"sobol_n_sigma": 5},
         "io": {"root_output": str(tmp_path)},
     }
+    model = type("Model", (), {
+        "use_ecc": False,
+        "use_quadratic_warp": False,
+        "phi_integration": "peak-partition",
+    })()
     first = batching._checkpoint_points(
-        FakeDe, object(), object(), master, "TEST", 17, 123)
+        FakeDe, model, object(), master, "TEST", 17, 123)
     second = batching._checkpoint_points(
-        FakeDe, object(), object(), master, "TEST", 17, 123)
+        FakeDe, model, object(), master, "TEST", 17, 123)
 
     np.testing.assert_array_equal(first[0], second[0])
     assert first[0].shape == (17, 3)
@@ -433,14 +487,34 @@ def test_resume_accepts_explicit_nfe_checkpoint(tmp_path):
     explicit = tmp_path / "new.npz"
     np.savez(explicit, algorithm=np.asarray("lshade"),
              seed_policy=np.asarray("data_sobol_only"),
+             optimizer_seed=np.asarray(44),
              population_schedule=np.asarray("nfe_linear"),
              objective_policy=np.asarray(de._DE_OBJECTIVE_POLICY))
     with np.load(explicit) as checkpoint:
-        de._validate_de_checkpoint_policy(checkpoint, str(explicit))
+        de._validate_de_checkpoint_policy(
+            checkpoint, str(explicit), optimizer_seed=44)
+        with pytest.raises(ValueError, match="optimizer seed"):
+            de._validate_de_checkpoint_policy(
+                checkpoint, str(explicit), optimizer_seed=45)
         with pytest.raises(ValueError, match="Checkpoint seed policy"):
             de._validate_de_checkpoint_policy(
                 checkpoint, str(explicit),
                 seed_policy=de._DE_BASE_MODEL_SEED_POLICY)
+
+
+def test_de_checkpoint_filename_separates_optimizer_seeds():
+    model = type("Model", (), {
+        "use_ecc": True,
+        "use_quadratic_warp": True,
+        "phi_integration": "peak-partition",
+    })()
+
+    seed44 = de._de_checkpoint_filename(model, 44)
+    seed45 = de._de_checkpoint_filename(model, 45)
+
+    assert seed44 != seed45
+    assert seed44.endswith("_seed44_lshade_nopesce.npz")
+    assert seed45.endswith("_seed45_lshade_nopesce.npz")
 
 
 @pytest.mark.parametrize(
