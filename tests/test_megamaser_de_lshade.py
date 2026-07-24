@@ -71,19 +71,42 @@ def _reference_lshade_trials(population, fitness, mutation_archive, m_f, m_cr,
     return np.where(cross, mutants, pop), f, cr
 
 
-def test_initial_population_accepts_only_data_seeds():
-    seeds = de._initial_de_seed_points(DATA_SEEDS)
+def test_initial_population_puts_required_base_model_seed_first():
+    base_model_seed = np.array([145.0, 5.32])
+    seeds = de._initial_de_seed_points(DATA_SEEDS, base_model_seed)
 
-    np.testing.assert_allclose(seeds, DATA_SEEDS)
-    assert seeds is not DATA_SEEDS
-    seeds[0, 0] = -1.0
+    np.testing.assert_allclose(seeds[0], base_model_seed)
+    np.testing.assert_allclose(seeds[1:], DATA_SEEDS)
+    seeds[1, 0] = -1.0
     assert DATA_SEEDS[0, 0] == 140.0
     assert de._initial_de_seed_points(None) is None
+
+
+def test_required_base_model_seed_cannot_be_dropped():
+    def evaluate(points, desc=None):
+        del desc
+        return de.jnp.sum(points, axis=1)
+
+    anchor = np.array([[0.25, 0.75]])
+    population, _ = de._make_de_initial_population(
+        evaluate, np.zeros(2), np.ones(2), pop_size=4, seed=3,
+        N_sobol=8, min_dist_frac=0.0, seed_points=anchor,
+        required_seed_points=1)
+    np.testing.assert_allclose(population[0], anchor[0])
+
+    with pytest.raises(ValueError, match="Required DE seed point"):
+        de._make_de_initial_population(
+            evaluate, np.zeros(2), np.ones(2), pop_size=4, seed=3,
+            N_sobol=8, min_dist_frac=0.0,
+            seed_points=np.array([[1.25, 0.75]]),
+            required_seed_points=1)
 
 
 def test_de_is_only_lshade_and_config_has_no_hybrid_settings():
     assert de._DE_ALGORITHM == "lshade"
     assert de._DE_SEED_POLICY == "data_sobol_only"
+    assert de._DE_BASE_MODEL_SEED_POLICY == (
+        "data_sobol_ngc4258_base_config")
 
     path = os.path.join(MEGAMASER_DIR, "config_maser.toml")
     with open(path, "rb") as f:
@@ -304,6 +327,10 @@ def test_resume_accepts_explicit_nfe_checkpoint(tmp_path):
              objective_policy=np.asarray(de._DE_OBJECTIVE_POLICY))
     with np.load(explicit) as checkpoint:
         de._validate_de_checkpoint_policy(checkpoint, str(explicit))
+        with pytest.raises(ValueError, match="Checkpoint seed policy"):
+            de._validate_de_checkpoint_policy(
+                checkpoint, str(explicit),
+                seed_policy=de._DE_BASE_MODEL_SEED_POLICY)
 
 
 @pytest.mark.parametrize(
