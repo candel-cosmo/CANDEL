@@ -1,6 +1,5 @@
 """Regressions for the sole, Pesce-unseeded megamaser DE path."""
 import os
-import sqlite3
 import sys
 
 import numpy as np
@@ -210,6 +209,24 @@ def test_required_base_model_seed_cannot_be_dropped():
             N_sobol=8, min_dist_frac=0.0,
             seed_points=np.array([[1.25, 0.75]]),
             required_seed_points=1)
+
+
+def test_initial_population_reuses_screened_sobol_fitness():
+    calls = []
+
+    def evaluate(points, desc=None):
+        del desc
+        points = np.asarray(points)
+        calls.append(points.copy())
+        return np.sum(points, axis=1)
+
+    population, fitness = de._make_de_initial_population(
+        evaluate, np.zeros(2), np.ones(2), pop_size=4, seed=3,
+        N_sobol=8, min_dist_frac=0.0,
+        seed_points=np.array([[0.25, 0.75]]))
+
+    assert [len(points) for points in calls] == [8, 1]
+    np.testing.assert_allclose(fitness, np.sum(population, axis=1))
 
 
 def test_required_base_model_seed_audit_prints_values_and_score(capsys):
@@ -1017,122 +1034,6 @@ def test_reference_point_uses_de_coordinates_without_becoming_a_seed():
         point, ("a", "b"), np.array([1.0, -5.0]),
         np.array([5.0, 3.0]))
     np.testing.assert_allclose(normalised, [0.5, 0.5])
-
-
-def test_exact_archive_filters_new_keys_and_preserves_cache(tmp_path):
-    path = tmp_path / "exact.sqlite"
-    calls = []
-
-    def batch_eval(points, desc=None):
-        points = np.asarray(points)
-        calls.append(points.copy())
-        return np.sum(points, axis=1)
-
-    archive = de._ExactArchive(
-        str(path), dimension=2, objective_policy=de._DE_OBJECTIVE_POLICY)
-    first = np.array([[1.0, 2.0], [3.0, 4.0], [1.0, 2.0]])
-    np.testing.assert_allclose(
-        archive(batch_eval, first), [3.0, 7.0, 3.0])
-    assert len(calls) == 1
-    assert calls[0].shape == (2, 2)
-    assert archive.evaluations == 2
-    assert archive.hits == 1
-    assert archive.lookup_queries == 0
-
-    second = np.array([[3.0, 4.0], [1.0, 2.0], [5.0, 6.0]])
-    np.testing.assert_allclose(
-        archive(batch_eval, second), [7.0, 3.0, 11.0])
-    assert len(calls) == 2
-    np.testing.assert_array_equal(calls[1], [[5.0, 6.0]])
-    assert archive.evaluations == 3
-    assert archive.hits == 3
-    # Both cache hits resolve from the RAM write buffer, so no SQL is issued.
-    assert archive.lookup_queries == 0
-    archive.close()
-
-    resumed = de._ExactArchive(
-        str(path), dimension=2, resume=True,
-        objective_policy=de._DE_OBJECTIVE_POLICY)
-
-    def should_not_evaluate(points, desc=None):
-        raise AssertionError("persisted cache entry was evaluated again")
-
-    np.testing.assert_allclose(
-        resumed(should_not_evaluate, second[:2]), [7.0, 3.0])
-    assert resumed.hits == 2
-    assert resumed.lookup_queries == 1
-    resumed.close()
-
-    with pytest.raises(ValueError, match="archive objective policy"):
-        de._ExactArchive(
-            str(path), dimension=2, resume=True,
-            objective_policy="different_objective")
-
-
-def test_exact_archive_backfills_compact_fingerprints(tmp_path):
-    path = tmp_path / "legacy.sqlite"
-    point = np.array([1.25, 2.5])
-    key = de._ExactArchive._key(point)
-    connection = sqlite3.connect(path)
-    connection.execute(
-        "CREATE TABLE evaluations "
-        "(point BLOB PRIMARY KEY, fitness REAL NOT NULL) WITHOUT ROWID")
-    connection.execute(
-        "CREATE TABLE metadata "
-        "(key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID")
-    connection.execute(
-        "INSERT INTO evaluations VALUES (?, ?)", (key, 3.75))
-    connection.execute(
-        "INSERT INTO metadata VALUES ('dimension', '2')")
-    connection.commit()
-    connection.close()
-
-    archive = de._ExactArchive(str(path), dimension=2, resume=True)
-
-    def should_not_evaluate(points, desc=None):
-        raise AssertionError("legacy exact value was not recovered")
-
-    np.testing.assert_allclose(
-        archive(should_not_evaluate, point[None]), [3.75])
-    fingerprint = de._ExactArchive._fingerprint(key)
-    assert fingerprint in archive._known_fingerprints
-    row = archive.connection.execute(
-        "SELECT value FROM metadata "
-        "WHERE key='fingerprint_version'").fetchone()
-    assert row == (de._ARCHIVE_FINGERPRINT_VERSION,)
-    assert archive.connection.execute(
-        "SELECT COUNT(*) FROM evaluation_fingerprints").fetchone() == (1,)
-    archive.close()
-
-    with pytest.raises(ValueError, match="'legacy'"):
-        de._ExactArchive(
-            str(path), dimension=2, resume=True,
-            objective_policy=de._DE_OBJECTIVE_POLICY)
-
-
-def test_exact_archive_fingerprint_collision_is_only_a_sql_probe(
-        tmp_path, monkeypatch):
-    monkeypatch.setattr(
-        de._ExactArchive, "_fingerprint", staticmethod(lambda key: 7))
-    archive = de._ExactArchive(
-        str(tmp_path / "collision.sqlite"), dimension=2)
-    points = np.array([[1.0, 2.0], [3.0, 4.0]])
-    expected = np.array([3.0, 7.0])
-
-    archive(lambda x, desc=None: np.sum(x, axis=1), points)
-
-    def should_not_evaluate(points, desc=None):
-        raise AssertionError("full BLOB keys were not used after collision")
-
-    np.testing.assert_allclose(
-        archive(should_not_evaluate, points), expected)
-    # The colliding hit resolves from the RAM write buffer (no SQL probe); the
-    # persisted table still dedups the single fingerprint once flushed.
-    assert archive.lookup_queries == 0
-    archive.flush()
-    assert archive.connection.execute(
-        "SELECT COUNT(*) FROM evaluation_fingerprints").fetchone() == (1,)
-    archive.close()
 
 
 def test_lshade_population_reduction_uses_evaluations_not_generations():
