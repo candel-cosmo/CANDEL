@@ -1378,6 +1378,8 @@ TASK_SPECS = {
                 "model/priors/beta": _delta(1.0),
                 "model/cz_likelihood": "gaussian",
                 "model/field_3d_smoothing_scale": 0.0,
+                "inference/num_warmup": 1500,
+                "inference/num_samples": 3000,
             },
         ],
         "expected_tasks": 7,
