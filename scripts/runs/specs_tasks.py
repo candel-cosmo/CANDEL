@@ -1664,9 +1664,9 @@ TASK_SPECS = {
             + _pcs_mono_smoothed_nosky()
             + _pcs_mono_student_t_smoothed()
             + _trgbh0_manticore_cola_pcs_smoothed_nosky_field_datasets()
-            + _trgbh0_manticore_cola_pcs_student_t_smoothed_nosky_field_datasets()
-            + _trgbh0_manticore_cola_pcs_freebeta_smoothed_field_datasets()
-            + _trgbh0_manticore_cola_pcs_freebeta_gaussian_smoothed_field_datasets()
+            + _trgbh0_manticore_cola_pcs_student_t_smoothed_nosky_field_datasets()  # noqa: E501
+            + _trgbh0_manticore_cola_pcs_freebeta_smoothed_field_datasets()  # noqa: E501
+            + _trgbh0_manticore_cola_pcs_freebeta_gaussian_smoothed_field_datasets()  # noqa: E501
             + _pcs_student_t_smoothed_12pix()
         ),
         "expected_tasks": 960,
