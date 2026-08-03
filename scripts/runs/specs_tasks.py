@@ -1325,8 +1325,8 @@ TASK_SPECS = {
     },
     "test": {
         "description": (
-            "Foundation SN simple Carrick/COLA field test with optional "
-            "density smoothing."),
+            "Foundation SN Carrick/COLA field tests plus a fiducial CF4 W1 "
+            "Manticore/COLA PCS run."),
         "config_path": "configs/config.toml",
         "tag": "foundation_simple",
         "common": {
@@ -1369,8 +1369,18 @@ TASK_SPECS = {
                 "model/priors/beta": _delta(1.0),
                 "model/cz_likelihood": "gaussian",
             },
+            {
+                "inference/model": "TFRModel",
+                "io/catalogue_name": "CF4_W1",
+                "pv_model/kind": f"precomputed_los_{VFO_MANTICORE_COLA_LOS}",
+                "io/reconstruction_main/ManticoreLocalCOLA/which_MAS": "PCS",
+                "pv_model/galaxy_bias": "double_powerlaw",
+                "model/priors/beta": _delta(1.0),
+                "model/cz_likelihood": "gaussian",
+                "model/field_3d_smoothing_scale": 0.0,
+            },
         ],
-        "expected_tasks": 6,
+        "expected_tasks": 7,
     },
     "CH0_main": {
         "description": "CH0 paper H0 grid plus redshift-free distance runs.",
