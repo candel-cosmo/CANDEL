@@ -1328,7 +1328,6 @@ TASK_SPECS = {
             "Foundation SN Carrick/COLA field tests plus a fiducial CF4 W1 "
             "Manticore/COLA PCS run."),
         "config_path": "configs/config.toml",
-        "tag": "foundation_simple",
         "common": {
             "inference/model": "SNModel",
             "io/catalogue_name": "Foundation",
@@ -1378,6 +1377,7 @@ TASK_SPECS = {
                 "model/priors/beta": _delta(1.0),
                 "model/cz_likelihood": "gaussian",
                 "model/field_3d_smoothing_scale": 0.0,
+                "pv_model/density_3d_subsample_fraction": 0.1,
                 "inference/num_warmup": 1500,
                 "inference/num_samples": 3000,
             },
