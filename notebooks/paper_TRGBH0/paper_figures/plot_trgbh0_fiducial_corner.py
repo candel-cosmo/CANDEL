@@ -54,11 +54,11 @@ def main():
     plot_corner_from_hdf5(
         FIDUCIAL,
         keys=CORNER_KEYS,
-        labels=[
-            r"\texttt{ManticoreLocalCOLA}, $R_\rho=4\,h^{-1}\,\mathrm{Mpc}$"],
+        # Single posterior, so no legend; the model is named in the caption.
         filled=False,
-        fontsize=18,
-        legend_fontsize=24,
+        # 19 panels wide, so the canvas is ~38 in and shrinks by ~5x at
+        # \textwidth; the font size has to be scaled up to match.
+        fontsize=42,
         ranges={
             "alpha_low": [0.0, None],
             "alpha_high": [0.0, None],

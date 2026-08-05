@@ -1641,7 +1641,7 @@ def _plot_trgb_ppc_mnras(ppc, fname, ks_mag, ks_cz):
             bins_mag = np.linspace(mag_lo, mag_hi, 36)
             ax_mag.hist(mag_sim, bins=bins_mag, density=True,
                         histtype="stepfilled", color=sim_color, alpha=0.22,
-                        edgecolor=sim_color, linewidth=0.9, label="PPC")
+                        edgecolor=sim_color, linewidth=0.9, label="PPD")
             ax_mag.hist(mag_obs, bins=bins_mag, density=True,
                         histtype="step", color=obs_color, linewidth=1.0,
                         label="Observed")
@@ -1656,7 +1656,7 @@ def _plot_trgb_ppc_mnras(ppc, fname, ks_mag, ks_cz):
             bins_cz = np.linspace(cz_lo, cz_hi, 36)
             ax_cz.hist(cz_sim, bins=bins_cz, density=True,
                        histtype="stepfilled", color=sim_color, alpha=0.22,
-                       edgecolor=sim_color, linewidth=0.9, label="PPC")
+                       edgecolor=sim_color, linewidth=0.9, label="PPD")
             ax_cz.hist(cz_obs, bins=bins_cz, density=True, histtype="step",
                        color=obs_color, linewidth=1.0, label="Observed")
             ax_cz.set_xlabel(r"$cz_{\rm CMB}$ [km s$^{-1}$]")
@@ -1673,7 +1673,7 @@ def _plot_trgb_ppc_mnras(ppc, fname, ks_mag, ks_cz):
             handles = [
                 _plot_2d_contours(
                     ax_joint, mag_sim, cz_sim, bins_2d, sim_color, "-",
-                    "PPC"),
+                    "PPD"),
             ]
             obs_handle = ax_joint.scatter(
                 mag_obs, cz_obs, s=12, marker="o", facecolor="white",
@@ -1746,7 +1746,7 @@ def plot_trgb_ppc(ppc, fname, *, mnras=False):
         max(mag_obs.max(), mag_sim.max()) + 0.5,
         40)
     ax.hist(mag_sim, bins=bins_mag, density=True, alpha=0.5,
-            color="C0", label="PPC")
+            color="C0", label="PPD")
     ax.hist(mag_obs, bins=bins_mag, density=True, histtype="step",
             color="k", linewidth=1.5, label="Observed")
     ax.set_xlabel(r"$m_{\rm TRGB}$ [mag]")
@@ -1762,7 +1762,7 @@ def plot_trgb_ppc(ppc, fname, *, mnras=False):
         max(cz_obs.max(), cz_sim.max()) + 200,
         40)
     ax.hist(cz_sim, bins=bins_cz, density=True, alpha=0.5,
-            color="C0", label="PPC")
+            color="C0", label="PPD")
     ax.hist(cz_obs, bins=bins_cz, density=True, histtype="step",
             color="k", linewidth=1.5, label="Observed")
     ax.set_xlabel(r"$cz_{\rm CMB}$ [km/s]")
@@ -1780,7 +1780,7 @@ def plot_trgb_ppc(ppc, fname, *, mnras=False):
                     max(cz_obs.max(), cz_sim.max()) + 200, 35),
     )
     handles = [
-        _plot_2d_contours(ax, mag_sim, cz_sim, bins_2d, "C0", "-", "PPC"),
+        _plot_2d_contours(ax, mag_sim, cz_sim, bins_2d, "C0", "-", "PPD"),
     ]
     handles = [h for h in handles if h is not None]
     obs_handle = ax.scatter(
@@ -1920,7 +1920,7 @@ def plot_trgb_ppc_sky(ppc, fname, *, mnras=False):
                 Line2D([0], [0], marker="o", linestyle="none",
                        markerfacecolor=plt.get_cmap("viridis")(0.75),
                        markeredgecolor="none", markersize=4.0,
-                       label="PPC density"),
+                       label="PPD density"),
                 Line2D([0], [0], marker="o", linestyle="none",
                        markerfacecolor="white", markeredgecolor="0.08",
                        markeredgewidth=0.6, markersize=4.0,
