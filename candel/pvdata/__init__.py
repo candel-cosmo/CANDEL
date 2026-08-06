@@ -56,7 +56,10 @@ from .dust import (                                                             
     )
 
 from .megamaser_data import (                                                   # noqa
+    DEFAULT_MASER_DATASET,                                                      # noqa
+    MASER_DATASETS,                                                             # noqa
     load_megamaser_spots,                                                       # noqa
+    maser_data_root,                                                            # noqa
     )
 
 from .mwcepheids import (                                                       # noqa

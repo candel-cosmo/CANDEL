@@ -15,6 +15,7 @@ if MEGAMASER_DIR not in sys.path:
 
 import run_de_map as de  # noqa: E402
 import benchmark_de_batching as batching  # noqa: E402
+from maser_config import apply_dataset  # noqa: E402
 
 
 DATA_SEEDS = np.array([[140.0, 5.31], [150.0, 5.33]])
@@ -255,6 +256,9 @@ def test_de_is_only_lshade_and_config_has_no_hybrid_settings():
     path = os.path.join(MEGAMASER_DIR, "config_maser.toml")
     with open(path, "rb") as f:
         config = tomli.load(f)
+    # The init* blocks live in the per-dataset files now; NGC4258's table is
+    # shared, so its block is identical under either dataset.
+    apply_dataset(config, "original_published")
     optimise = config["optimise"]
     assert config["model"]["phi_integration"] == "peak-partition"
     assert config["model"]["n_phi_partition_sys"] == 129
