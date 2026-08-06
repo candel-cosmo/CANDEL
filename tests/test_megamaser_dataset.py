@@ -27,8 +27,8 @@ from maser_config import (apply_dataset, check_chain_dataset,  # noqa: E402
 CONFIG_PATH = os.path.join(MEGAMASER_DIR, "config_maser.toml")
 
 # Spot counts of each dataset, from the tables themselves. The fiducial counts
-# match the per-galaxy provenance the MCP gave for their vetting (see
-# data/Megamaser/README).
+# match the per-galaxy provenance the MCP gave for their vetting (see the
+# checked-in P20 clipping audit).
 EXPECTED_N_SPOTS = {
     "original_published": {"CGCG074-064": 165, "NGC4258": 358,
                            "NGC5765b": 192, "NGC6264": 66,
@@ -49,7 +49,10 @@ def _config():
 
 def _load(dataset, galaxy):
     gcfg = _config()["model"]["galaxies"][galaxy]
-    return load_megamaser_spots(maser_data_root(dataset), galaxy,
+    root = maser_data_root(dataset)
+    if not os.path.isdir(root):
+        pytest.skip(f"external megamaser dataset is not provisioned: {root}")
+    return load_megamaser_spots(root, galaxy,
                                 v_sys_obs=gcfg.get("v_sys_obs"))
 
 

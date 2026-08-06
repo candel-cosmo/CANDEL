@@ -114,3 +114,11 @@ def test_evidence_precision_prefers_metadata_then_force_f64():
 
     with pytest.raises(ValueError, match="unsupported precision"):
         ev._production_dtype({"precision": "float16"}, {}, f32)
+
+
+def test_mcmc_defaults_to_float64_without_changing_de_policy():
+    assert rm._f64_reason_from_argv(["NGC6264"]) == "MCMC default"
+    assert rm._f64_reason_from_argv(
+        ["NGC6264", "--sampler", "de"]) is None
+    assert rm._f64_reason_from_argv(
+        ["NGC4258", "--sampler", "de"]) == "forced for NGC4258"
