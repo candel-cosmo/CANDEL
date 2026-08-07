@@ -367,16 +367,18 @@ def test_de_cli_has_no_algorithm_hybrid_or_pesce_seed_switch(capsys):
     assert "--population-reduction-evaluations" in help_text
     assert "--phi-integration {fixed-grid,peak-partition}" in help_text
     assert "--peak-candidates-per-wave {1,2,4,8}" in help_text
-    assert "{median,config}" in help_text
-    assert "never uses the Pesce/Reid point" in " ".join(help_text.split())
+    assert "data-derived ridge and scrambled Sobol" in " ".join(
+        help_text.split())
 
 
-def test_de_cli_rejects_reid_initialisation(capsys):
-    with pytest.raises(SystemExit) as exc:
-        de.main(["NGC6264", "--init-strategy", "reid"])
-
-    assert exc.value.code == 2
-    assert "invalid choice: 'reid'" in capsys.readouterr().err
+def test_de_search_ignores_every_point_initialisation_strategy():
+    for strategy in (None, "median", "config", "reid", "anything"):
+        assert de._resolve_de_init_strategy(
+            strategy, "config", fix_globals=False) == "median"
+    assert de._resolve_de_init_strategy(
+        None, "config", fix_globals=True) == "config"
+    assert de._resolve_de_init_strategy(
+        "median", "config", fix_globals=True) == "median"
 
 
 def test_production_de_has_no_candidate_vectorisation_option(capsys):
