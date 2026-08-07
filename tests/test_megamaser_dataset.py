@@ -57,7 +57,7 @@ def _load(dataset, galaxy):
 
 
 def test_default_dataset_has_complete_config_init():
-    assert DEFAULT_MASER_DATASET == "original_published"
+    assert DEFAULT_MASER_DATASET == "fiducial"
     assert _config()["io"]["dataset"] == DEFAULT_MASER_DATASET
 
 
@@ -127,8 +127,7 @@ def test_p20_thresholds_agree_with_kmeans(dataset):
 
 def test_config_carries_no_dataset_specific_keys():
     """init*/r_ang_ref_* must live only in the per-dataset files: a base copy
-    would let a pending-DE galaxy silently inherit the other dataset's
-    best point."""
+    would let a galaxy silently inherit the other dataset's best point."""
     for galaxy, blk in _config()["model"]["galaxies"].items():
         stray = [k for k in blk
                  if k.startswith("init") or k.startswith("r_ang_ref_")]
@@ -163,15 +162,20 @@ def test_init_r_ang_lengths_match_spot_counts(dataset):
                 dataset, galaxy, key)
 
 
-def test_fiducial_pending_galaxies_have_no_init():
-    """The four re-vetted galaxies must have no fiducial init until DE reruns
-    land; a stale block would hit the silent zeros fallback."""
+def test_fiducial_init_set_is_complete():
     with open(dataset_init_path("fiducial"), "rb") as f:
         galaxies = tomli.load(f)["model"]["galaxies"]
-    for galaxy in ("NGC5765b", "NGC6264", "NGC6323", "UGC3789"):
-        assert not [k for k in galaxies[galaxy] if k.startswith("init")]
-        # ...but the warp pivots must be present, since DE needs them as input.
-        assert "r_ang_ref_i" in galaxies[galaxy]
+    expected = {
+        "CGCG074-064": {"init", "init_qw"},
+        "NGC4258": {"init", "init_qw", "init_ecc_qw"},
+        "NGC5765b": {"init", "init_qw"},
+        "NGC6264": {"init", "init_qw"},
+        "NGC6323": {"init", "init_qw"},
+        "UGC3789": {"init", "init_qw"},
+    }
+    for galaxy, variants in expected.items():
+        assert {k for k in galaxies[galaxy]
+                if k.startswith("init")} == variants
 
 
 # ---- apply_dataset ----

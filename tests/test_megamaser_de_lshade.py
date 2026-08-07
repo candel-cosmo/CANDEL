@@ -82,6 +82,44 @@ def test_initial_population_puts_required_base_model_seed_first():
     assert de._initial_de_seed_points(None) is None
 
 
+def test_ngc6323_linear_init_lifts_into_quadratic_model():
+    model = type("Model", (), {
+        "_D_A_uniform": True,
+        "mass_parameterization": "eta",
+        "use_ecc": False,
+        "ecc_cartesian": True,
+        "use_quadratic_warp": True,
+    })()
+    gal_cfg = {"init": {
+        "D_A": 101.5905,
+        "eta": 4.9685,
+        "r_ang": [0.3, 0.4],
+        "d2i_dr2": 12.0,
+        "d2Omega_dr2": -34.0,
+    }}
+
+    lifted = de._lift_base_model_init(model, gal_cfg)
+
+    np.testing.assert_allclose(lifted["D_A"], 101.5905)
+    np.testing.assert_allclose(lifted["eta"], 4.9685)
+    assert float(lifted["d2i_dr2"]) == 0.0
+    assert float(lifted["d2Omega_dr2"]) == 0.0
+
+
+def test_only_quadratic_de_requires_base_model_seed():
+    model = type("Model", (), {})()
+    for use_ecc, use_quadratic_warp, expected in (
+            (False, False, False),
+            (True, False, False),
+            (False, True, True),
+            (True, True, True)):
+        model.use_ecc = use_ecc
+        model.use_quadratic_warp = use_quadratic_warp
+        assert de._quadratic_de_requires_base_model_seed(model) is expected
+    assert not de._quadratic_de_requires_base_model_seed(
+        model, fixed_globals=True)
+
+
 def test_expanded_model_seed_cloud_varies_around_vanilla_map(monkeypatch):
     names = (
         "D_A", "eta", "x0", "d2i_dr2", "d2Omega_dr2",
@@ -237,8 +275,8 @@ def test_required_base_model_seed_audit_prints_values_and_score(capsys):
         np.array([5694.6675, 20000.0]), 1)
 
     output = capsys.readouterr().out
-    assert "Required NGC4258 base-model seed (injected)" in output
-    assert "[model.galaxies.NGC4258.init]" in output
+    assert "Required base-model seed (injected)" in output
+    assert "active galaxy [init]" in output
     assert "normalised priors can shift absolute logP" in output
     assert "d2i_dr2" in output and "= 0" in output
     assert "d2Omega_dr2" in output
@@ -251,6 +289,8 @@ def test_de_is_only_lshade_and_config_has_no_hybrid_settings():
     assert de._DE_ALGORITHM == "lshade"
     assert de._DE_SEED_POLICY == "data_sobol_only"
     assert de._DE_BASE_MODEL_SEED_POLICY == (
+        "linear_expansion_ridge_sobol_base_config_v6")
+    assert de._DE_LEGACY_BASE_MODEL_SEED_POLICY == (
         "vanilla_expansion_ridge_sobol_ngc4258_base_config_v5")
 
     path = os.path.join(MEGAMASER_DIR, "config_maser.toml")
@@ -315,7 +355,7 @@ def test_de_is_only_lshade_and_config_has_no_hybrid_settings():
         "ecc_cartesian": True,
         "use_quadratic_warp": True,
     })()
-    lifted = de._clean_init(expanded, linear_map)
+    lifted = de._lift_base_model_init(expanded, ngc4258)
     assert float(lifted["e_x"]) == 0.0
     assert float(lifted["e_y"]) == 0.0
     assert float(lifted["dperiapsis_dr"]) == 0.0
@@ -525,6 +565,21 @@ def test_resume_accepts_explicit_nfe_checkpoint(tmp_path):
                 seed_policy=de._DE_BASE_MODEL_SEED_POLICY)
 
 
+def test_resume_accepts_legacy_ngc4258_quadratic_seed_policy(tmp_path):
+    explicit = tmp_path / "ngc4258_qw_v5.npz"
+    np.savez(
+        explicit,
+        algorithm=np.asarray("lshade"),
+        seed_policy=np.asarray(de._DE_LEGACY_BASE_MODEL_SEED_POLICY),
+        optimizer_seed=np.asarray(44),
+        population_schedule=np.asarray("nfe_linear"),
+        objective_policy=np.asarray(de._DE_OBJECTIVE_POLICY))
+    with np.load(explicit) as checkpoint:
+        de._validate_de_checkpoint_policy(
+            checkpoint, str(explicit), optimizer_seed=44,
+            seed_policy=de._DE_BASE_MODEL_SEED_POLICY)
+
+
 def test_de_checkpoint_filename_separates_optimizer_seeds():
     model = type("Model", (), {
         "use_ecc": True,
@@ -604,6 +659,35 @@ def test_checkpoint_updates_progress_plot_and_restores_history(tmp_path):
     args[8] = -6.5
     de._save_de_checkpoint(*args, extra=extended)
     assert plot.read_bytes() != first_plot
+
+
+def test_spot_loglik_plot_contains_individuals_and_distribution(tmp_path):
+    path = tmp_path / "spot_loglik.png"
+    velocity = np.linspace(2500.0, 4000.0, 12)
+    loglik = -0.5 * np.arange(12, dtype=float)
+    accel_measured = np.arange(12) % 2 == 0
+
+    assert de._save_spot_loglik_plot(
+        str(path), velocity, loglik, accel_measured) == str(path)
+    assert path.read_bytes().startswith(b"\x89PNG")
+
+
+def test_distance_gaussian_uses_local_logp_curvature():
+    lo = np.array([80.0, -1.0])
+    hi = np.array([120.0, 1.0])
+    best = np.array([0.5, 0.5])
+    sigma = 5.0
+
+    def exact_eval(points):
+        distance = lo[0] + np.asarray(points)[:, 0] * (hi[0] - lo[0])
+        return 0.5 * ((distance - 100.0) / sigma)**2
+
+    result = de._estimate_distance_gaussian(
+        exact_eval, best, 0.0, 0, lo, hi)
+
+    assert result["sigma"] == pytest.approx(sigma)
+    assert result["gradient"] == pytest.approx(0.0, abs=1e-12)
+    assert result["precision"] == pytest.approx(1.0 / sigma**2)
 
 
 def test_peak_partition_uses_distinct_checkpoint_policy(tmp_path):
