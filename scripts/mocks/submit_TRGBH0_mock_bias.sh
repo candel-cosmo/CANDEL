@@ -7,12 +7,12 @@
 # source-density bias, 4 Mpc/h density smoothing, the |b| >= 10 deg mask,
 # the soft TRGB-magnitude window, and Student-t redshift noise; recovery
 # uses the same model with the selection edge and width inferred. Injected
-# truths are the fiducial posterior medians (Student-t, free-beta row of the
-# TRGBH0 parameter table); see FIDUCIAL_MANTICORE_DEFAULTS in mock_TRGB.py.
+# truths are a paper-motivated point with beta fixed to unity in generation
+# and recovery; see FIDUCIAL_MANTICORE_DEFAULTS in mock_TRGB.py.
 #
 # All submission options (queue, --gpu, --n-mocks, --single, --local, --dry,
 # --field-index, ...) are forwarded, e.g.:
-#   ./submit_TRGBH0_mock_bias.sh -q gpulong --gpu --n-mocks 100
+#   ./submit_TRGBH0_mock_bias.sh -q gpulong --n-mocks 100 --gpu-shards 10
 #   ./submit_TRGBH0_mock_bias.sh --local --single --seed 42
 set -euo pipefail
 

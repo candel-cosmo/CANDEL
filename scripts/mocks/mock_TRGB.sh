@@ -38,6 +38,7 @@ gpu_mode=false
 gpu_queues=""
 gpu_shards=0
 mocks_per_batch=10
+cpus_per_gpu=2
 
 safe_tag() {
     local value="$1"
@@ -164,7 +165,8 @@ usage: $(basename "$0") -q QUEUE [-n NCPU] [-m MEMORY] [--n-mocks N]
                         [--which-selection NAME] [--config PATH]
                         [--outdir PATH] [--infer-selection] [--no-field]
                         [--field-name NAME] [--single] [--local] [--dry]
-                        [--gpu [--gpu-queues QUEUES] [--mocks-per-batch N]]
+                        [--gpu [--gpu-queues QUEUES] [--mocks-per-batch N]
+                               [--gpu-shards N]]]
 
 Submit TRGB mock closure test batch jobs. Runs with MPI (ranks = --ncpu).
 
@@ -176,9 +178,9 @@ defaults:
 
 options:
   -q, --queue QUEUE       queue/partition (REQUIRED unless --local).
-                          In --gpu mode this is the CPU merge-job queue;
-                          GPU shard queues are chosen automatically or by
-                          --gpu-queues.
+                          On glamdring, gpulong/cmbgpu/optgpu automatically
+                          enable GPU mode and select that GPU shard queue.
+                          Otherwise, in --gpu mode, this is the merge queue.
   -n, --ncpu NCPU         MPI ranks (default: $ncpu)
   -m, --memory MEMORY     GB per job (default: $memory)
   --n-mocks N             mocks (default: $n_mocks)
@@ -217,7 +219,8 @@ options:
                           Use queue:N to weight a queue manually.
                           Default: gpulong plus free cmbgpu/optgpu GPUs.
   --mocks-per-batch N     mocks per GPU shard job (default: $mocks_per_batch)
-  --gpu-shards N          advanced: set number of shard jobs directly
+  --gpu-shards N          submit exactly N equally sized GPU jobs; --n-mocks
+                          must be divisible by N
   --no-progress-bar       disable NumPyro progress bars in sequential jobs
   -h, --help
 
@@ -282,6 +285,17 @@ done
 if ! $local_mode && [[ -z "$queue" ]]; then
     echo "[ERROR] -q QUEUE is required (cluster=$CANDEL_CLUSTER)"; exit 1
 fi
+
+# Match the main CANDEL launchers: a glamdring GPU queue implies GPU use.
+if ! $local_mode && [[ "$CANDEL_CLUSTER" == "glamdring" ]]; then
+    case "$queue" in
+        gpulong|cmbgpu|optgpu)
+            gpu_mode=true
+            [[ -z "$gpu_queues" ]] && gpu_queues="$queue"
+            ;;
+    esac
+fi
+
 if $gpu_mode; then
     if $local_mode; then
         echo "[ERROR] --gpu submission does not support --local"; exit 1
@@ -294,6 +308,18 @@ if $gpu_mode; then
     fi
     if ! [[ "$gpu_shards" =~ ^[0-9]+$ ]]; then
         echo "[ERROR] --gpu-shards must be a non-negative integer"; exit 1
+    fi
+    if ! [[ "$n_mocks" =~ ^[1-9][0-9]*$ ]]; then
+        echo "[ERROR] --n-mocks must be a positive integer"; exit 1
+    fi
+    if [[ $gpu_shards -gt 0 ]]; then
+        if (( n_mocks % gpu_shards != 0 )); then
+            echo "[ERROR] --n-mocks ($n_mocks) must be divisible by --gpu-shards ($gpu_shards)" >&2
+            exit 1
+        fi
+        mocks_per_batch=$((n_mocks / gpu_shards))
+    else
+        gpu_shards=$(((n_mocks + mocks_per_batch - 1) / mocks_per_batch))
     fi
 fi
 
@@ -330,10 +356,11 @@ else
     echo "  Mode:        SUBMIT (queue=$queue)"
 fi
 if $gpu_mode; then
-    echo "  GPU shard:   1 GPU, 1 CPU core, ${memory} GB each"
+    echo "  GPU shard:   1 GPU, $cpus_per_gpu CPU cores, ${memory} GB each"
     echo "  Merge job:   1 CPU core, ${memory} GB on $queue"
     echo "  GPU queues:  $([[ -n "$gpu_queues" ]] && echo "$gpu_queues" || echo auto)"
-    echo "  Batch size:  $mocks_per_batch mocks"
+    echo "  GPU jobs:    $gpu_shards"
+    echo "  Mocks/job:   $mocks_per_batch"
 else
     echo "  CPUs/ranks:  $ncpu"
 fi
@@ -406,12 +433,6 @@ if $gpu_mode; then
     if [[ ${#gpu_queue_list[@]} -eq 0 ]]; then
         echo "[ERROR] No GPU queues parsed from --gpu-queues"; exit 1
     fi
-    if [[ $gpu_shards -le 0 ]]; then
-        gpu_shards=$(((n_mocks + mocks_per_batch - 1) / mocks_per_batch))
-    else
-        mocks_per_batch=$(((n_mocks + gpu_shards - 1) / gpu_shards))
-    fi
-
     dry_flag=()
     $dry && dry_flag=(--dry)
     field_tag="nofield"
@@ -445,7 +466,8 @@ if $gpu_mode; then
         shard_seed=$((master_seed + i + 1))
         shard_dir="$shard_root/shard_$(printf '%03d' "$i")"
         mkdir -p "$shard_dir"
-        shard_cmd="$CANDEL_PYTHON -u $ROOT/scripts/mocks/mock_TRGB.py \
+        shard_cmd="/usr/bin/env CANDEL_MOCK_SEQUENTIAL=1 \
+            $CANDEL_PYTHON -u $ROOT/scripts/mocks/mock_TRGB.py \
             --n-mocks $shard_mocks \
             --master-seed $shard_seed \
             --num-warmup $num_warmup \
@@ -462,7 +484,7 @@ if $gpu_mode; then
             $extra_args"
         echo "  shard $i: queue=$shard_queue mocks=$shard_mocks seed=$shard_seed"
         submit_out=$(submit_job --queue "$shard_queue" --mem "$memory" \
-            --gpu --cpus 1 \
+            --gpu --cpus "$cpus_per_gpu" \
             --name "mock_TRGB_gpu_$(printf '%03d' "$i")" \
             "${dry_flag[@]}" -- $shard_cmd)
         echo "$submit_out"

@@ -150,7 +150,7 @@ def name2labelgetdist(name):
         "SN_alpha": r"\mathcal{A}",
         "SN_beta": r"\mathcal{B}",
         "sigma_int": r"\sigma_{\rm int}",
-        "sigma_v": r"\sigma_v~\left[\mathrm{km}\,\mathrm{s}^{-1}\right]",
+        "sigma_v": r"{\displaystyle\sigma_v \atop \scriptstyle\left[\mathrm{km}\,\mathrm{s}^{-1}\right]}",  # noqa
         "sigma_v_low": (
             r"\sigma_{v,\rm low}~\left[\mathrm{km}\,\mathrm{s}^{-1}\right]"
         ),
@@ -168,10 +168,10 @@ def name2labelgetdist(name):
         "b2": r"b_2",
         "b3": r"b_3",
         "beta": r"\beta",
-        "Vext_mag": r"V_\mathrm{ext}~\left[\mathrm{km}\,\mathrm{s}^{-1}\right]",  # noqa
-        "Vext_ell": r"\ell_\mathrm{ext}~\left[\mathrm{deg}\right]",
+        "Vext_mag": r"{\displaystyle V_\mathrm{ext} \atop \scriptstyle\left[\mathrm{km}\,\mathrm{s}^{-1}\right]}",  # noqa
+        "Vext_ell": r"{\displaystyle\ell_\mathrm{ext} \atop \scriptstyle\left[\mathrm{deg}\right]}",
         "Vext_ell_offset": r"\ell_\mathrm{ext} - 180~\left[\mathrm{deg}\right]",  # noqa
-        "Vext_b":   r"b_\mathrm{ext}~\left[\mathrm{deg}\right]",
+        "Vext_b":   r"{\displaystyle b_\mathrm{ext} \atop \scriptstyle\left[\mathrm{deg}\right]}",
         "Vext_phi": r"\phi_\mathrm{ext}~\left[\mathrm{rad}\right]",
         "Vext_cos_theta": r"\cos\theta_\mathrm{ext}",
         "logM_miss": r"\log_{10} M_{\rm miss}",
@@ -207,7 +207,7 @@ def name2labelgetdist(name):
         "mag_lim_TRGB": r"m_{\rm lim}",
         "mag_lim_TRGB_width": r"\sigma_{\rm sel}",
         "nu_cz": r"\nu",
-        "H0": r"H_0~\left[\mathrm{km}\,\mathrm{s}^{-1}\,\mathrm{Mpc}^{-1}\right]",  # noqa
+        "H0": r"{\displaystyle H_0 \atop \scriptstyle\left[\mathrm{km}\,\mathrm{s}^{-1}\,\mathrm{Mpc}^{-1}\right]}",  # noqa
         "log10_D_c": r"\log_{10} D_c",
         "D_c": r"D_c",
         "D_A": r"D_A",

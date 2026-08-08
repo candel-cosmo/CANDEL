@@ -14,8 +14,10 @@ import pytest  # noqa: E402
 import candel.model.model_H0_maser as maser_module  # noqa: E402
 from candel.model.integration import trapz_log_weights  # noqa: E402
 from candel.model.model_H0_maser import MaserDiskModel  # noqa: E402
+import scripts.megamaser.convergence.validate_phi_partition as validation  # noqa: E402
 from scripts.megamaser.convergence.convergence_utils import (  # noqa: E402
-    dense_phi_reference_per_spot, dense_r_phi_reference_per_spot)
+    dense_phi_reference_per_spot, dense_r_phi_reference_per_spot,
+    ensure_grad_sample, extend_grad_params, jax_phys_from_sample)
 from scripts.megamaser.convergence.validate_phi_partition import (  # noqa: E402
     INTEGRATION_SCHEMES, METHODS, REFERENCE_CACHE_TTL_SECONDS,
     _add_pesce_deltas, _aggregate, _calibrate_gate, _candidate_table_row,
@@ -36,12 +38,14 @@ def test_parser_defaults_to_all_galaxies_and_accepts_subset():
     defaults = parser.parse_args([])
     assert defaults.galaxies == expected
     assert defaults.sobol_candidates == 4
-    assert defaults.reference_r_levels == (5001, 10001, 20001)
+    assert defaults.reference_r_levels == ()
     assert defaults.reference_phi_levels is None
+    assert defaults.reference_tail_levels == 3
     assert _reference_grids("NGC6264", defaults) == (
         (5001, 2501), (10001, 5001), (20001, 10001))
     assert _reference_grids("NGC4258", defaults) == (
-        (5001, 50001), (10001, 100001), (20001, 200001))
+        (20001, 50001), (40001, 50001),
+        (80001, 50001), (160001, 50001))
     assert defaults.reference_spot_batch == 4
     assert not defaults.force_production_f64
     assert not defaults.clean_cache
@@ -54,6 +58,61 @@ def test_parser_defaults_to_all_galaxies_and_accepts_subset():
         "--reference-r-levels", "5,9",
         "--reference-phi-levels", "7,11"])
     assert _reference_grids("NGC4258", override) == ((5, 7), (9, 11))
+
+
+def test_gradient_helper_uses_current_DA_eta_coordinates_and_dv_sys():
+    model = SimpleNamespace(
+        _D_A_uniform=True,
+        mass_parameterization="eta",
+        config={"model": {"H0_ref": 73.0}},
+        distance2redshift=lambda distance, h: jnp.full_like(distance, 0.1),
+        v_sys_obs=500.0,
+        _r_ang_ref_i=0.0,
+        _r_ang_ref_Omega=0.0,
+        _r_ang_ref_periapsis=0.0,
+        use_quadratic_warp=False,
+        use_ecc=False,
+    )
+    sample = ensure_grad_sample(model, {
+        "D_c": 110.0,
+        "eta": 6.0,
+        "log_MBH": 8.0,
+        "dv_sys": 20.0,
+        "r_ang": [1.0, 2.0],
+    })
+
+    assert "D_A" in sample and "eta" in sample
+    assert "D_c" not in sample and "log_MBH" not in sample
+    assert "r_ang" not in sample and "H0" not in sample
+    assert extend_grad_params(model, sample)[:2] == ("D_A", "eta")
+    phys_args, phys_kw = jax_phys_from_sample(model, sample)
+    assert float(phys_args[2]) == pytest.approx(100.0)
+    assert float(phys_args[3]) == pytest.approx(10.0)
+    assert float(phys_args[4]) == pytest.approx(520.0)
+    assert float(phys_kw["dv_sys"]) == pytest.approx(20.0)
+
+    model._D_A_uniform = False
+    model.mass_parameterization = "log_mbh"
+    legacy = ensure_grad_sample(model, {
+        "D_c": 110.0,
+        "eta": 6.0,
+    })
+    assert "D_c" in legacy and "log_MBH" in legacy
+    assert "D_A" not in legacy and "eta" not in legacy
+    assert float(legacy["log_MBH"]) == pytest.approx(8.0)
+
+
+def test_main_builds_metadata_with_default_reference_levels(
+        monkeypatch, tmp_path):
+    def stop_after_metadata(*args, **kwargs):
+        del args, kwargs
+        raise RuntimeError("case build reached")
+
+    monkeypatch.setattr(validation, "_build_case", stop_after_metadata)
+    with pytest.raises(RuntimeError, match="case build reached"):
+        validation.main([
+            "--galaxies", "NGC6323", "--sobol-candidates", "0",
+            "--output-dir", str(tmp_path), "--allow-cpu"])
 
 
 def test_integration_scheme_config_is_centralised():
@@ -98,6 +157,7 @@ def test_scheme_settings_are_typed_whitelisted_and_duplicate_safe():
         "peak-partition.n_phi_partition_sys=257",
         "--scheme-setting", "peak-partition.K_sigma=6.5",
         "--scheme-setting", "peak-partition.global_r_full_support=true",
+        "--scheme-setting", "peak-partition.n_r_global=176",
         "--scheme-setting", "peak-partition.peak_r_refine_hv_only=true",
         "--scheme-setting", "peak-partition.peak_r_width_steps=16",
         "--scheme-setting", "peak-partition.root_steps=8",
@@ -108,6 +168,7 @@ def test_scheme_settings_are_typed_whitelisted_and_duplicate_safe():
         "peak-partition": {
             "n_phi_partition_sys": 257, "K_sigma": 6.5,
             "root_steps": 8, "global_r_full_support": True,
+            "n_r_global": 176,
             "peak_r_refine_hv_only": True,
             "peak_r_width_steps": 16},
     }
@@ -410,6 +471,9 @@ def test_float32_phi_eval_does_not_take_float64_quadform(monkeypatch):
         "var_x": jnp.ones(1, dtype=jnp.float32),
         "var_y": jnp.ones(1, dtype=jnp.float32),
         "var_v": jnp.ones(1, dtype=jnp.float32),
+        "weight_x": -0.5 * jnp.ones(1, dtype=jnp.float32),
+        "weight_y": -0.5 * jnp.ones(1, dtype=jnp.float32),
+        "weight_v": -0.5 * jnp.ones(1, dtype=jnp.float32),
         "has_any_accel": False,
     }
     got = model._phi_eval(
@@ -463,9 +527,9 @@ def test_dense_acceptance_reference_uses_partition_support():
 
 def test_dense_2d_reference_integrates_full_radial_support_in_chunks():
     class Model:
-        n_spots = 1
+        n_spots = 2
         _idx_sys = jnp.array([], dtype=int)
-        _idx_red = jnp.array([0])
+        _idx_red = jnp.array([0, 1])
         _idx_blue = jnp.array([], dtype=int)
         _phi_subranges = {"red": ((0.0, np.pi, 3),)}
 
@@ -503,6 +567,11 @@ def test_dense_2d_reference_integrates_full_radial_support_in_chunks():
         + trapz_log_weights(r)[:, None]
         + trapz_log_weights(phi)[None, :])
     np.testing.assert_allclose(got, expected, rtol=0.0, atol=1e-12)
+    selected = dense_r_phi_reference_per_spot(
+        Model(), phys_args, {}, 101, 201, 16, 1, spot_indices=[1])
+    assert np.isneginf(selected[0])
+    np.testing.assert_allclose(
+        selected[1], expected, rtol=0.0, atol=1e-12)
     with pytest.raises(ValueError, match="requires float64"):
         dense_r_phi_reference_per_spot(
             Model(), (None, None, jnp.asarray(1.0, dtype=jnp.float32)),

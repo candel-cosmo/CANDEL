@@ -1325,10 +1325,9 @@ TASK_SPECS = {
     },
     "test": {
         "description": (
-            "Foundation SN simple Carrick/COLA field test with optional "
-            "density smoothing."),
+            "Foundation SN Carrick/COLA field tests plus a fiducial CF4 W1 "
+            "Manticore/COLA PCS run."),
         "config_path": "configs/config.toml",
-        "tag": "foundation_simple",
         "common": {
             "inference/model": "SNModel",
             "io/catalogue_name": "Foundation",
@@ -1369,8 +1368,21 @@ TASK_SPECS = {
                 "model/priors/beta": _delta(1.0),
                 "model/cz_likelihood": "gaussian",
             },
+            {
+                "inference/model": "TFRModel",
+                "io/catalogue_name": "CF4_W1",
+                "pv_model/kind": f"precomputed_los_{VFO_MANTICORE_COLA_LOS}",
+                "io/reconstruction_main/ManticoreLocalCOLA/which_MAS": "PCS",
+                "pv_model/galaxy_bias": "double_powerlaw",
+                "model/priors/beta": _delta(1.0),
+                "model/cz_likelihood": "gaussian",
+                "model/field_3d_smoothing_scale": 0.0,
+                "pv_model/density_3d_subsample_fraction": 0.05,
+                "inference/num_warmup": 1500,
+                "inference/num_samples": 3000,
+            },
         ],
-        "expected_tasks": 6,
+        "expected_tasks": 7,
     },
     "CH0_main": {
         "description": "CH0 paper H0 grid plus redshift-free distance runs.",
@@ -1664,9 +1676,9 @@ TASK_SPECS = {
             + _pcs_mono_smoothed_nosky()
             + _pcs_mono_student_t_smoothed()
             + _trgbh0_manticore_cola_pcs_smoothed_nosky_field_datasets()
-            + _trgbh0_manticore_cola_pcs_student_t_smoothed_nosky_field_datasets()
-            + _trgbh0_manticore_cola_pcs_freebeta_smoothed_field_datasets()
-            + _trgbh0_manticore_cola_pcs_freebeta_gaussian_smoothed_field_datasets()
+            + _trgbh0_manticore_cola_pcs_student_t_smoothed_nosky_field_datasets()  # noqa: E501
+            + _trgbh0_manticore_cola_pcs_freebeta_smoothed_field_datasets()  # noqa: E501
+            + _trgbh0_manticore_cola_pcs_freebeta_gaussian_smoothed_field_datasets()  # noqa: E501
             + _pcs_student_t_smoothed_12pix()
         ),
         "expected_tasks": 960,

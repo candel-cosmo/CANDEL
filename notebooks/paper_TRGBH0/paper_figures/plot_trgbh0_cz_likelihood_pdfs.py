@@ -49,11 +49,6 @@ def main():
     with paper_style(styles=("science",)):
         fig, ax = plt.subplots(figsize=(3.45, 2.55))
 
-        # Highlight where the Student-t tails overtake the Gaussian.
-        heavier = pdf_student > pdf_gauss
-        ax.fill_between(x, 1e-7, pdf_student, where=heavier,
-                        color=TRGBH0_COLOURS[1], alpha=0.12, lw=0, zorder=0)
-
         # sigma_v and nu are quoted in the caption, not repeated in the legend.
         ax.plot(x, pdf_gauss, color=TRGBH0_COLOURS[0], ls="-",
                 label="Gaussian")

@@ -44,7 +44,8 @@ class BaseRedshift2Real(ABC):
     def __init__(self, RA, dec, zcmb, los_r, los_density, los_velocity,
                  which_bias, calibration_samples, Rmin=1e-7, Rmax=500,
                  num_rgrid=101, r0_decay_scale=5, Om0=0.3, verbose=True,
-                 r_init=None):
+                 r_init=None, e_zcmb=None, Vext_decay_start=None,
+                 Vext_decay_scale=None):
         self.verbose = verbose
         self.dist2redshift = Distance2Redshift(Om0=Om0)
         self.r_init = np.asarray(r_init) if r_init is not None else None
@@ -60,6 +61,15 @@ class BaseRedshift2Real(ABC):
 
         self.len_input_data = len(zcmb)
         self.cz_cmb = np.asarray(zcmb * SPEED_OF_LIGHT)
+        if e_zcmb is None:
+            self.e_cz_cmb = np.zeros(self.len_input_data)
+        else:
+            e_zcmb = np.asarray(e_zcmb)
+            if e_zcmb.shape != np.shape(zcmb):
+                raise ValueError("e_zcmb must have the same shape as zcmb")
+            if np.any(~np.isfinite(e_zcmb)) or np.any(e_zcmb < 0):
+                raise ValueError("e_zcmb must be finite and non-negative")
+            self.e_cz_cmb = e_zcmb * SPEED_OF_LIGHT
 
         los_r = np.asarray(los_r)
         los_density = np.asarray(los_density)
@@ -84,6 +94,28 @@ class BaseRedshift2Real(ABC):
             fprint("No Vext in calibration samples.", verbose=self.verbose)
             self.Vext_radial = np.zeros(
                 (self.len_input_data, self.num_cal))
+
+        if (Vext_decay_start is None) != (Vext_decay_scale is None):
+            raise ValueError(
+                "Vext_decay_start and Vext_decay_scale must be set together")
+        self.Vext_decay_start = Vext_decay_start
+        self.Vext_decay_scale = Vext_decay_scale
+        if Vext_decay_start is not None:
+            self.Vext_decay_start = float(Vext_decay_start)
+            self.Vext_decay_scale = float(Vext_decay_scale)
+            if (not np.isfinite(self.Vext_decay_start)
+                    or self.Vext_decay_start < 0):
+                raise ValueError(
+                    "Vext_decay_start must be finite and non-negative")
+            if (not np.isfinite(self.Vext_decay_scale)
+                    or self.Vext_decay_scale <= 0):
+                raise ValueError(
+                    "Vext_decay_scale must be finite and positive")
+            fprint(
+                f"Vext constant to {self.Vext_decay_start:.3f} Mpc/h, "
+                f"then exponentially decaying with scale "
+                f"{self.Vext_decay_scale:.3f} Mpc/h.",
+                verbose=self.verbose)
 
         # Bias model setup
         self.which_bias = which_bias
@@ -155,7 +187,7 @@ class Redshift2Real(BaseRedshift2Real):
     """
 
     def _compute_bias_normalization(self, los_grid_r, batch_size=10):
-        """Compute bias log-prior normalization for the configured model."""
+        """Normalize the bias-weighted radial prior, including r-squared."""
         if self.which_bias is None:
             return None
 
@@ -196,13 +228,13 @@ class Redshift2Real(BaseRedshift2Real):
             intg = lp_galaxy_bias(None, field, bias_params, which_bias)
         # Pad x to match intg's ndim for ln_simpson
         x = los_grid_r[(None,) * (intg.ndim - 1)]
-        return ln_simpson(intg, x, axis=-1)
+        return ln_simpson(intg + 2 * jnp.log(los_grid_r), x, axis=-1)
 
     @staticmethod
     @partial(jax.jit, static_argnums=(0,))
     def _process_batch_jit(which_bias, lp_r, z_grid, log_jacobian, Vpec,
-                           Vext_radial, cz_cmb, beta, sigma_v,
-                           bias_field, lp_norm, bias_params):
+                           Vext_radial, Vext_window, cz_cmb, e_cz_cmb, beta,
+                           sigma_v, bias_field, lp_norm, bias_params):
         """JIT-compiled core of _process_batch."""
         if which_bias is not None:
             if which_bias == "linear":
@@ -217,14 +249,20 @@ class Redshift2Real(BaseRedshift2Real):
         else:
             lp_r_full = lp_r[None, None, None, :]
 
-        zpec = (beta[None, None, :, None] * Vpec[:, :, None, :]
-                + Vext_radial[None, :, :, None]) / SPEED_OF_LIGHT
+        zpec = (
+            beta[None, None, :, None] * Vpec[:, :, None, :]
+            + Vext_radial[None, :, :, None]
+            * Vext_window[None, None, None, :]
+        ) / SPEED_OF_LIGHT
 
         cz_pred = SPEED_OF_LIGHT * (
             (1 + z_grid)[None, None, None, :] * (1 + zpec) - 1)
 
-        ll = jax_norm.logpdf(cz_cmb[None, :, None, None], cz_pred,
-                             sigma_v[None, None, :, None])
+        sigma_cz = jnp.sqrt(
+            sigma_v[None, None, :, None]**2
+            + e_cz_cmb[None, :, None, None]**2)
+        ll = jax_norm.logpdf(
+            cz_cmb[None, :, None, None], cz_pred, sigma_cz)
         ll += lp_r_full
 
         ll = logmeanexp(ll, axis=2)
@@ -258,6 +296,14 @@ class Redshift2Real(BaseRedshift2Real):
         r_grid = self.los_grid_r
         ngal = self.len_input_data
         nrad = len(r_grid)
+
+        if self.Vext_decay_start is None:
+            self.Vext_window = np.ones_like(r_grid)
+        else:
+            distance_beyond = np.clip(
+                r_grid - self.Vext_decay_start, 0, None)
+            self.Vext_window = np.exp(
+                -distance_beyond / self.Vext_decay_scale)
 
         # Precompute quantities independent of galaxy
         lp_r = 2 * np.log(r_grid)
@@ -301,7 +347,9 @@ class Redshift2Real(BaseRedshift2Real):
         """Process a batch of galaxies (thin wrapper around JIT core)."""
         Vpec = jnp.asarray(Vpec_all[:, start:end, :])
         Vext_radial = jnp.asarray(self.Vext_radial[start:end, :])
+        Vext_window = jnp.asarray(self.Vext_window)
         cz_cmb = jnp.asarray(self.cz_cmb[start:end])
+        e_cz_cmb = jnp.asarray(self.e_cz_cmb[start:end])
 
         if self.which_bias is not None:
             bias_field = jnp.asarray(bias_field_all[:, start:end, :])
@@ -317,7 +365,7 @@ class Redshift2Real(BaseRedshift2Real):
             self.which_bias,
             jnp.asarray(lp_r), jnp.asarray(z_grid),
             jnp.asarray(log_jacobian),
-            Vpec, Vext_radial, cz_cmb,
+            Vpec, Vext_radial, Vext_window, cz_cmb, e_cz_cmb,
             jnp.asarray(self.beta), jnp.asarray(self.sigma_v),
             bias_field, lp_norm, bias_params))
 
@@ -356,6 +404,7 @@ class Redshift2Real(BaseRedshift2Real):
         map_val = z_grid[map_idx]
 
         cdf = cumulative_trapezoid(posterior, z_grid, axis=-1, initial=0)
+        cdf /= cdf[:, -1:]
 
         def find_quantiles(cdf, q):
             idx = np.argmax(cdf >= q, axis=-1)

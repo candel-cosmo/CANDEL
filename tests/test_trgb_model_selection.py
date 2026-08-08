@@ -4,7 +4,8 @@ import numpy as np
 import pytest
 
 from candel.model import TRGBModel
-from scripts.mocks.mock_TRGB import make_mock_config
+from scripts.mocks.mock_TRGB import (
+    FIDUCIAL_MANTICORE_DEFAULTS, make_mock_config)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -107,13 +108,13 @@ def test_fiducial_manticore_mock_uses_paper_field_and_priors():
 
     assert config["io"]["reconstruction_main"]["ManticoreLocalCOLA"][
         "which_MAS"] == "PCS"
+    assert FIDUCIAL_MANTICORE_DEFAULTS["beta"] == 1.0
     priors = config["model"]["priors"]
     assert priors["H0"] == {
         "dist": "uniform", "low": 40.0, "high": 100.0}
     assert priors["Vext"] == {
         "dist": "vector_uniform_fixed", "low": 0.0, "high": 1000.0}
-    assert priors["beta"] == {
-        "dist": "uniform", "low": 0.0, "high": 2.0}
+    assert priors["beta"] == {"dist": "delta", "value": 1.0}
     assert priors["sigma_int"] == {
         "dist": "truncated_normal", "mean": 0.1,
         "scale": 0.01, "low": 0.01}

@@ -85,6 +85,17 @@ GROUP_GAP = 0.9
 VIOLIN_W = 0.72
 PLANCK_H0 = 67.4
 SHOES_H0 = 73.0
+# Drawn at MNRAS \textwidth (504pt) so the figure is included at width=\textwidth
+# and no down-scaling shrinks the type below the sizes set here.
+FIG_WIDTH = 6.97
+FIG_HEIGHT = 5.9
+# Type and rule weights, chosen for a 1:1 include rather than the shrunk default.
+RC = {"font.size": 9.0, "axes.labelsize": 9.5, "axes.titlesize": 9.5,
+      "xtick.labelsize": 8.5, "ytick.labelsize": 8.5, "legend.fontsize": 8.5,
+      "axes.linewidth": 0.9, "xtick.major.width": 0.9,
+      "ytick.major.width": 0.9, "xtick.minor.width": 0.7,
+      "ytick.minor.width": 0.7}
+LABEL_FS = 8.5
 
 
 def _column_colour(key):
@@ -156,21 +167,23 @@ def _draw_violin(ax, x, vals, colour):
                               showextrema=False)
         for body in parts["bodies"]:
             body.set_facecolor(colour)
-            body.set_edgecolor("none")
+            body.set_edgecolor(colour)
+            body.set_linewidth(0.9)
             body.set_alpha(0.32)
     jitter = np.linspace(-0.15, 0.15, vals.size)
-    ax.scatter(x + jitter, vals, s=5, color=colour, alpha=0.34,
+    ax.scatter(x + jitter, vals, s=7, color=colour, alpha=0.34,
                edgecolor="none")
     q16, q50, q84 = np.percentile(vals, [16.0, 50.0, 84.0])
     ax.errorbar(x, q50, yerr=[[q50 - q16], [q84 - q50]], fmt="o",
-                color="black", ms=3.6, capsize=2.4, zorder=5)
+                color="black", ms=4.4, capsize=3.0, elinewidth=1.3,
+                capthick=1.3, zorder=5)
 
 
 def _mark_empty(ax, x):
     """Shade an absent variant column and label it `empty`."""
     ax.axvspan(x - 0.42, x + 0.42, color="0.85", alpha=0.35, lw=0, zorder=0)
     ax.text(x, 0.5, "empty", transform=ax.get_xaxis_transform(),
-            rotation=90.0, ha="center", va="center", fontsize=5.6,
+            rotation=90.0, ha="center", va="center", fontsize=LABEL_FS - 1.0,
             color="0.5", fontstyle="italic")
 
 
@@ -197,18 +210,18 @@ def build_figure(groups, out_pdf, marginalised_dir=DEFAULT_MARGINALISED_DIR):
     best = max(mean_lnz, key=mean_lnz.get)
 
     with plt.style.context(["science", "no-latex"]):
-        set_paper_rc()
+        set_paper_rc(RC)
         fig, (ax_h0, ax_z) = plt.subplots(
-            2, 1, figsize=(8.6, 5.2), sharex=True,
-            constrained_layout=True, height_ratios=(1.25, 1.0))
+            2, 1, figsize=(FIG_WIDTH, FIG_HEIGHT), sharex=True,
+            constrained_layout=True, height_ratios=(1.3, 1.0))
 
         # --- Top: field-median H0 distributions ---
         ax_h0.axhspan(PLANCK_H0 - 0.5, PLANCK_H0 + 0.5, color="0.7",
                       alpha=0.30, lw=0)
         ax_h0.axhspan(SHOES_H0 - 1.0, SHOES_H0 + 1.0, color="#ef476f",
                       alpha=0.16, lw=0)
-        ax_h0.axhline(PLANCK_H0, color="0.45", lw=0.7, ls="--")
-        ax_h0.axhline(SHOES_H0, color="#ef476f", lw=0.7, ls="--")
+        ax_h0.axhline(PLANCK_H0, color="0.45", lw=1.1, ls="--")
+        ax_h0.axhline(SHOES_H0, color="#ef476f", lw=1.1, ls="--")
         for c in cols:
             if c["key"] in groups:
                 medians = np.asarray(
@@ -221,23 +234,28 @@ def build_figure(groups, out_pdf, marginalised_dir=DEFAULT_MARGINALISED_DIR):
                 q16, q50, q84 = marg
                 ax_h0.errorbar(c["x"] + MARGINALISED_DX, q50,
                                yerr=[[q50 - q16], [q84 - q50]], fmt="s",
-                               color=MARGINALISED_COLOUR, ms=3.0, capsize=2.4,
-                               lw=1.1, zorder=6)
-        ax_h0.text(0.010, 0.96, "Planck", transform=ax_h0.transAxes,
-                   ha="left", va="top", fontsize=6.0, color="0.4",
+                               color=MARGINALISED_COLOUR, ms=4.0, capsize=3.0,
+                               lw=1.5, capthick=1.5, zorder=6)
+        ax_h0.text(0.008, 0.965, "Planck", transform=ax_h0.transAxes,
+                   ha="left", va="top", fontsize=LABEL_FS, color="0.4",
                    fontstyle="italic")
-        ax_h0.text(0.010, 0.04, "SH0ES", transform=ax_h0.transAxes,
-                   ha="left", va="bottom", fontsize=6.0, color="#ef476f")
+        ax_h0.text(0.008, 0.035, "SH0ES", transform=ax_h0.transAxes,
+                   ha="left", va="bottom", fontsize=LABEL_FS, color="#ef476f")
         ax_h0.set_ylabel(H0_LABEL)
+        # Headroom for the legend, and a little foot room so the violin tails
+        # are not clipped by the autoscaled limit.
+        y0, y1 = ax_h0.get_ylim()
+        ax_h0.set_ylim(y0 - 0.03 * (y1 - y0), y1 + 0.15 * (y1 - y0))
         legend_handles = [
             Patch(facecolor=LIKELIHOOD_COLOUR["Gauss"], alpha=0.5,
                   label="Gaussian"),
             Patch(facecolor=LIKELIHOOD_COLOUR["Stud"], alpha=0.5,
                   label="Student-$t$"),
-            Line2D([], [], color=MARGINALISED_COLOUR, marker="s", ms=3.0,
-                   lw=1.1, label="Field-marginalised")]
+            Line2D([], [], color=MARGINALISED_COLOUR, marker="s", ms=4.0,
+                   lw=1.5, label="Field-marginalised")]
         ax_h0.legend(handles=legend_handles, loc="upper right", frameon=False,
-                     fontsize=6.0, handlelength=1.2, ncol=3)
+                     fontsize=LABEL_FS, handlelength=1.4, ncol=3,
+                     columnspacing=1.4, borderaxespad=0.3)
 
         # --- Bottom: matched-field harmonic evidence, per-realisation ---
         for c in cols:
@@ -248,18 +266,23 @@ def build_figure(groups, out_pdf, marginalised_dir=DEFAULT_MARGINALISED_DIR):
                 _draw_violin(ax_z, c["x"], dz, c["colour"])
             else:
                 _mark_empty(ax_z, c["x"])
-        ax_z.axhline(0.0, color="0.35", lw=0.75, ls="--")
+        ax_z.axhline(0.0, color="0.35", lw=1.1, ls="--")
         ax_z.set_ylabel(r"$\Delta\log_{10} Z_{\rm harm}$")
 
         # --- Group separators, headers, and variant tick labels ---
         for sx in seps:
             for ax in (ax_h0, ax_z):
-                ax.axvline(sx, color="0.8", lw=0.6, ls=":", zorder=0)
+                ax.axvline(sx, color="0.75", lw=0.9, ls=":", zorder=0)
         for gname, cx in centres:
             ax_h0.text(cx, 1.02, gname, transform=ax_h0.get_xaxis_transform(),
-                       ha="center", va="bottom", fontsize=6.2, color="0.25")
+                       ha="center", va="bottom", fontsize=LABEL_FS + 0.5,
+                       color="0.25")
         ax_z.set_xticks([c["x"] for c in cols])
-        ax_z.set_xticklabels([c["disp"] for c in cols], fontsize=6.0)
+        # Columns sit ~0.4 in apart, too narrow for horizontal labels at this
+        # type size, so rotate them and anchor the right end under the tick.
+        ax_z.set_xticklabels([c["disp"].replace("\n", " ") for c in cols],
+                             fontsize=LABEL_FS, rotation=40.0, ha="right",
+                             rotation_mode="anchor")
         ax_z.set_xlim(cols[0]["x"] - 0.7, cols[-1]["x"] + 0.7)
         return save_pdf_png(fig, out_pdf)
 

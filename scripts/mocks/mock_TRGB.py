@@ -54,9 +54,9 @@ PERIODIC_PARAMS = {"Vext_phi": 2 * np.pi}
 N_MANTICORE_COLA_FIELDS = 80
 FIDUCIAL_MANTICORE_MAS = "PCS"
 
-# TRGBH0 fiducial-model preset (PCS, Student-t, free-beta row of the paper's
-# parameter table), without the sky-exposure term. Keys are argparse dests;
-# any explicitly passed flag overrides these defaults.
+# TRGBH0 paper-motivated closure preset (PCS and Student-t), without the
+# sky-exposure term. Beta is fixed to unity in generation and recovery.
+# Other keys are argparse dests; explicitly passed flags override them.
 # alpha_high_frac = 1.70 / 2.25 = 0.76; rmax = 50 Mpc/h at h = 0.722.
 FIDUCIAL_MANTICORE_DEFAULTS = {
     "use_field": True,
@@ -76,7 +76,7 @@ FIDUCIAL_MANTICORE_DEFAULTS = {
     "M_TRGB": -4.03,
     "sigma_int": 0.10,
     "sigma_v": 66.0,
-    "beta": 1.04,
+    "beta": 1.0,
     "Vext_mag": 332.0,
     "Vext_ell": 285.0,
     "Vext_b": -4.0,
@@ -127,7 +127,9 @@ def _true_Vext_cartesian(true_params):
 
 
 def _expected_mpi_tasks_from_env():
-    """Return scheduler-advertised MPI tasks, or 1 when not allocated."""
+    """Return expected MPI tasks, respecting explicit sequential jobs."""
+    if os.environ.get("CANDEL_MOCK_SEQUENTIAL") == "1":
+        return 1
     for name in (
         "SLURM_NTASKS",
         "SLURM_NPROCS",
@@ -229,7 +231,7 @@ def make_mock_config(base_config_path, seed, num_warmup=500,
             "Vext": {
                 "dist": "vector_uniform_fixed", "low": 0.0, "high": 1000.0,
             },
-            "beta": {"dist": "uniform", "low": 0.0, "high": 2.0},
+            "beta": {"dist": "delta", "value": 1.0},
             "sigma_int": {
                 "dist": "truncated_normal", "mean": 0.1,
                 "scale": 0.01, "low": 0.01,
@@ -1117,20 +1119,12 @@ def run_single(seed, true_params, mock_kwargs, config_path,
     if outdir is None:
         outdir = os.path.dirname(os.path.abspath(__file__))
     os.makedirs(outdir, exist_ok=True)
-    fname = os.path.join(
-        outdir,
-        "mock_TRGB_single_" f"{
-            _mode_tag(
-                which_selection,
-                use_field,
-                field_name,
-                infer_selection,
-                fix_Vext,
-                field_index=field_index if use_field else None,
-                cz_likelihood=cz_likelihood,
-                b_min=mock_kwargs.get('b_min'),
-                field_smoothing_scale=mock_kwargs.get(
-                    'field_smoothing_scale'))}.png")
+    mode_tag = _mode_tag(
+        which_selection, use_field, field_name, infer_selection, fix_Vext,
+        field_index=field_index if use_field else None,
+        cz_likelihood=cz_likelihood, b_min=mock_kwargs.get("b_min"),
+        field_smoothing_scale=mock_kwargs.get("field_smoothing_scale"))
+    fname = os.path.join(outdir, f"mock_TRGB_single_{mode_tag}.png")
     fig.savefig(fname, dpi=150)
     print(f"\nSaved plot to {fname}")
     plt.close(fig)
@@ -1317,6 +1311,8 @@ def main():
     if pre_args.default_manticore:
         parser.set_defaults(**FIDUCIAL_MANTICORE_DEFAULTS)
     args = parser.parse_args()
+    if args.default_manticore:
+        args.beta = 1.0
 
     if args.field_index is None:
         if args.default_manticore and args.use_field:

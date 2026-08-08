@@ -1,6 +1,6 @@
 """Regressions for the sole, Pesce-unseeded megamaser DE path."""
+import csv
 import os
-import sqlite3
 import sys
 
 import numpy as np
@@ -16,6 +16,7 @@ if MEGAMASER_DIR not in sys.path:
 
 import run_de_map as de  # noqa: E402
 import benchmark_de_batching as batching  # noqa: E402
+from maser_config import apply_dataset  # noqa: E402
 
 
 DATA_SEEDS = np.array([[140.0, 5.31], [150.0, 5.33]])
@@ -71,33 +72,247 @@ def _reference_lshade_trials(population, fitness, mutation_archive, m_f, m_cr,
     return np.where(cross, mutants, pop), f, cr
 
 
-def test_initial_population_accepts_only_data_seeds():
-    seeds = de._initial_de_seed_points(DATA_SEEDS)
+def test_initial_population_puts_required_base_model_seed_first():
+    base_model_seed = np.array([145.0, 5.32])
+    seeds = de._initial_de_seed_points(DATA_SEEDS, base_model_seed)
 
-    np.testing.assert_allclose(seeds, DATA_SEEDS)
-    assert seeds is not DATA_SEEDS
-    seeds[0, 0] = -1.0
+    np.testing.assert_allclose(seeds[0], base_model_seed)
+    np.testing.assert_allclose(seeds[1:], DATA_SEEDS)
+    seeds[1, 0] = -1.0
     assert DATA_SEEDS[0, 0] == 140.0
     assert de._initial_de_seed_points(None) is None
+
+
+def test_ngc6323_linear_init_lifts_into_quadratic_model():
+    model = type("Model", (), {
+        "_D_A_uniform": True,
+        "mass_parameterization": "eta",
+        "use_ecc": False,
+        "ecc_cartesian": True,
+        "use_quadratic_warp": True,
+    })()
+    gal_cfg = {"init": {
+        "D_A": 101.5905,
+        "eta": 4.9685,
+        "r_ang": [0.3, 0.4],
+        "d2i_dr2": 12.0,
+        "d2Omega_dr2": -34.0,
+    }}
+
+    lifted = de._lift_base_model_init(model, gal_cfg)
+
+    np.testing.assert_allclose(lifted["D_A"], 101.5905)
+    np.testing.assert_allclose(lifted["eta"], 4.9685)
+    assert float(lifted["d2i_dr2"]) == 0.0
+    assert float(lifted["d2Omega_dr2"]) == 0.0
+
+
+def test_only_quadratic_de_requires_base_model_seed():
+    model = type("Model", (), {})()
+    for use_ecc, use_quadratic_warp, expected in (
+            (False, False, False),
+            (True, False, False),
+            (False, True, True),
+            (True, True, True)):
+        model.use_ecc = use_ecc
+        model.use_quadratic_warp = use_quadratic_warp
+        assert de._quadratic_de_requires_base_model_seed(model) is expected
+    assert not de._quadratic_de_requires_base_model_seed(
+        model, fixed_globals=True)
+
+
+def test_expanded_model_seed_cloud_varies_around_vanilla_map(monkeypatch):
+    names = (
+        "D_A", "eta", "x0", "d2i_dr2", "d2Omega_dr2",
+        "e_x", "e_y", "dperiapsis_dr")
+    bounds = {
+        "D_A": (6.0, 9.0),
+        "eta": (3.0, 9.0),
+        "x0": (-750.0, 750.0),
+        "d2i_dr2": (-450.0, 450.0),
+        "d2Omega_dr2": (-450.0, 450.0),
+        "e_x": (-0.125, 0.125),
+        "e_y": (-0.125, 0.125),
+        "dperiapsis_dr": (-360.0, 360.0),
+    }
+    monkeypatch.setattr(
+        de, "_prior_bounds",
+        lambda prior, sobol_n_sigma=5: bounds[prior])
+    model = type("Model", (), {
+        "_r_ang_ref_i": 5.1,
+        "_r_ang_ref_Omega": 5.1,
+        "_r_ang_ref_periapsis": 5.1,
+    })()
+    target = type("Target", (), {
+        "names": names,
+        "sites": [(name, None, name) for name in names],
+    })()
+    base = {
+        "D_A": 7.416,
+        "eta": 6.7223,
+        "x0": -168.3482,
+        "d2i_dr2": 0.0,
+        "d2Omega_dr2": 0.0,
+        "e_x": 0.0,
+        "e_y": 0.0,
+        "dperiapsis_dr": 0.0,
+        "r_ang": np.array([3.2, 5.1, 8.1]),
+    }
+
+    seeds, info = de._base_model_variation_seeds(
+        model, target, base, 2048, seed=45)
+
+    assert seeds.shape == (2048, len(names))
+    np.testing.assert_allclose(
+        seeds[:, :3],
+        np.tile([7.416, 6.7223, -168.3482], (len(seeds), 1)))
+    for i in range(3, len(names)):
+        assert np.std(seeds[:, i]) > 0.0
+    for i, name in enumerate(names):
+        assert np.all(seeds[:, i] >= bounds[name][0])
+        assert np.all(seeds[:, i] <= bounds[name][1])
+    assert "all fitted linear-model coordinates are copied exactly" in info
+    assert "e_x, e_y, dperiapsis_dr, d2i_dr2, d2Omega_dr2" in info
+    assert "0.01-10 deg sigma" in info
+
+
+def test_linear_map_mass_anchors_data_ridge(monkeypatch):
+    names = (
+        "D_A", "eta", "x0", "y0", "i0", "Omega0", "dv_sys",
+        "di_dr", "dOmega_dr", "e_x")
+    bounds = {
+        "D_A": (6.0, 9.0),
+        "eta": (3.0, 9.0),
+        "x0": (-750.0, 750.0),
+        "y0": (-750.0, 750.0),
+        "i0": (0.0, 180.0),
+        "Omega0": (0.0, 360.0),
+        "dv_sys": (-900.0, 900.0),
+        "di_dr": (-20.0, 20.0),
+        "dOmega_dr": (-20.0, 20.0),
+        "e_x": (-0.125, 0.125),
+    }
+    monkeypatch.setattr(
+        de, "_prior_bounds",
+        lambda prior, sobol_n_sigma=5: bounds[prior])
+    model = type("Model", (), {
+        "_all_x": np.array([-1.0, 0.0, 1.0, 2.0]),
+        "_all_y": np.array([0.0, 0.1, 0.0, 0.2]),
+        "_all_v": np.array([500.0, 510.0, 1000.0, -100.0]),
+        "is_highvel": np.array([False, False, True, True]),
+        "v_sys_obs": 500.0,
+        "priors": {"D": "D_A"},
+        "_D_A_uniform": True,
+    })()
+    target = type("Target", (), {
+        "names": names,
+        "sites": [(name, None, name) for name in names],
+        "mass_parameterization": "eta",
+    })()
+    base = {
+        "D_A": 7.416,
+        "eta": 6.7223,
+        "x0": -168.3482,
+        "y0": 557.1408,
+        "i0": 95.7056,
+        "Omega0": 86.205,
+        "dv_sys": -192.6809,
+        "di_dr": -2.2856,
+        "dOmega_dr": 2.0856,
+        "e_x": 0.0,
+    }
+
+    seeds, info = de._data_driven_seed(
+        model, target, base, 64, seed=46, eta_anchor=base["eta"])
+
+    np.testing.assert_allclose(seeds[:, names.index("eta")], base["eta"])
+    assert np.std(seeds[:, names.index("D_A")]) > 0.0
+    assert np.std(seeds[:, names.index("e_x")]) > 0.0
+    assert "from linear-model MAP" in info
+
+
+def test_required_base_model_seed_cannot_be_dropped():
+    def evaluate(points, desc=None):
+        del desc
+        return de.jnp.sum(points, axis=1)
+
+    anchor = np.array([[0.25, 0.75]])
+    population, _ = de._make_de_initial_population(
+        evaluate, np.zeros(2), np.ones(2), pop_size=4, seed=3,
+        N_sobol=8, min_dist_frac=0.0, seed_points=anchor,
+        required_seed_points=1)
+    np.testing.assert_allclose(population[0], anchor[0])
+
+    with pytest.raises(ValueError, match="Required DE seed point"):
+        de._make_de_initial_population(
+            evaluate, np.zeros(2), np.ones(2), pop_size=4, seed=3,
+            N_sobol=8, min_dist_frac=0.0,
+            seed_points=np.array([[1.25, 0.75]]),
+            required_seed_points=1)
+
+
+def test_initial_population_reuses_screened_sobol_fitness():
+    calls = []
+
+    def evaluate(points, desc=None):
+        del desc
+        points = np.asarray(points)
+        calls.append(points.copy())
+        return np.sum(points, axis=1)
+
+    population, fitness = de._make_de_initial_population(
+        evaluate, np.zeros(2), np.ones(2), pop_size=4, seed=3,
+        N_sobol=8, min_dist_frac=0.0,
+        seed_points=np.array([[0.25, 0.75]]))
+
+    assert [len(points) for points in calls] == [8, 1]
+    np.testing.assert_allclose(fitness, np.sum(population, axis=1))
+
+
+def test_required_base_model_seed_audit_prints_values_and_score(capsys):
+    de._print_required_de_seeds(
+        ("D_A", "eta", "d2i_dr2", "d2Omega_dr2"),
+        np.array([[7.416, 6.7223, 0.0, 0.0]]),
+        np.array([5694.6675, 20000.0]), 1)
+
+    output = capsys.readouterr().out
+    assert "Required base-model seed (injected)" in output
+    assert "active galaxy [init]" in output
+    assert "normalised priors can shift absolute logP" in output
+    assert "d2i_dr2" in output and "= 0" in output
+    assert "d2Omega_dr2" in output
+    assert "log_MBH (derived)" in output
+    assert "logP = -5694.667500" in output
+    assert "initial-population rank = 1/2" in output
 
 
 def test_de_is_only_lshade_and_config_has_no_hybrid_settings():
     assert de._DE_ALGORITHM == "lshade"
     assert de._DE_SEED_POLICY == "data_sobol_only"
+    assert de._DE_BASE_MODEL_SEED_POLICY == (
+        "linear_expansion_ridge_sobol_base_config_v6")
+    assert de._DE_LEGACY_BASE_MODEL_SEED_POLICY == (
+        "vanilla_expansion_ridge_sobol_ngc4258_base_config_v5")
 
     path = os.path.join(MEGAMASER_DIR, "config_maser.toml")
     with open(path, "rb") as f:
         config = tomli.load(f)
+    # The init* blocks live in the per-dataset files now; NGC4258's table is
+    # shared, so its block is identical under either dataset.
+    apply_dataset(config, "original_published")
     optimise = config["optimise"]
     assert config["model"]["phi_integration"] == "peak-partition"
     assert config["model"]["n_phi_partition_sys"] == 129
     assert config["model"]["n_phi_partition_hv"] == 65
+    assert config["model"]["n_r_global"] == 176
     assert config["model"]["global_r_full_support"] is True
     assert config["model"]["asymmetric_r_local"] is True
     assert config["model"]["peak_r_refine_steps"] == 0
     assert config["model"]["peak_r_refine_order"] == 7
     assert config["model"]["peak_r_refine_hv_only"] is False
     assert config["model"]["peak_r_width_steps"] == 0
+    assert config["model"]["priors"]["sigma_v_sys"]["low"] == 0.1
+    assert config["model"]["priors"]["sigma_v_hv"]["low"] == 0.1
     cgcg = config["model"]["galaxies"]["CGCG074-064"]
     assert cgcg["n_phi_partition_sys"] == 97
     assert cgcg["n_phi_partition_hv"] == 49
@@ -109,6 +324,44 @@ def test_de_is_only_lshade_and_config_has_no_hybrid_settings():
     assert ngc4258["peak_r_refine_steps"] == 3
     assert ngc4258["peak_r_refine_hv_only"] is False
     assert ngc4258["peak_r_width_steps"] == 8
+    linear_map = ngc4258["init"]
+    assert {
+        key: linear_map[key]
+        for key in (
+            "D_A", "Omega0", "dOmega_dr", "di_dr", "dv_sys", "eta", "i0",
+            "log_MBH", "sigma_a_floor", "sigma_v_hv", "sigma_v_sys",
+            "sigma_x_floor", "sigma_y_floor", "x0", "y0")
+    } == {
+        "D_A": 7.416,
+        "Omega0": 86.205,
+        "dOmega_dr": 2.0856,
+        "di_dr": -2.2856,
+        "dv_sys": -192.6809,
+        "eta": 6.7223,
+        "i0": 95.7056,
+        "log_MBH": 7.5925,
+        "sigma_a_floor": 0.4666,
+        "sigma_v_hv": 4.0889,
+        "sigma_v_sys": 0.1707,
+        "sigma_x_floor": 2.1823,
+        "sigma_y_floor": 5.4207,
+        "x0": -168.3482,
+        "y0": 557.1408,
+    }
+    assert len(linear_map["r_ang"]) == 358
+    expanded = type("Model", (), {
+        "_D_A_uniform": True,
+        "mass_parameterization": "eta",
+        "use_ecc": True,
+        "ecc_cartesian": True,
+        "use_quadratic_warp": True,
+    })()
+    lifted = de._lift_base_model_init(expanded, ngc4258)
+    assert float(lifted["e_x"]) == 0.0
+    assert float(lifted["e_y"]) == 0.0
+    assert float(lifted["dperiapsis_dr"]) == 0.0
+    assert float(lifted["d2i_dr2"]) == 0.0
+    assert float(lifted["d2Omega_dr2"]) == 0.0
     ngc5765b = config["model"]["galaxies"]["NGC5765b"]
     assert ngc5765b["n_phi_partition_sys"] == 97
     assert ngc5765b["n_phi_partition_hv"] == 49
@@ -120,10 +373,14 @@ def test_de_is_only_lshade_and_config_has_no_hybrid_settings():
     assert ugc3789["n_phi_partition_hv"] == 49
     assert ugc3789["n_r_local"] == 384
     assert ugc3789["scan_width_drop"] == 50.0
+    assert all(
+        "n_r_global" not in galaxy
+        for galaxy in config["model"]["galaxies"].values())
     assert "algorithm" not in optimise
     assert not any(key.startswith("adam_") for key in optimise)
+    assert optimise["pop_size"] == 2000
     assert 4 <= optimise["min_pop_size"] <= optimise["pop_size"]
-    assert optimise["min_pop_size"] == 128
+    assert optimise["min_pop_size"] == 1024
     assert "eval_chunk" not in optimise
     assert de._CANDIDATES_PER_GPU_WAVE == 1
     assert de._PEAK_PARTITION_CANDIDATES_PER_GPU_WAVE == 8
@@ -135,8 +392,7 @@ def test_de_is_only_lshade_and_config_has_no_hybrid_settings():
     assert de._de_candidates_per_wave(peak, 2) == 2
     with pytest.raises(ValueError, match="requires peak-partition"):
         de._de_candidates_per_wave(fixed, 2)
-    assert (optimise["population_reduction_evaluations"]
-            >= optimise["pop_size"])
+    assert optimise["population_reduction_evaluations"] == 5_000_000
 
 
 def test_de_cli_has_no_algorithm_hybrid_or_pesce_seed_switch(capsys):
@@ -152,16 +408,18 @@ def test_de_cli_has_no_algorithm_hybrid_or_pesce_seed_switch(capsys):
     assert "--population-reduction-evaluations" in help_text
     assert "--phi-integration {fixed-grid,peak-partition}" in help_text
     assert "--peak-candidates-per-wave {1,2,4,8}" in help_text
-    assert "{median,config}" in help_text
-    assert "never uses the Pesce/Reid point" in " ".join(help_text.split())
+    assert "data-derived ridge and scrambled Sobol" in " ".join(
+        help_text.split())
 
 
-def test_de_cli_rejects_reid_initialisation(capsys):
-    with pytest.raises(SystemExit) as exc:
-        de.main(["NGC6264", "--init-strategy", "reid"])
-
-    assert exc.value.code == 2
-    assert "invalid choice: 'reid'" in capsys.readouterr().err
+def test_de_search_ignores_every_point_initialisation_strategy():
+    for strategy in (None, "median", "config", "reid", "anything"):
+        assert de._resolve_de_init_strategy(
+            strategy, "config", fix_globals=False) == "median"
+    assert de._resolve_de_init_strategy(
+        None, "config", fix_globals=True) == "config"
+    assert de._resolve_de_init_strategy(
+        "median", "config", fix_globals=True) == "median"
 
 
 def test_production_de_has_no_candidate_vectorisation_option(capsys):
@@ -225,13 +483,7 @@ def test_batching_benchmark_has_deterministic_sobol_fallback(tmp_path):
         def results_path(*parts):
             return os.path.join(*map(str, parts))
 
-        @staticmethod
-        def _variant_suffix(model):
-            return ""
-
-        @staticmethod
-        def _phi_integration_suffix(model):
-            return "_peakpartition"
+        _de_checkpoint_filename = staticmethod(de._de_checkpoint_filename)
 
         @staticmethod
         def _objective_policy(model):
@@ -241,10 +493,15 @@ def test_batching_benchmark_has_deterministic_sobol_fallback(tmp_path):
         "optimise": {"sobol_n_sigma": 5},
         "io": {"root_output": str(tmp_path)},
     }
+    model = type("Model", (), {
+        "use_ecc": False,
+        "use_quadratic_warp": False,
+        "phi_integration": "peak-partition",
+    })()
     first = batching._checkpoint_points(
-        FakeDe, object(), object(), master, "TEST", 17, 123)
+        FakeDe, model, object(), master, "TEST", 17, 123)
     second = batching._checkpoint_points(
-        FakeDe, object(), object(), master, "TEST", 17, 123)
+        FakeDe, model, object(), master, "TEST", 17, 123)
 
     np.testing.assert_array_equal(first[0], second[0])
     assert first[0].shape == (17, 3)
@@ -294,10 +551,49 @@ def test_resume_accepts_explicit_nfe_checkpoint(tmp_path):
     explicit = tmp_path / "new.npz"
     np.savez(explicit, algorithm=np.asarray("lshade"),
              seed_policy=np.asarray("data_sobol_only"),
+             optimizer_seed=np.asarray(44),
              population_schedule=np.asarray("nfe_linear"),
              objective_policy=np.asarray(de._DE_OBJECTIVE_POLICY))
     with np.load(explicit) as checkpoint:
-        de._validate_de_checkpoint_policy(checkpoint, str(explicit))
+        de._validate_de_checkpoint_policy(
+            checkpoint, str(explicit), optimizer_seed=44)
+        with pytest.raises(ValueError, match="optimizer seed"):
+            de._validate_de_checkpoint_policy(
+                checkpoint, str(explicit), optimizer_seed=45)
+        with pytest.raises(ValueError, match="Checkpoint seed policy"):
+            de._validate_de_checkpoint_policy(
+                checkpoint, str(explicit),
+                seed_policy=de._DE_BASE_MODEL_SEED_POLICY)
+
+
+def test_resume_accepts_legacy_ngc4258_quadratic_seed_policy(tmp_path):
+    explicit = tmp_path / "ngc4258_qw_v5.npz"
+    np.savez(
+        explicit,
+        algorithm=np.asarray("lshade"),
+        seed_policy=np.asarray(de._DE_LEGACY_BASE_MODEL_SEED_POLICY),
+        optimizer_seed=np.asarray(44),
+        population_schedule=np.asarray("nfe_linear"),
+        objective_policy=np.asarray(de._DE_OBJECTIVE_POLICY))
+    with np.load(explicit) as checkpoint:
+        de._validate_de_checkpoint_policy(
+            checkpoint, str(explicit), optimizer_seed=44,
+            seed_policy=de._DE_BASE_MODEL_SEED_POLICY)
+
+
+def test_de_checkpoint_filename_separates_optimizer_seeds():
+    model = type("Model", (), {
+        "use_ecc": True,
+        "use_quadratic_warp": True,
+        "phi_integration": "peak-partition",
+    })()
+
+    seed44 = de._de_checkpoint_filename(model, 44)
+    seed45 = de._de_checkpoint_filename(model, 45)
+
+    assert seed44 != seed45
+    assert seed44.endswith("_seed44_lshade_nopesce.npz")
+    assert seed45.endswith("_seed45_lshade_nopesce.npz")
 
 
 @pytest.mark.parametrize(
@@ -327,6 +623,164 @@ def test_resume_requires_matching_checkpoint_precision(
         de.jax.config.update("jax_enable_x64", original_x64)
 
 
+def test_checkpoint_updates_progress_plot_and_restores_history(tmp_path):
+    checkpoint = tmp_path / "de.npz"
+    history = {
+        "history_generation": np.arange(600),
+        "history_logp": np.linspace(-12.0, -7.0, 600),
+        "history_D_A": np.linspace(7.0, 7.2, 600),
+    }
+    args = [
+        str(checkpoint), np.zeros((4, 2), dtype=np.float32),
+        np.zeros(4, dtype=np.float32), np.array([0.5, 0.5]),
+        np.array(7.0), 599, np.array([0, 1], dtype=np.uint32), 0, -7.0,
+        np.zeros(2), np.ones(2), ["D_A", "eta"], [1, 1],
+    ]
+
+    de._save_de_checkpoint(*args, extra=history)
+
+    plot = tmp_path / "de_progress.png"
+    png = plot.read_bytes()
+    assert png.startswith(b"\x89PNG")
+    assert tuple(
+        int.from_bytes(png[i:i + 4], "big") for i in (16, 20)
+    ) == (2700, 2100)
+    with np.load(checkpoint) as saved:
+        restored = de._load_de_history(saved, 599, -7.0, 7.2)
+    for values, expected in zip(restored, history.values()):
+        np.testing.assert_allclose(values, expected)
+
+    first_plot = plot.read_bytes()
+    extended = {
+        key: np.append(values, value)
+        for (key, values), value in zip(
+            history.items(), (600, -6.5, 7.25))
+    }
+    args[4:6] = [np.array(6.5), 600]
+    args[8] = -6.5
+    de._save_de_checkpoint(*args, extra=extended)
+    assert plot.read_bytes() != first_plot
+
+
+def test_map_outlier_probability_integrates_latent_grid_and_writes_outputs(
+        tmp_path):
+    class Model:
+        n_spots = 2
+        _phi_concat = {"sys": {
+            "sin_phi": de.jnp.array([0.0, 1.0]),
+            "cos_phi": de.jnp.array([1.0, 0.0]),
+            "sin2_phi": de.jnp.array([0.0, 1.0]),
+            "cos2_phi": de.jnp.array([1.0, 0.0]),
+            "sincos_phi": de.jnp.zeros(2),
+            "log_w_phi": de.jnp.log(de.jnp.array([0.5, 0.5])),
+        }}
+
+        def phys_from_params_jax(self, theta, h):
+            del theta, h
+            return tuple(de.jnp.asarray(0.0) for _ in range(17)), {}
+
+        def _build_conditional_r_grids(self, *args):
+            del args
+            return [(
+                "sys", de.jnp.array([0, 1]),
+                de.jnp.array([[4.0, 0.0], [0.0, 0.0]]),
+                de.jnp.log(de.jnp.full((2, 2), 0.5)))]
+
+        def _group_has_any_accel(self, type_key):
+            assert type_key == "sys"
+            return True
+
+        def _r_precompute(self, r_ang, idx, *args, **kwargs):
+            del args, kwargs
+            zeros = de.jnp.zeros(idx.shape, dtype=r_ang.dtype)
+            ones = de.jnp.ones(idx.shape, dtype=r_ang.dtype)
+            return {
+                "r_ang": r_ang,
+                "all_x": zeros, "all_y": zeros,
+                "all_v_rel": zeros, "all_a": zeros,
+                "var_x": ones, "var_y": ones,
+                "var_v": ones, "var_a": ones,
+                "has_a": de.jnp.array([1.0, 0.0])[idx],
+            }
+
+        def _phi_eval(self, r_pre, sin_phi, cos_phi, *basis):
+            del cos_phi, basis
+            return de.jnp.zeros(r_pre["r_ang"].shape + sin_phi.shape)
+
+        def _predict_on_grid(self, r_pre, sin_phi, cos_phi, rpad):
+            del cos_phi, rpad
+            shape = r_pre["r_ang"].shape + sin_phi.shape
+            X = de.jnp.broadcast_to(r_pre["r_ang"][..., None], shape)
+            Y = de.jnp.broadcast_to(4.0 * sin_phi, shape)
+            zero = de.jnp.zeros(shape)
+            return X, Y, zero, zero
+
+    class Target:
+        model = Model()
+        h = 0.73
+
+        @staticmethod
+        def complete_params(theta):
+            return theta
+
+    coordinate, any_coordinate = de.jax.jit(
+        lambda theta: de._conditional_latent_outlier_probabilities(
+            Target(), theta))({"unused": de.jnp.asarray(0.0)})
+    np.testing.assert_allclose(coordinate, [
+        [0.5, 0.0], [0.5, 0.5], [0.0, 0.0], [0.0, 0.0]])
+    np.testing.assert_allclose(any_coordinate, [0.75, 0.5])
+
+    data = {
+        "velocity": np.array([1000.0, 1100.0]),
+        "x": np.array([1.0, 2.0]), "sigma_x": np.ones(2),
+        "y": np.array([3.0, 4.0]), "sigma_y": np.ones(2),
+        "a": np.array([0.1, 0.0]), "sigma_a": np.array([0.01, 1e4]),
+        "accel_measured": np.array([True, False]),
+        "dataset": "unpruned",
+    }
+    with (tmp_path / "provenance.csv").open("w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(("galaxy", "spot_index", "velocity_km_s",
+                         "astrometry_source", "acceleration_source",
+                         "clipped_by_pesce"))
+        writer.writerow(("Test", 0, 1000, "published", "published", True))
+        writer.writerow(("Test", 1, 1100, "published", "fiducial", False))
+    data["clipped_by_pesce"] = de._load_pesce_clipped_mask(
+        str(tmp_path), "Test", data["velocity"])
+    np.testing.assert_array_equal(data["clipped_by_pesce"], [True, False])
+    with pytest.raises(ValueError, match="does not match"):
+        de._load_pesce_clipped_mask(
+            str(tmp_path), "Test", data["velocity"][::-1])
+    table = tmp_path / "posterior_outliers.csv"
+    plot = tmp_path / "posterior_outliers.png"
+    de._save_map_outlier_table(
+        str(table), data, coordinate, any_coordinate)
+    de._save_map_outlier_plot(str(plot), data, any_coordinate)
+    with table.open(newline="") as f:
+        rows = list(csv.DictReader(f))
+    assert float(rows[0]["probability_any_abs_z_gt_3"]) == pytest.approx(0.75)
+    assert rows[1]["probability_abs_z_acceleration_gt_3"] == ""
+    assert plot.read_bytes().startswith(b"\x89PNG")
+
+
+def test_distance_gaussian_uses_local_logp_curvature():
+    lo = np.array([80.0, -1.0])
+    hi = np.array([120.0, 1.0])
+    best = np.array([0.5, 0.5])
+    sigma = 5.0
+
+    def exact_eval(points):
+        distance = lo[0] + np.asarray(points)[:, 0] * (hi[0] - lo[0])
+        return 0.5 * ((distance - 100.0) / sigma)**2
+
+    result = de._estimate_distance_gaussian(
+        exact_eval, best, 0.0, 0, lo, hi)
+
+    assert result["sigma"] == pytest.approx(sigma)
+    assert result["gradient"] == pytest.approx(0.0, abs=1e-12)
+    assert result["precision"] == pytest.approx(1.0 / sigma**2)
+
+
 def test_peak_partition_uses_distinct_checkpoint_policy(tmp_path):
     class Model:
         phi_integration = "peak-partition"
@@ -344,11 +798,17 @@ def test_peak_partition_uses_distinct_checkpoint_policy(tmp_path):
         _peak_r_refine_hv_only = True
         _peak_r_width_steps = 12
 
-    policy = de._objective_policy(Model())
+    model = Model()
+    model.use_ecc = False
+    policy = de._objective_policy(model)
     assert policy.startswith(de._DE_PEAK_PARTITION_POLICY)
     assert ":rrhv:" in policy
     assert ":rw12:" in policy
     assert policy != de._DE_OBJECTIVE_POLICY
+    model.use_ecc = True
+    eccentric_policy = de._objective_policy(model)
+    assert ":ecc_hybrid_qf1:" in eccentric_policy
+    assert eccentric_policy != policy
 
     explicit = tmp_path / "peak.npz"
     np.savez(explicit, algorithm=np.asarray("lshade"),
@@ -360,6 +820,60 @@ def test_peak_partition_uses_distinct_checkpoint_policy(tmp_path):
             checkpoint, str(explicit), objective_policy=policy)
         with pytest.raises(ValueError, match="objective policy"):
             de._validate_de_checkpoint_policy(checkpoint, str(explicit))
+
+
+def test_objective_policy_tracks_support_geometry_data_and_fixed_values():
+    class Model:
+        phi_integration = "fixed-grid"
+        use_ecc = False
+        _n_r_local = 64
+        _n_r_global = 32
+        _K_sigma = 5.0
+        _global_r_full_support = True
+        _asymmetric_r_local = True
+        _scan_width_drop = 0.0
+        _R_phys_lo = 0.01
+        _R_phys_hi = 1.5
+        _refine_r_center = True
+        _n_refine_steps = 16
+        _r_ang_ref_i = 0.4
+        _r_ang_ref_Omega = 0.5
+        _r_ang_ref_periapsis = 0.2
+        _phi_hv_inner_deg = 45.0
+        _phi_hv_outer_deg = 90.0
+        _n_phi_hv_high = 101
+        _n_phi_hv_low = 33
+        _phi_sys_ranges_deg = [[-180.0, 180.0]]
+        _n_phi_sys = 257
+        _all_x = np.array([1.0, 2.0])
+        v_sys_obs = 500.0
+        priors = {"dv_sys": np.array([0.0, 300.0])}
+
+    model = Model()
+    baseline = de._objective_policy(model)
+    model._R_phys_hi = 2.0
+    assert de._objective_policy(model) != baseline
+    model._R_phys_hi = 1.5
+    model._r_ang_ref_i = 0.41
+    assert de._objective_policy(model) != baseline
+    model._r_ang_ref_i = 0.4
+    model._all_x[0] = 1.1
+    assert de._objective_policy(model) != baseline
+    model._all_x[0] = 1.0
+    model.priors["dv_sys"][1] = 250.0
+    assert de._objective_policy(model) != baseline
+    model.priors["dv_sys"][1] = 300.0
+    assert de._objective_policy(
+        model, {"sigma_x_floor": 0.5}) != baseline
+    assert de._objective_policy(
+        model, {"sigma_x_floor": 0.5}) != de._objective_policy(
+            model, {"sigma_x_floor": 0.6})
+    saved_C_v = de.maser_physics.C_v
+    try:
+        de.maser_physics.C_v *= 1.001
+        assert de._objective_policy(model) != baseline
+    finally:
+        de.maser_physics.C_v = saved_C_v
 
 
 @pytest.mark.parametrize(
@@ -703,136 +1217,20 @@ def test_reference_point_uses_de_coordinates_without_becoming_a_seed():
     np.testing.assert_allclose(normalised, [0.5, 0.5])
 
 
-def test_exact_archive_filters_new_keys_and_preserves_cache(tmp_path):
-    path = tmp_path / "exact.sqlite"
-    calls = []
-
-    def batch_eval(points, desc=None):
-        points = np.asarray(points)
-        calls.append(points.copy())
-        return np.sum(points, axis=1)
-
-    archive = de._ExactArchive(
-        str(path), dimension=2, objective_policy=de._DE_OBJECTIVE_POLICY)
-    first = np.array([[1.0, 2.0], [3.0, 4.0], [1.0, 2.0]])
-    np.testing.assert_allclose(
-        archive(batch_eval, first), [3.0, 7.0, 3.0])
-    assert len(calls) == 1
-    assert calls[0].shape == (2, 2)
-    assert archive.evaluations == 2
-    assert archive.hits == 1
-    assert archive.lookup_queries == 0
-
-    second = np.array([[3.0, 4.0], [1.0, 2.0], [5.0, 6.0]])
-    np.testing.assert_allclose(
-        archive(batch_eval, second), [7.0, 3.0, 11.0])
-    assert len(calls) == 2
-    np.testing.assert_array_equal(calls[1], [[5.0, 6.0]])
-    assert archive.evaluations == 3
-    assert archive.hits == 3
-    # Both cache hits resolve from the RAM write buffer, so no SQL is issued.
-    assert archive.lookup_queries == 0
-    archive.close()
-
-    resumed = de._ExactArchive(
-        str(path), dimension=2, resume=True,
-        objective_policy=de._DE_OBJECTIVE_POLICY)
-
-    def should_not_evaluate(points, desc=None):
-        raise AssertionError("persisted cache entry was evaluated again")
-
-    np.testing.assert_allclose(
-        resumed(should_not_evaluate, second[:2]), [7.0, 3.0])
-    assert resumed.hits == 2
-    assert resumed.lookup_queries == 1
-    resumed.close()
-
-    with pytest.raises(ValueError, match="archive objective policy"):
-        de._ExactArchive(
-            str(path), dimension=2, resume=True,
-            objective_policy="different_objective")
-
-
-def test_exact_archive_backfills_compact_fingerprints(tmp_path):
-    path = tmp_path / "legacy.sqlite"
-    point = np.array([1.25, 2.5])
-    key = de._ExactArchive._key(point)
-    connection = sqlite3.connect(path)
-    connection.execute(
-        "CREATE TABLE evaluations "
-        "(point BLOB PRIMARY KEY, fitness REAL NOT NULL) WITHOUT ROWID")
-    connection.execute(
-        "CREATE TABLE metadata "
-        "(key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID")
-    connection.execute(
-        "INSERT INTO evaluations VALUES (?, ?)", (key, 3.75))
-    connection.execute(
-        "INSERT INTO metadata VALUES ('dimension', '2')")
-    connection.commit()
-    connection.close()
-
-    archive = de._ExactArchive(str(path), dimension=2, resume=True)
-
-    def should_not_evaluate(points, desc=None):
-        raise AssertionError("legacy exact value was not recovered")
-
-    np.testing.assert_allclose(
-        archive(should_not_evaluate, point[None]), [3.75])
-    fingerprint = de._ExactArchive._fingerprint(key)
-    assert fingerprint in archive._known_fingerprints
-    row = archive.connection.execute(
-        "SELECT value FROM metadata "
-        "WHERE key='fingerprint_version'").fetchone()
-    assert row == (de._ARCHIVE_FINGERPRINT_VERSION,)
-    assert archive.connection.execute(
-        "SELECT COUNT(*) FROM evaluation_fingerprints").fetchone() == (1,)
-    archive.close()
-
-    with pytest.raises(ValueError, match="'legacy'"):
-        de._ExactArchive(
-            str(path), dimension=2, resume=True,
-            objective_policy=de._DE_OBJECTIVE_POLICY)
-
-
-def test_exact_archive_fingerprint_collision_is_only_a_sql_probe(
-        tmp_path, monkeypatch):
-    monkeypatch.setattr(
-        de._ExactArchive, "_fingerprint", staticmethod(lambda key: 7))
-    archive = de._ExactArchive(
-        str(tmp_path / "collision.sqlite"), dimension=2)
-    points = np.array([[1.0, 2.0], [3.0, 4.0]])
-    expected = np.array([3.0, 7.0])
-
-    archive(lambda x, desc=None: np.sum(x, axis=1), points)
-
-    def should_not_evaluate(points, desc=None):
-        raise AssertionError("full BLOB keys were not used after collision")
-
-    np.testing.assert_allclose(
-        archive(should_not_evaluate, points), expected)
-    # The colliding hit resolves from the RAM write buffer (no SQL probe); the
-    # persisted table still dedups the single fingerprint once flushed.
-    assert archive.lookup_queries == 0
-    archive.flush()
-    assert archive.connection.execute(
-        "SELECT COUNT(*) FROM evaluation_fingerprints").fetchone() == (1,)
-    archive.close()
-
-
 def test_lshade_population_reduction_uses_evaluations_not_generations():
-    assert de._linear_population_size(2000, 128, 0, 3_400_000) == 2000
+    assert de._linear_population_size(2000, 1024, 0, 5_000_000) == 2000
     assert de._linear_population_size(
-        2000, 128, 1_700_000, 3_400_000) == 1064
+        2000, 1024, 2_500_000, 5_000_000) == 1512
     assert de._linear_population_size(
-        2000, 128, 3_400_000, 3_400_000) == 128
+        2000, 1024, 5_000_000, 5_000_000) == 1024
     assert de._linear_population_size(
-        2000, 128, 6_800_000, 3_400_000) == 128
+        2000, 1024, 10_000_000, 5_000_000) == 1024
 
     evaluations = 2000
     population = 2000
     for _ in range(5000):
         evaluations += population
         population = de._linear_population_size(
-            2000, 128, evaluations, 3_400_000)
-    assert population == 128
-    assert 3_400_000 <= evaluations < 3_402_000
+            2000, 1024, evaluations, 5_000_000)
+    assert population == 1024
+    assert evaluations > 5_000_000

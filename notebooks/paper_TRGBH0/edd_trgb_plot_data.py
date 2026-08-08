@@ -6,6 +6,7 @@ from pathlib import Path
 
 import numpy as np
 from trgbh0_plot_style import OUTPUT_DIR as OUTDIR
+from trgbh0_plot_style import PAPER_RC  # noqa: F401  re-exported for plot scripts
 from trgbh0_plot_style import ROOT
 from trgbh0_plot_style import save_figure as save_figure_common
 

@@ -25,6 +25,7 @@ os.environ.setdefault("MPLCONFIGDIR", "/tmp/candel_mplconfig")
 mpl.use("Agg")
 
 OUTNAME = "edd_trgb_sky_distribution.pdf"
+MAG_CUT = 22.1  # bright-end truncation mobs > 22.1 mag
 SKY_AXIS_FONTSIZE = 8
 SKY_TICK_FONTSIZE = 7
 SKY_LABEL_COLOUR = "#7b3294"
@@ -110,11 +111,12 @@ def make_figure(data, paper_figdir=None):
     with plt.rc_context(PAPER_RC):
         fig = plt.figure(figsize=(3.35, 2.7), constrained_layout=True)
         ax_sky = fig.add_subplot(111, projection="mollweide")
-        lon = _wrap_mollweide_longitude(data["ell"])
-        lat = np.deg2rad(data["b"])
+        kept = data["mag"] > MAG_CUT
+        lon = _wrap_mollweide_longitude(data["ell"][kept])
+        lat = np.deg2rad(data["b"][kept])
         norm = mpl.colors.TwoSlopeNorm(vmin=-800, vcenter=0, vmax=2200)
         scat = ax_sky.scatter(
-            lon, lat, c=data["czcmb"], s=9, cmap="coolwarm", norm=norm,
+            lon, lat, c=data["czcmb"][kept], s=9, cmap="coolwarm", norm=norm,
             edgecolor="black", linewidth=0.12, alpha=0.82)
         legend_handles = []
         legend_labels = []

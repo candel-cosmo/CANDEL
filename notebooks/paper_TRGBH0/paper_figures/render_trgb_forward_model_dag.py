@@ -23,18 +23,21 @@ PDF_FILE = OUTPUT_DIR / "trgb_forward_model_dag.pdf"
 # Manual node positions (x, y) in cm
 # =========================================================================
 pos = {
-    # Global/model-level quantities
-    "Mtrgb": (0.65, 8.20),
-    "cstar": (2.15, 8.20),
-    "cpars": (3.85, 8.20),
-    "sigint": (5.55, 8.20),
-    "H0": (7.25, 8.20),
-    "rho": (8.95, 8.20),
-    "Vfield": (10.65, 8.20),
-    "bias": (12.35, 8.20),
-    "pv": (14.05, 8.20),
-    "sigv": (15.75, 8.20),
-    "selcuts": (17.45, 8.20),
+    # Global/model-level quantities, on two rows: the TRGB calibration block
+    # above, the cosmology, field, and selection block below. Two rows rather
+    # than one keeps the figure narrow, and width is what sets the on-page
+    # font size once \includegraphics scales it to the text width.
+    "Mtrgb": (0.65, 9.75),
+    "cstar": (2.35, 9.75),
+    "cpars": (4.15, 9.75),
+    "sigint": (5.95, 9.75),
+    "H0": (0.65, 8.35),
+    "rho": (2.35, 8.35),
+    "Vfield": (4.05, 8.35),
+    "bias": (5.75, 8.35),
+    "pv": (7.45, 8.35),
+    "sigv": (9.15, 8.35),
+    "selcuts": (10.95, 8.35),
     # Anchor constraints
     "anchprior": (-0.25, 7.05),
     "anchmu": (-0.25, 6.30),
@@ -60,20 +63,20 @@ pos = {
     "czsamp": (11.15, -0.65),
     "mobs": (4.75, -1.95),
     "czobs": (11.15, -1.95),
-    "selected": (14.70, -1.95),
-    "detfrac": (14.70, -3.05),
+    "selected": (13.90, -1.95),
+    "detfrac": (13.90, -3.05),
 }
 
 latex_labels = {
-    "Mtrgb": r"$M_{\rm TRGB}$",
+    "Mtrgb": r"$M_0$",
     "cstar": r"$c_\star$",
-    "cpars": r"$(\bar c,\sigma_c)$",
+    "cpars": r"$(\bar c,\,w_c)$",
     "sigint": r"$\sigma_{\rm int}$",
     "H0": r"$H_0$",
     "pv": r"$\mathbf{V}_{\rm ext}$",
     "sigv": r"$\sigma_v$",
-    "rho": r"$\rho(\bm{r})$",
-    "Vfield": r"$\bm{V}(\bm{r})$",
+    "rho": r"$\delta(\bm{x})$",
+    "Vfield": r"$\bm{V}(\bm{x})$",
     "bias": r"$\bm{b}$",
     "selcuts": r"TRGB\\selection",
     "anchprior": r"$\mu_a \sim p(\mu_a)$",
@@ -100,7 +103,7 @@ latex_labels = {
     ),
     "rdist": (
         r"$(r_i,\ell_i,b_i) \sim$\\"
-        r"$p(\mathbf{x}\mid\rho,\bm{b},H_0)$"
+        r"$p(\bm{x}\mid\delta,\,\bm{b},\,H_0)$"
     ),
     "rtrue": r"$r_i$",
     "mu": r"$\mu_i$",
@@ -108,7 +111,7 @@ latex_labels = {
     "vpec": r"$V_{{\rm pec},i}$",
     "cdist": (
         r"$c_i \sim$\\"
-        r"$\mathcal{N}(\bar c,\sigma_c^2)$"
+        r"$\mathcal{N}(\bar c,\,w_c^2)$"
     ),
     "ctrue": r"$c_i$",
     "csamp": (
@@ -241,103 +244,48 @@ for name in pos:
         f"({x:.2f}, {y:.2f}) {{{latex_labels[name]}}};"
     )
 
+# Curved edges as (out angle, in angle, target anchor). Angle-based routing
+# stays correct when nodes move; absolute control points had to be re-tuned by
+# hand after every layout change.
+edge_routing = {
+    ("Mtrgb", "anchmtrue"): (-70, 110, "anchmtrue.north"),
+    ("cpars", "cdist"): (-100, 60, "cdist.north east"),
+    ("Mtrgb", "mtrue"): (-80, 160, "mtrue.north west"),
+    ("cstar", "mtrue"): (-85, 120, "mtrue.north"),
+    ("sigint", "msamp"): (-90, 75, "msamp.north east"),
+    ("rho", "rdist"): (-90, 90, "rdist.north"),
+    ("bias", "rdist"): (-115, 55, "rdist.north east"),
+    ("H0", "rdist"): (-65, 125, "rdist.north west"),
+    ("H0", "zcos"): (-80, 130, "zcos.north west"),
+    ("Vfield", "vpec"): (-95, 120, "vpec.north west"),
+    ("pv", "vpec"): (-100, 55, "vpec.north east"),
+    ("sigv", "czsamp"): (-100, 60, "czsamp.north east", 0.6),
+    ("selcuts", "selected"): (-70, 90, "selected.north", 0.7),
+    ("selcuts", "detfrac"): (-55, 55, "detfrac.north east", 0.3),
+    ("skydelta", "vpec"): (-25, 170, "vpec.west"),
+    ("rtrue", "vpec"): (-40, 140, "vpec.north"),
+    ("ctrue", "mtrue"): (-55, 165, "mtrue.north west"),
+    ("mobs", "selected"): (-45, -135, "selected.south west", 0.45),
+}
+sel_edges = {("selcuts", "selected"), ("selcuts", "detfrac"),
+             ("mobs", "selected")}
+
 edge_lines = []
 for a, b in edges:
-    key = f"{a}_{b}"
-    if key == "Mtrgb_anchmtrue":
-        edge_lines.append(
-            "\\draw[dag edge] (Mtrgb.south east) "
-            ".. controls (1.45, 7.1) and (1.85, 5.95) .. (anchmtrue.north);"
-        )
-    elif key == "cpars_cdist":
-        edge_lines.append(
-            "\\draw[dag edge] (cpars.south) "
-            ".. controls (4.15, 6.30) and (3.55, 4.10) .. (cdist.north east);"
-        )
-    elif key == "Mtrgb_mtrue":
-        edge_lines.append(
-            "\\draw[dag edge] (Mtrgb.south east) "
-            ".. controls (2.10, 5.00) and (3.65, 1.10) .. (mtrue.north west);"
-        )
-    elif key == "cstar_mtrue":
-        edge_lines.append(
-            "\\draw[dag edge] (cstar.south east) "
-            ".. controls (3.00, 5.65) and (4.05, 1.35) .. (mtrue.north);"
-        )
-    elif key == "ctrue_mtrue":
-        edge_lines.append(
-            "\\draw[dag edge] (ctrue.south east) "
-            ".. controls (3.25, 1.50) and (4.55, 0.95) .. (mtrue.north west);"
-        )
-    elif key == "sigint_msamp":
-        edge_lines.append(
-            "\\draw[dag edge] (sigint.south) "
-            ".. controls (5.55, 5.75) and (6.25, 0.10) .. ([xshift=1.05cm]msamp.north);"  # noqa: E501
-        )
-    elif key == "rho_rdist":
-        edge_lines.append(
-            "\\draw[dag edge] (rho.south) "
-            ".. controls (7.15, 6.85) and (8.75, 4.25) .. (rdist.north);"
-        )
-    elif key == "bias_rdist":
-        edge_lines.append(
-            "\\draw[dag edge] (bias.south) "
-            ".. controls (10.30, 6.10) and (9.20, 4.25) .. (9.00, 3.88);"
-        )
-    elif key == "H0_rdist":
-        edge_lines.append(
-            "\\draw[dag edge] (H0.south) "
-            ".. controls (5.20, 6.25) and (8.30, 4.25) .. (8.50, 3.88);"
-        )
-    elif key == "H0_zcos":
-        edge_lines.append(
-            "\\draw[dag edge] (H0.south) "
-            ".. controls (5.20, 5.00) and (8.05, 2.05) .. (zcos.north west);"
-        )
-    elif key == "Vfield_vpec":
-        edge_lines.append(
-            "\\draw[dag edge] (Vfield.south) "
-            ".. controls (8.60, 6.10) and (10.6, 2.40) .. (vpec.north west);"
-        )
-    elif key == "pv_vpec":
-        edge_lines.append(
-            "\\draw[dag edge] (pv.south) "
-            ".. controls (12.10, 5.00) and (12.30, 1.55) .. (vpec.east);"
-        )
-    elif key == "skydelta_vpec":
-        edge_lines.append(
-            "\\draw[dag edge] (skydelta.east) "
-            ".. controls (7.0, 3.25) and (10.20, 1.65) .. (vpec.west);"
-        )
-    elif key == "rdist_skydelta":
+    if (a, b) == ("rdist", "skydelta"):
         continue
-    elif key == "rtrue_vpec":
-        edge_lines.append(
-            "\\draw[dag edge] (rtrue.east) "
-            ".. controls (9.65, 2.35) and (10.75, 2.20) .. (vpec.north);"
-        )
-    elif key == "sigv_czsamp":
-        edge_lines.append(
-            "\\draw[dag edge] (sigv.south) "
-            ".. controls (13.75, 4.10) and (12.65, -0.65) .. (czsamp.east);"
-        )
-    elif key == "selcuts_selected":
-        edge_lines.append(
-            "\\draw[sel edge] (selcuts.south) "
-            ".. controls (14.95, 5.05) and (14.70, -0.20) .. (selected.north);"
-        )
-    elif key == "mobs_selected":
-        edge_lines.append(
-            "\\draw[sel edge] (mobs.south east) "
-            ".. controls (7.20, -2.65) and (12.00, -2.65) .. (selected.south west);"  # noqa: E501
-        )
-    elif key == "selcuts_detfrac":
-        edge_lines.append(
-            "\\draw[sel edge] (selcuts.south east) "
-            ".. controls (17.75, 5.05) and (17.20, -3.05) .. (detfrac.east);"
-        )
+    style = "sel edge" if (a, b) in sel_edges else "dag edge"
+    route = edge_routing.get((a, b))
+    if route is None:
+        edge_lines.append(f"\\draw[{style}] ({a}) -- ({b});")
     else:
-        edge_lines.append(f"\\draw[dag edge] ({a}) -- ({b});")
+        out_angle, in_angle, target = route[:3]
+        looseness = route[3] if len(route) > 3 else 1.0
+        edge_lines.append(
+            f"\\draw[{style}] ({a}) to[out={out_angle}, in={in_angle}, "
+            f"looseness={looseness}] ({target});"
+        )
+
 
 level_lines = [
     (
@@ -351,18 +299,11 @@ nodes_block = "\n".join(node_lines)
 edges_block = "\n".join(edge_lines)
 levels_block = "\n".join(level_lines)
 
-x_left = min(p[0] for p in pos.values())
-x_right = max(p[0] for p in pos.values())
-y_top = max(p[1] for p in pos.values())
-bb_left = x_left - 2.00
-bb_right = x_right + 1.75
-bb_top = y_top + 1.80
-bb_bottom = -3.40
-
 tex = rf"""
 \documentclass[border=5pt]{{standalone}}
 \usepackage{{tikz}}
-\usetikzlibrary{{arrows.meta, backgrounds, decorations.pathreplacing, fit, shapes.geometric}}  # noqa: E501
+\usetikzlibrary{{arrows.meta, backgrounds, decorations.pathreplacing,
+                 fit, shapes.geometric}}
 \usepackage{{amsmath, amssymb}}
 \usepackage{{bm}}
 
@@ -375,7 +316,7 @@ tex = rf"""
 \tikzset{{
     dag node/.style={{
         draw=black!70, semithick, align=center,
-        font=\scriptsize, inner sep=2.3pt,
+        font=\footnotesize, inner sep=2.3pt,
     }},
     global/.style={{dag node, rectangle, rounded corners=2pt,
         minimum width=1.45cm, minimum height=0.56cm, fill=colglobal!10}},
@@ -408,29 +349,35 @@ tex = rf"""
 \begin{{document}}
 \begin{{tikzpicture}}
 
-\useasboundingbox ({bb_left:.2f}, {bb_bottom:.2f}) rectangle ({bb_right:.2f}, {bb_top:.2f});  # noqa: E501
+% No manual bounding box: standalone crops to the ink, so the figure is not
+% padded with dead margin that \includegraphics would then scale away.
 
 % ===== LEGEND =====
 \begin{{scope}}[on background layer]
-    \fill[black!6, rounded corners=3pt] (-1.35, 9.02) rectangle (18.25, 9.82);
+    \fill[black!6, rounded corners=3pt] (-1.35, 10.70)
+        rectangle (8.55, 12.75);
 \end{{scope}}
-\node[global, minimum width=1.35cm] at (-0.55, 9.42) {{Global}};
-\node[input, minimum width=1.55cm] at (1.45, 9.42) {{Fixed\\input}};
-\node[sample, text width=1.35cm] at (3.45, 9.42) {{Sampling}};
-\node[latent, minimum width=1.25cm] at (5.20, 9.42) {{Latent}};
-\node[det, minimum width=1.25cm] at (7.15, 9.42) {{Deterministic}};
-\node[data, minimum width=1.35cm] at (9.55, 9.42) {{Observed}};
-\node[conditioned, minimum width=1.35cm] at (11.50, 9.42) {{Selection}};
-\node[popdist, text width=1.50cm] at (13.65, 9.42) {{Population}};
-\node[selection, minimum width=1.65cm] at (15.80, 9.42) {{Detection\\fraction}};  # noqa: E501
+\node[global, minimum width=1.35cm] at (-0.55, 12.25) {{Global}};
+\node[input, minimum width=1.55cm] at (1.30, 12.25) {{Fixed\\input}};
+\node[sample, text width=1.35cm] at (3.10, 12.25) {{Sampling}};
+\node[latent, minimum width=1.25cm] at (4.85, 12.25) {{Latent}};
+\node[det, minimum width=1.25cm] at (7.10, 12.25) {{Deterministic}};
+\node[data, minimum width=1.35cm] at (-0.45, 11.20) {{Observed}};
+\node[conditioned, minimum width=1.35cm] at (1.45, 11.20) {{Selection}};
+\node[popdist, text width=1.50cm] at (3.50, 11.20) {{Population}};
+\node[selection, minimum width=1.65cm] at (5.75, 11.20)
+    {{Detection\\fraction}};
 
 % ===== NODES =====
 {nodes_block}
 
 % ===== PLATES =====
 \begin{{scope}}[on background layer]
-    \node[plate, fit=(anchprior)(anchmu)(anchgeom)(anchmtrue)(anchsky)(anchmobs)] {{}};  # noqa: E501
-    \node[plate, inner ysep=6pt, fit=(skydelta)(rdist)(rtrue)(mu)(zcos)(vpec)(cdist)(ctrue)(csamp)(cobs)(mtrue)(cztrue)(msamp)(czsamp)(mobs)(czobs)(selected)] {{}};  # noqa: E501
+    \node[plate, fit=(anchprior)(anchmu)(anchgeom)(anchmtrue)
+        (anchsky)(anchmobs)] {{}};
+    \node[plate, inner ysep=6pt, fit=(skydelta)(rdist)(rtrue)(mu)(zcos)
+        (vpec)(cdist)(ctrue)(csamp)(cobs)(mtrue)(cztrue)(msamp)(czsamp)
+        (mobs)(czobs)(selected)] {{}};
 \end{{scope}}
 
 % ===== EDGES =====
@@ -444,7 +391,7 @@ tex = rf"""
 \node[font=\scriptsize, fill=white, inner sep=1.2pt, anchor=west]
     at (-1.16, 7.56) {{Anchor $a\in\{{\rm LMC,N4258\}}$}};
 \node[font=\scriptsize, fill=white, inner sep=1.2pt, anchor=east]
-    at (15.70, 3.95) {{TRGB host $i=1,\ldots,N_{{\rm host}}$}};
+    at (13.30, 3.95) {{TRGB host $i=1,\ldots,N_{{\rm host}}$}};
 
 \end{{tikzpicture}}
 \end{{document}}
