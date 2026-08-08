@@ -1,4 +1,5 @@
 """Regressions for the sole, Pesce-unseeded megamaser DE path."""
+import csv
 import os
 import sys
 
@@ -661,15 +662,105 @@ def test_checkpoint_updates_progress_plot_and_restores_history(tmp_path):
     assert plot.read_bytes() != first_plot
 
 
-def test_spot_loglik_plot_contains_individuals_and_distribution(tmp_path):
-    path = tmp_path / "spot_loglik.png"
-    velocity = np.linspace(2500.0, 4000.0, 12)
-    loglik = -0.5 * np.arange(12, dtype=float)
-    accel_measured = np.arange(12) % 2 == 0
+def test_map_outlier_probability_integrates_latent_grid_and_writes_outputs(
+        tmp_path):
+    class Model:
+        n_spots = 2
+        _phi_concat = {"sys": {
+            "sin_phi": de.jnp.array([0.0, 1.0]),
+            "cos_phi": de.jnp.array([1.0, 0.0]),
+            "sin2_phi": de.jnp.array([0.0, 1.0]),
+            "cos2_phi": de.jnp.array([1.0, 0.0]),
+            "sincos_phi": de.jnp.zeros(2),
+            "log_w_phi": de.jnp.log(de.jnp.array([0.5, 0.5])),
+        }}
 
-    assert de._save_spot_loglik_plot(
-        str(path), velocity, loglik, accel_measured) == str(path)
-    assert path.read_bytes().startswith(b"\x89PNG")
+        def phys_from_params_jax(self, theta, h):
+            del theta, h
+            return tuple(de.jnp.asarray(0.0) for _ in range(17)), {}
+
+        def _build_conditional_r_grids(self, *args):
+            del args
+            return [(
+                "sys", de.jnp.array([0, 1]),
+                de.jnp.array([[4.0, 0.0], [0.0, 0.0]]),
+                de.jnp.log(de.jnp.full((2, 2), 0.5)))]
+
+        def _group_has_any_accel(self, type_key):
+            assert type_key == "sys"
+            return True
+
+        def _r_precompute(self, r_ang, idx, *args, **kwargs):
+            del args, kwargs
+            zeros = de.jnp.zeros(idx.shape, dtype=r_ang.dtype)
+            ones = de.jnp.ones(idx.shape, dtype=r_ang.dtype)
+            return {
+                "r_ang": r_ang,
+                "all_x": zeros, "all_y": zeros,
+                "all_v_rel": zeros, "all_a": zeros,
+                "var_x": ones, "var_y": ones,
+                "var_v": ones, "var_a": ones,
+                "has_a": de.jnp.array([1.0, 0.0])[idx],
+            }
+
+        def _phi_eval(self, r_pre, sin_phi, cos_phi, *basis):
+            del cos_phi, basis
+            return de.jnp.zeros(r_pre["r_ang"].shape + sin_phi.shape)
+
+        def _predict_on_grid(self, r_pre, sin_phi, cos_phi, rpad):
+            del cos_phi, rpad
+            shape = r_pre["r_ang"].shape + sin_phi.shape
+            X = de.jnp.broadcast_to(r_pre["r_ang"][..., None], shape)
+            Y = de.jnp.broadcast_to(4.0 * sin_phi, shape)
+            zero = de.jnp.zeros(shape)
+            return X, Y, zero, zero
+
+    class Target:
+        model = Model()
+        h = 0.73
+
+        @staticmethod
+        def complete_params(theta):
+            return theta
+
+    coordinate, any_coordinate = de.jax.jit(
+        lambda theta: de._conditional_latent_outlier_probabilities(
+            Target(), theta))({"unused": de.jnp.asarray(0.0)})
+    np.testing.assert_allclose(coordinate, [
+        [0.5, 0.0], [0.5, 0.5], [0.0, 0.0], [0.0, 0.0]])
+    np.testing.assert_allclose(any_coordinate, [0.75, 0.5])
+
+    data = {
+        "velocity": np.array([1000.0, 1100.0]),
+        "x": np.array([1.0, 2.0]), "sigma_x": np.ones(2),
+        "y": np.array([3.0, 4.0]), "sigma_y": np.ones(2),
+        "a": np.array([0.1, 0.0]), "sigma_a": np.array([0.01, 1e4]),
+        "accel_measured": np.array([True, False]),
+        "dataset": "unpruned",
+    }
+    with (tmp_path / "provenance.csv").open("w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(("galaxy", "spot_index", "velocity_km_s",
+                         "astrometry_source", "acceleration_source",
+                         "clipped_by_pesce"))
+        writer.writerow(("Test", 0, 1000, "published", "published", True))
+        writer.writerow(("Test", 1, 1100, "published", "fiducial", False))
+    data["clipped_by_pesce"] = de._load_pesce_clipped_mask(
+        str(tmp_path), "Test", data["velocity"])
+    np.testing.assert_array_equal(data["clipped_by_pesce"], [True, False])
+    with pytest.raises(ValueError, match="does not match"):
+        de._load_pesce_clipped_mask(
+            str(tmp_path), "Test", data["velocity"][::-1])
+    table = tmp_path / "posterior_outliers.csv"
+    plot = tmp_path / "posterior_outliers.png"
+    de._save_map_outlier_table(
+        str(table), data, coordinate, any_coordinate)
+    de._save_map_outlier_plot(str(plot), data, any_coordinate)
+    with table.open(newline="") as f:
+        rows = list(csv.DictReader(f))
+    assert float(rows[0]["probability_any_abs_z_gt_3"]) == pytest.approx(0.75)
+    assert rows[1]["probability_abs_z_acceleration_gt_3"] == ""
+    assert plot.read_bytes().startswith(b"\x89PNG")
 
 
 def test_distance_gaussian_uses_local_logp_curvature():
