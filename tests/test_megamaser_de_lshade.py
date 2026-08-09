@@ -662,7 +662,7 @@ def test_checkpoint_updates_progress_plot_and_restores_history(tmp_path):
     assert plot.read_bytes() != first_plot
 
 
-def test_map_outlier_probability_integrates_latent_grid_and_writes_outputs(
+def test_map_posterior_mean_sigma_integrates_grid_and_writes_outputs(
         tmp_path):
     class Model:
         n_spots = 2
@@ -679,33 +679,35 @@ def test_map_outlier_probability_integrates_latent_grid_and_writes_outputs(
             del theta, h
             return tuple(de.jnp.asarray(0.0) for _ in range(17)), {}
 
-        def _build_conditional_r_grids(self, *args):
+        def _build_conditional_r_grids(self, *args, **kwargs):
             del args
+            assert kwargs["include_acceleration"] is False
             return [(
                 "sys", de.jnp.array([0, 1]),
                 de.jnp.array([[4.0, 0.0], [0.0, 0.0]]),
                 de.jnp.log(de.jnp.full((2, 2), 0.5)))]
 
         def _group_has_any_accel(self, type_key):
-            assert type_key == "sys"
-            return True
+            raise AssertionError("Acceleration must not enter this diagnostic")
 
         def _r_precompute(self, r_ang, idx, *args, **kwargs):
-            del args, kwargs
+            del args
+            assert kwargs["has_any_accel"] is False
             zeros = de.jnp.zeros(idx.shape, dtype=r_ang.dtype)
             ones = de.jnp.ones(idx.shape, dtype=r_ang.dtype)
             return {
                 "r_ang": r_ang,
-                "all_x": zeros, "all_y": zeros,
-                "all_v_rel": zeros, "all_a": zeros,
+                "all_x": de.jnp.array([3.5, 1.0])[idx],
+                "all_y": zeros,
+                "all_v_rel": de.jnp.array([0.0, 4.0])[idx],
+                "all_a": de.jnp.array([10.0, 0.0])[idx],
                 "var_x": ones, "var_y": ones,
                 "var_v": ones, "var_a": ones,
                 "has_a": de.jnp.array([1.0, 0.0])[idx],
             }
 
         def _phi_eval(self, r_pre, sin_phi, cos_phi, *basis):
-            del cos_phi, basis
-            return de.jnp.zeros(r_pre["r_ang"].shape + sin_phi.shape)
+            raise AssertionError("Full likelihood must not set latent weights")
 
         def _predict_on_grid(self, r_pre, sin_phi, cos_phi, rpad):
             del cos_phi, rpad
@@ -723,12 +725,14 @@ def test_map_outlier_probability_integrates_latent_grid_and_writes_outputs(
         def complete_params(theta):
             return theta
 
-    coordinate, any_coordinate = de.jax.jit(
-        lambda theta: de._conditional_latent_outlier_probabilities(
+    mean_abs_z, mean_max_abs_z = de.jax.jit(
+        lambda theta: de._conditional_latent_diagnostics(
             Target(), theta))({"unused": de.jnp.asarray(0.0)})
-    np.testing.assert_allclose(coordinate, [
-        [0.5, 0.0], [0.5, 0.5], [0.0, 0.0], [0.0, 0.0]])
-    np.testing.assert_allclose(any_coordinate, [0.75, 0.5])
+    np.testing.assert_allclose(mean_abs_z, [
+        [0.50741787, 1.0], [0.0013414, 0.0013414], [0.0, 4.0]],
+        rtol=1e-6)
+    np.testing.assert_allclose(mean_max_abs_z, [0.5085891, 4.0],
+                               rtol=1e-6)
 
     data = {
         "velocity": np.array([1000.0, 1100.0]),
@@ -736,6 +740,7 @@ def test_map_outlier_probability_integrates_latent_grid_and_writes_outputs(
         "y": np.array([3.0, 4.0]), "sigma_y": np.ones(2),
         "a": np.array([0.1, 0.0]), "sigma_a": np.array([0.01, 1e4]),
         "accel_measured": np.array([True, False]),
+        "n_spots": 2,
         "dataset": "unpruned",
     }
     with (tmp_path / "provenance.csv").open("w", newline="") as f:
@@ -746,21 +751,138 @@ def test_map_outlier_probability_integrates_latent_grid_and_writes_outputs(
         writer.writerow(("Test", 0, 1000, "published", "published", True))
         writer.writerow(("Test", 1, 1100, "published", "fiducial", False))
     data["clipped_by_pesce"] = de._load_pesce_clipped_mask(
-        str(tmp_path), "Test", data["velocity"])
+        str(tmp_path), "Test", data)
     np.testing.assert_array_equal(data["clipped_by_pesce"], [True, False])
+    bad_data = dict(data, velocity=data["velocity"][::-1])
     with pytest.raises(ValueError, match="does not match"):
-        de._load_pesce_clipped_mask(
-            str(tmp_path), "Test", data["velocity"][::-1])
-    table = tmp_path / "posterior_outliers.csv"
-    plot = tmp_path / "posterior_outliers.png"
-    de._save_map_outlier_table(
-        str(table), data, coordinate, any_coordinate)
-    de._save_map_outlier_plot(str(plot), data, any_coordinate)
+        de._load_pesce_clipped_mask(str(tmp_path), "Test", bad_data)
+    output_base = tmp_path / "checkpoint"
+    de._write_map_diagnostic_outputs(
+        Target(), {"unused": de.jnp.asarray(0.0)}, data, str(output_base))
+    table = tmp_path / "checkpoint_posterior_outliers.csv"
+    plot = tmp_path / "checkpoint_posterior_outliers.png"
     with table.open(newline="") as f:
         rows = list(csv.DictReader(f))
-    assert float(rows[0]["probability_any_abs_z_gt_3"]) == pytest.approx(0.75)
-    assert rows[1]["probability_abs_z_acceleration_gt_3"] == ""
+    assert float(rows[0]["posterior_mean_max_abs_z"]) == pytest.approx(
+        0.5085891)
+    assert "posterior_mean_abs_z_acceleration" not in rows[0]
+    assert rows[0]["flag_posterior_mean_max_abs_z_ge_3"] == "False"
+    assert rows[1]["flag_posterior_mean_max_abs_z_ge_3"] == "True"
+    flagged, scores = de._read_clip_diagnostic(str(table), 3.0)
+    assert flagged == {1}
+    assert scores[1] == pytest.approx(4.0)
     assert plot.read_bytes().startswith(b"\x89PNG")
+
+    subset = de._subset_spot_data(data, [0])
+    assert subset["n_spots"] == 1
+    assert subset["unpruned_spot_index"].tolist() == [1]
+    assert subset["velocity"].tolist() == [1100.0]
+    assert subset["clipped_by_pesce"].tolist() == [False]
+    np.testing.assert_array_equal(
+        de._load_pesce_clipped_mask(str(tmp_path), "Test", subset), [False])
+    incomplete_identity = dict(subset)
+    incomplete_identity.pop("unpruned_spot_index")
+    with pytest.raises(ValueError, match="does not match"):
+        de._load_pesce_clipped_mask(
+            str(tmp_path), "Test", incomplete_identity)
+    with pytest.raises(ValueError, match="outside"):
+        de._subset_spot_data(data, [2])
+
+
+def test_iterative_clipping_relaunches_until_mask_stabilises(
+        tmp_path, monkeypatch):
+    monkeypatch.setitem(
+        de._MASTER_CFG["io"], "root_output", str(tmp_path / "unpruned"))
+    data = {"n_spots": 3, "velocity": np.array([10.0, 20.0, 30.0])}
+    monkeypatch.setattr(de, "load_megamaser_spots", lambda *a, **k: data)
+    monkeypatch.setattr(
+        de, "maser_data_root", lambda dataset: str(tmp_path / "data" / dataset))
+    args = de.argparse.Namespace(
+        galaxy="NGC6264", iterative_clip_sigma=2.5, seed=7,
+        clip_max_attempts=3, f64=False, no_ecc=False, add_ecc=False,
+        no_quadratic_warp=False, add_quadratic_warp=False,
+        mass_parameterization=None, phi_integration=None,
+        fix_floors_pesce=False)
+    tag = de._clip_run_tag(args, 7)
+
+    def tagged_run(command, check, env):
+        assert check and command[0] == de.sys.executable
+        attempt = int(env[de._CLIP_ATTEMPT_ENV])
+        excluded = set(de.json.loads(env[de._CLIP_INDICES_ENV]))
+        assert env[de._CLIP_TAG_ENV] == tag
+        assert excluded == (set() if attempt == 1 else {1})
+        directory = (tmp_path / "unpruned" / "de_checkpoints" /
+                     "NGC6264" / "iterative_clip" / tag /
+                     f"attempt_{attempt:02d}")
+        directory.mkdir(parents=True)
+        with (directory / "map_posterior_outliers.csv").open(
+                "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow((
+                "unpruned_spot_index", "posterior_mean_max_abs_z",
+                "flag_posterior_mean_max_abs_z_ge_2.5"))
+            for index in sorted(set(range(3)) - excluded):
+                writer.writerow((
+                    index + 1, 3.0 if index == 1 else 1.0,
+                    attempt == 1 and index == 1))
+
+    monkeypatch.setattr(de.subprocess, "run", tagged_run)
+    manifest = de._run_iterative_clipping(args, ["NGC6264"])
+    with open(manifest, newline="") as f:
+        rows = list(csv.DictReader(f))
+    assert [row["clip"] for row in rows] == ["False", "True", "False"]
+    assert [row["pending_clip"] for row in rows] == ["False"] * 3
+    assert {row["stabilised"] for row in rows} == {"True"}
+
+
+def test_iterative_clipping_leaves_last_attempt_flags_pending(
+        tmp_path, monkeypatch):
+    monkeypatch.setitem(
+        de._MASTER_CFG["io"], "root_output", str(tmp_path / "unpruned"))
+    data = {"n_spots": 2, "velocity": np.array([10.0, 20.0])}
+    monkeypatch.setattr(de, "load_megamaser_spots", lambda *a, **k: data)
+    monkeypatch.setattr(
+        de, "maser_data_root", lambda dataset: str(tmp_path / "data" / dataset))
+    args = de.argparse.Namespace(
+        galaxy="NGC6264", iterative_clip_sigma=2.5, seed=7,
+        clip_max_attempts=1, f64=False, no_ecc=False, add_ecc=False,
+        no_quadratic_warp=False, add_quadratic_warp=False,
+        mass_parameterization=None, phi_integration=None,
+        fix_floors_pesce=False)
+    tag = de._clip_run_tag(args, 7)
+
+    def tagged_run(command, check, env):
+        del command, check, env
+        directory = (tmp_path / "unpruned" / "de_checkpoints" /
+                     "NGC6264" / "iterative_clip" / tag / "attempt_01")
+        directory.mkdir(parents=True)
+        with (directory / "map_posterior_outliers.csv").open(
+                "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow((
+                "unpruned_spot_index", "posterior_mean_max_abs_z",
+                "flag_posterior_mean_max_abs_z_ge_2.5"))
+            writer.writerows(((1, 1.0, False), (2, 3.0, True)))
+
+    monkeypatch.setattr(de.subprocess, "run", tagged_run)
+    manifest = de._run_iterative_clipping(args, ["NGC6264"])
+    with open(manifest, newline="") as f:
+        rows = list(csv.DictReader(f))
+    assert [row["clip"] for row in rows] == ["False", "False"]
+    assert [row["pending_clip"] for row in rows] == ["False", "True"]
+    assert {row["stabilised"] for row in rows} == {"False"}
+    assert not (tmp_path / "data" / "clipped").exists()
+
+
+def test_iterative_clip_namespace_separates_model_variants():
+    args = de.argparse.Namespace(
+        galaxy="NGC6264", iterative_clip_sigma=2.5, f64=False,
+        no_ecc=False, add_ecc=False, no_quadratic_warp=False,
+        add_quadratic_warp=False, mass_parameterization=None,
+        phi_integration=None, fix_floors_pesce=False)
+    linear = de._clip_run_tag(args, 7)
+    args.add_quadratic_warp = True
+    assert de._clip_run_tag(args, 7) != linear
 
 
 def test_distance_gaussian_uses_local_logp_curvature():

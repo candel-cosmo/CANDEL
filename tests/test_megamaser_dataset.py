@@ -19,7 +19,8 @@ if MEGAMASER_DIR not in sys.path:
     sys.path.insert(0, MEGAMASER_DIR)
 
 from candel.pvdata.megamaser_data import (  # noqa: E402
-    DEFAULT_MASER_DATASET, MASER_DATASETS, load_megamaser_spots,
+    DEFAULT_MASER_DATASET, MASER_DATASETS, _apply_clipped_mask,
+    load_megamaser_spots,
     maser_data_root, megamaser_velocity_frame)
 from maser_config import (apply_dataset, check_chain_dataset,  # noqa: E402
                           check_init_block, dataset_init_path,
@@ -41,6 +42,7 @@ EXPECTED_N_SPOTS = {
                  "NGC5765b": 212, "NGC6264": 66,
                  "NGC6323": 87, "UGC3789": 156},
 }
+SOURCE_DATASETS = tuple(EXPECTED_N_SPOTS)
 
 # Byte-identical published/fiducial tables, so their spots must agree exactly.
 SHARED_GALAXIES = ("CGCG074-064", "NGC4258")
@@ -62,6 +64,8 @@ def _load(dataset, galaxy):
 
 def test_default_dataset_has_complete_config_init():
     assert DEFAULT_MASER_DATASET == "fiducial"
+    assert MASER_DATASETS == (
+        "original_published", "fiducial", "unpruned", "clipped")
     assert _config()["io"]["dataset"] == DEFAULT_MASER_DATASET
 
 
@@ -77,7 +81,51 @@ def test_load_rejects_unqualified_root():
                              "NGC4258")
 
 
-@pytest.mark.parametrize("dataset", MASER_DATASETS)
+def test_clipped_mask_filters_unpruned_rows(tmp_path):
+    data = {
+        "n_spots": 3,
+        "velocity": np.array([10.0, 20.0, 30.0]),
+        "x": np.array([1.0, 2.0, 3.0]),
+        "dataset": "unpruned",
+    }
+    path = tmp_path / "mask.csv"
+    with path.open("w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow((
+            "unpruned_spot_index", "velocity_km_s", "clip",
+            "pending_clip", "stabilised"))
+        writer.writerows((
+            (1, 10.0, False, False, True),
+            (2, 20.0, True, False, True),
+            (3, 30.0, False, False, True),
+        ))
+
+    clipped = _apply_clipped_mask(data, path)
+    assert clipped["dataset"] == "clipped"
+    assert clipped["n_spots"] == 2
+    assert clipped["velocity"].tolist() == [10.0, 30.0]
+    assert clipped["unpruned_spot_index"].tolist() == [0, 2]
+
+    rows = list(csv.DictReader(path.open(newline="")))
+    rows[1]["pending_clip"] = "True"
+    with path.open("w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=rows[0])
+        writer.writeheader()
+        writer.writerows(rows)
+    with pytest.raises(ValueError, match="not a stabilised"):
+        _apply_clipped_mask(data, path)
+
+    rows[1]["pending_clip"] = "False"
+    rows[1]["clip"] = "invalid"
+    with path.open("w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=rows[0])
+        writer.writeheader()
+        writer.writerows(rows)
+    with pytest.raises(ValueError, match="invalid clip"):
+        _apply_clipped_mask(data, path)
+
+
+@pytest.mark.parametrize("dataset", SOURCE_DATASETS)
 def test_spot_counts_and_provenance(dataset):
     for galaxy, n in EXPECTED_N_SPOTS[dataset].items():
         data = _load(dataset, galaxy)
@@ -128,7 +176,7 @@ def test_systemics_without_acceleration_are_retained():
                                1000.0 * printed[:, 4], atol=1e-12)
 
 
-def test_unpruned_is_union_with_fiducial_accelerations():
+def test_unpruned_matches_documented_dataset_policy():
     if not os.path.isdir(maser_data_root("unpruned")):
         pytest.skip("external unpruned megamaser dataset is not provisioned")
 
@@ -140,11 +188,20 @@ def test_unpruned_is_union_with_fiducial_accelerations():
         fi = {v: i for i, v in enumerate(fiducial["velocity"])}
         ui = {v: i for i, v in enumerate(unpruned["velocity"])}
 
+        if galaxy == "NGC6323":
+            for key in ("velocity", "x", "sigma_x", "y", "sigma_y", "a",
+                        "sigma_a", "accel_measured", "phi_lo", "phi_hi",
+                        "is_blue", "is_highvel"):
+                assert np.array_equal(unpruned[key], fiducial[key]), key
+            continue
+
         assert set(ui) == set(oi) | set(fi), galaxy
+        astrometry = fiducial if galaxy == "UGC3789" else original
+        ai = fi if galaxy == "UGC3789" else oi
         for velocity in set(oi) & set(fi):
             for key in ("x", "sigma_x", "y", "sigma_y"):
                 assert (unpruned[key][ui[velocity]] ==
-                        original[key][oi[velocity]])
+                        astrometry[key][ai[velocity]])
             assert (unpruned["accel_measured"][ui[velocity]] ==
                     fiducial["accel_measured"][fi[velocity]])
             if fiducial["accel_measured"][fi[velocity]]:
@@ -157,22 +214,6 @@ def test_unpruned_is_union_with_fiducial_accelerations():
                 assert (unpruned[key][ui[velocity]] ==
                         original[key][oi[velocity]])
 
-        if galaxy == "NGC6323":
-            kuo = {}
-            path = os.path.join(REPO_ROOT, "data", "Megamaser",
-                                "Kuo2011_MCP_III_table3.dat")
-            with open(path) as f:
-                for line in f:
-                    if line.startswith("NGC 6323"):
-                        fields = line.split()
-                        kuo[float(fields[2])] = np.array(
-                            [float(v) * 1000 for v in fields[3:7]])
-            for velocity in set(fi) - set(oi):
-                j = ui[velocity]
-                assert np.array_equal(
-                    [unpruned[key][j] for key in
-                     ("x", "sigma_x", "y", "sigma_y")], kuo[velocity])
-
     with open(os.path.join(maser_data_root("unpruned"),
                            "provenance.csv"), newline="") as f:
         provenance = list(csv.DictReader(f))
@@ -182,6 +223,13 @@ def test_unpruned_is_union_with_fiducial_accelerations():
     assert clipped == {"CGCG074-064": 0, "NGC4258": 0,
                        "NGC5765b": 43, "NGC6264": 5,
                        "NGC6323": 0, "UGC3789": 3}
+    assert all(row["astrometry_source"] == "fiducial" and
+               row["acceleration_source"] == "fiducial"
+               for row in provenance if row["galaxy"] == "NGC6323")
+    assert all(row["astrometry_source"] == row["acceleration_source"] ==
+               ("original_published" if row["clipped_by_pesce"] == "True"
+                else "fiducial")
+               for row in provenance if row["galaxy"] == "UGC3789")
 
 
 def test_velocity_frame_raises_for_unknown_galaxy():
@@ -189,7 +237,7 @@ def test_velocity_frame_raises_for_unknown_galaxy():
         megamaser_velocity_frame("NGC9999")
 
 
-@pytest.mark.parametrize("dataset", MASER_DATASETS)
+@pytest.mark.parametrize("dataset", SOURCE_DATASETS)
 def test_p20_thresholds_agree_with_kmeans(dataset):
     """The fiducial tables state their own blue/red split; it must not
     repartition the spots relative to the k-means classifier the published
@@ -226,7 +274,7 @@ def test_config_carries_no_dataset_specific_keys():
 def test_unpruned_warp_pivots_match_other_datasets():
     keys = ("r_ang_ref_i", "r_ang_ref_Omega", "r_ang_ref_periapsis")
     configs = {}
-    for dataset in MASER_DATASETS:
+    for dataset in SOURCE_DATASETS:
         with open(dataset_init_path(dataset), "rb") as f:
             configs[dataset] = tomli.load(f)["model"]["galaxies"]
 
@@ -253,7 +301,7 @@ def test_original_published_init_set_is_complete():
         assert {k for k in galaxies[galaxy] if k.startswith("init")} == variants
 
 
-@pytest.mark.parametrize("dataset", MASER_DATASETS)
+@pytest.mark.parametrize("dataset", SOURCE_DATASETS)
 def test_init_r_ang_lengths_match_spot_counts(dataset):
     """Every init block present must belong to its own dataset."""
     with open(dataset_init_path(dataset), "rb") as f:
