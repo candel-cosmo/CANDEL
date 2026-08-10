@@ -22,6 +22,9 @@ def test_multiple_chains_use_available_workers(monkeypatch):
     monkeypatch.setattr(
         mbj.os, "sched_getaffinity", lambda _: set(range(32)), raising=False)
     monkeypatch.setattr(mbj.os, "cpu_count", lambda: 32)
+    monkeypatch.setattr(
+        mbj.shutil, "get_terminal_size",
+        lambda fallback: mbj.os.terminal_size((80, 24)))
     assert mbj._chain_worker_count(28) == 8
     assert mbj._chain_worker_count(28, 12) == 12
 
@@ -51,6 +54,12 @@ def test_multiple_chains_use_available_workers(monkeypatch):
     assert positions == {1: (0, 3, 6), 2: (1, 4, 7)}
     np.testing.assert_array_equal(result.samples["x"], [[1], [2]])
     assert result.runtime_seconds < 10.0
+
+    positions.clear()
+    mbj.run_blackjax_mcmc(
+        object(), {}, jax.random.PRNGKey(0), num_chains=10, chain_workers=10,
+        num_latent_burnin=1, progress_bar=False)
+    assert positions == {i: (i - 1,) * 3 for i in range(1, 11)}
 
     class Progress:
         def set_postfix(self, values, refresh=True):
