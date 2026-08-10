@@ -790,7 +790,7 @@ def test_map_posterior_mean_sigma_integrates_grid_and_writes_outputs(
 
 
 def test_iterative_clipping_relaunches_until_mask_stabilises(
-        tmp_path, monkeypatch):
+        tmp_path, monkeypatch, capsys):
     monkeypatch.setitem(
         de._MASTER_CFG["io"], "root_output", str(tmp_path / "unpruned"))
     data = {"n_spots": 3, "velocity": np.array([10.0, 20.0, 30.0])}
@@ -799,8 +799,9 @@ def test_iterative_clipping_relaunches_until_mask_stabilises(
         de, "maser_data_root", lambda dataset: str(tmp_path / "data" / dataset))
     args = de.argparse.Namespace(
         galaxy="NGC6264", iterative_clip_sigma=2.5, seed=7,
-        clip_max_attempts=3, f64=False, no_ecc=False, add_ecc=False,
-        no_quadratic_warp=False, add_quadratic_warp=False,
+        clip_max_attempts=3, resume=False, f64=False, no_ecc=False,
+        add_ecc=False,
+        no_quadratic_warp=False, add_quadratic_warp=True,
         mass_parameterization=None, phi_integration=None,
         fix_floors_pesce=False)
     tag = de._clip_run_tag(args, 7)
@@ -827,16 +828,25 @@ def test_iterative_clipping_relaunches_until_mask_stabilises(
                     attempt == 1 and index == 1))
 
     monkeypatch.setattr(de.subprocess, "run", tagged_run)
-    manifest = de._run_iterative_clipping(args, ["NGC6264"])
+    manifest = de._run_iterative_clipping(
+        args, ["NGC6264", "--add-quadratic-warp"])
     with open(manifest, newline="") as f:
         rows = list(csv.DictReader(f))
     assert [row["clip"] for row in rows] == ["False", "True", "False"]
     assert [row["pending_clip"] for row in rows] == ["False"] * 3
     assert {row["stabilised"] for row in rows} == {"True"}
+    assert (tmp_path / "data" / "clipped" /
+            "NGC6264_clipped_spots_qw.csv").is_file()
+    assert not (tmp_path / "data" / "clipped" /
+                "NGC6264_clipped_spots.csv").exists()
+    output = capsys.readouterr().out
+    assert "removed=1/3, retained=2/3, pending=0" in output
+    assert ("unpruned spot 2: v=20 km/s, posterior mean max |z|=3.000, "
+            "attempt=1") in output
 
 
 def test_iterative_clipping_leaves_last_attempt_flags_pending(
-        tmp_path, monkeypatch):
+        tmp_path, monkeypatch, capsys):
     monkeypatch.setitem(
         de._MASTER_CFG["io"], "root_output", str(tmp_path / "unpruned"))
     data = {"n_spots": 2, "velocity": np.array([10.0, 20.0])}
@@ -845,7 +855,8 @@ def test_iterative_clipping_leaves_last_attempt_flags_pending(
         de, "maser_data_root", lambda dataset: str(tmp_path / "data" / dataset))
     args = de.argparse.Namespace(
         galaxy="NGC6264", iterative_clip_sigma=2.5, seed=7,
-        clip_max_attempts=1, f64=False, no_ecc=False, add_ecc=False,
+        clip_max_attempts=1, resume=False, f64=False, no_ecc=False,
+        add_ecc=False,
         no_quadratic_warp=False, add_quadratic_warp=False,
         mass_parameterization=None, phi_integration=None,
         fix_floors_pesce=False)
@@ -872,6 +883,66 @@ def test_iterative_clipping_leaves_last_attempt_flags_pending(
     assert [row["pending_clip"] for row in rows] == ["False", "True"]
     assert {row["stabilised"] for row in rows} == {"False"}
     assert not (tmp_path / "data" / "clipped").exists()
+    output = capsys.readouterr().out
+    assert "removed=0/2, retained=2/2, pending=1" in output
+    assert "pending flags (not removed):" in output
+    assert ("unpruned spot 2: v=20 km/s, posterior mean max |z|=3.000, "
+            "attempt=1") in output
+
+
+def test_iterative_clipping_resume_skips_completed_attempts(
+        tmp_path, monkeypatch):
+    monkeypatch.setitem(
+        de._MASTER_CFG["io"], "root_output", str(tmp_path / "unpruned"))
+    data = {"n_spots": 3, "velocity": np.array([10.0, 20.0, 30.0])}
+    monkeypatch.setattr(de, "load_megamaser_spots", lambda *a, **k: data)
+    monkeypatch.setattr(
+        de, "maser_data_root", lambda dataset: str(tmp_path / "data" / dataset))
+    args = de.argparse.Namespace(
+        galaxy="NGC6264", iterative_clip_sigma=2.5, seed=7,
+        clip_max_attempts=3, resume=True, f64=False, no_ecc=False,
+        add_ecc=False, no_quadratic_warp=False, add_quadratic_warp=False,
+        mass_parameterization=None, phi_integration=None,
+        fix_floors_pesce=False)
+    tag = de._clip_run_tag(args, 7)
+    root = (tmp_path / "unpruned" / "de_checkpoints" / "NGC6264" /
+            "iterative_clip" / tag)
+
+    def write_table(attempt, excluded, flagged):
+        directory = root / f"attempt_{attempt:02d}"
+        directory.mkdir(parents=True)
+        with (directory / "map_posterior_outliers.csv").open(
+                "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow((
+                "unpruned_spot_index", "posterior_mean_max_abs_z",
+                "flag_posterior_mean_max_abs_z_ge_2.5"))
+            for index in sorted(set(range(3)) - excluded):
+                writer.writerow((
+                    index + 1, 3.0 if index in flagged else 1.0,
+                    index in flagged))
+
+    write_table(1, set(), {1})
+    launched = []
+
+    def resume_run(command, check, env):
+        del command
+        assert check
+        attempt = int(env[de._CLIP_ATTEMPT_ENV])
+        excluded = set(de.json.loads(env[de._CLIP_INDICES_ENV]))
+        launched.append(attempt)
+        assert attempt == 2
+        assert excluded == {1}
+        write_table(attempt, excluded, set())
+
+    monkeypatch.setattr(de.subprocess, "run", resume_run)
+    manifest = de._run_iterative_clipping(args, ["NGC6264", "--resume"])
+
+    assert launched == [2]
+    with open(manifest, newline="") as f:
+        rows = list(csv.DictReader(f))
+    assert [row["clip"] for row in rows] == ["False", "True", "False"]
+    assert {row["stabilised"] for row in rows} == {"True"}
 
 
 def test_iterative_clip_namespace_separates_model_variants():

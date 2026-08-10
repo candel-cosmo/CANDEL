@@ -18,9 +18,10 @@ MEGAMASER_DIR = os.path.join(REPO_ROOT, "scripts", "megamaser")
 if MEGAMASER_DIR not in sys.path:
     sys.path.insert(0, MEGAMASER_DIR)
 
+from candel.pvdata import megamaser_data  # noqa: E402
 from candel.pvdata.megamaser_data import (  # noqa: E402
     DEFAULT_MASER_DATASET, MASER_DATASETS, _apply_clipped_mask,
-    load_megamaser_spots,
+    clipped_mask_path, load_megamaser_spots,
     maser_data_root, megamaser_velocity_frame)
 from maser_config import (apply_dataset, check_chain_dataset,  # noqa: E402
                           check_init_block, dataset_init_path,
@@ -123,6 +124,47 @@ def test_clipped_mask_filters_unpruned_rows(tmp_path):
         writer.writerows(rows)
     with pytest.raises(ValueError, match="invalid clip"):
         _apply_clipped_mask(data, path)
+
+
+def test_clipped_dataset_prefers_model_variant_then_linear(
+        tmp_path, monkeypatch):
+    def fake_spots(*args, **kwargs):
+        del args, kwargs
+        return {
+            "n_spots": 3,
+            "velocity": np.array([10.0, 20.0, 30.0]),
+            "x": np.array([1.0, 2.0, 3.0]),
+        }
+
+    def write_mask(path, clipped):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow((
+                "unpruned_spot_index", "velocity_km_s", "clip",
+                "pending_clip", "stabilised"))
+            for i, velocity in enumerate((10.0, 20.0, 30.0)):
+                writer.writerow((i + 1, velocity, i == clipped, False, True))
+
+    monkeypatch.setattr(megamaser_data, "load_NGC6264_spots", fake_spots)
+    root = str(tmp_path / "clipped")
+    linear = clipped_mask_path(root, "NGC6264")
+    quadratic = clipped_mask_path(
+        root, "NGC6264", use_quadratic_warp=True)
+    assert clipped_mask_path(
+        root, "NGC6264", use_ecc=True,
+        use_quadratic_warp=True).endswith("_ecc_qw.csv")
+    write_mask(linear, 1)
+    write_mask(quadratic, 2)
+
+    data = load_megamaser_spots(
+        root, "NGC6264", v_sys_obs=0.0, use_quadratic_warp=True)
+    assert data["velocity"].tolist() == [10.0, 20.0]
+
+    os.remove(quadratic)
+    data = load_megamaser_spots(
+        root, "NGC6264", v_sys_obs=0.0, use_quadratic_warp=True)
+    assert data["velocity"].tolist() == [10.0, 30.0]
 
 
 @pytest.mark.parametrize("dataset", SOURCE_DATASETS)
