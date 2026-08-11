@@ -199,18 +199,24 @@ def run_method(settings, catalogue, config, r, calibration_dir, input_path,
     }
 
 
-def save_results(path, catalogue, results, source_path):
+def save_results(path, catalogue, results, source_path,
+                 row_order="Original Bureau workbook order",
+                 catalogue_keys=(
+                     "RA", "dec", "zhelio", "e_zhelio", "zcmb", "e_zcmb"),
+                 catalogue_attrs=None):
     path.parent.mkdir(parents=True, exist_ok=True)
     with File(path, "w") as handle:
         handle.attrs["source"] = str(source_path)
-        handle.attrs["row_order"] = "Original Bureau workbook order"
+        handle.attrs["row_order"] = row_order
         handle.attrs["posterior_measure"] = "p(z_cosmo) dz_cosmo"
         inputs = handle.create_group("catalogue")
         inputs.create_dataset(
             "name", data=catalogue["name"].astype(object),
             dtype=string_dtype("utf-8"))
-        for key in ("RA", "dec", "zhelio", "e_zhelio", "zcmb", "e_zcmb"):
+        for key in catalogue_keys:
             inputs.create_dataset(key, data=catalogue[key])
+        for key, value in (catalogue_attrs or {}).items():
+            inputs.attrs[key] = value
 
         for method, result in results.items():
             group = handle.create_group(method)
@@ -247,7 +253,8 @@ def save_results(path, catalogue, results, source_path):
     print(f"Saved {path}")
 
 
-def save_diagnostic_plots(output_dir, catalogue, results):
+def save_diagnostic_plots(output_dir, catalogue, results,
+                          prefix="Bureau_gals"):
     colours = {"Manticore": "C0", "Carrick": "C3"}
     order = np.argsort(catalogue["zcmb"])
     shown = order[np.linspace(0, len(order) - 1, 6).astype(int)]
@@ -276,7 +283,7 @@ def save_diagnostic_plots(output_dir, catalogue, results):
     axes[1, 0].set_ylabel(r"$p(cz_{\rm cosmo}\mid cz_{\rm CMB})$")
     axes[0, 0].legend(frameon=False)
     fig.tight_layout()
-    path = output_dir / "Bureau_gals_posterior_examples.png"
+    path = output_dir / f"{prefix}_posterior_examples.png"
     fig.savefig(path, dpi=300)
     plt.close(fig)
 
@@ -309,7 +316,7 @@ def save_diagnostic_plots(output_dir, catalogue, results):
         r"[km s$^{-1}$]")
     ax.legend(frameon=False)
     fig.tight_layout()
-    path = output_dir / "Bureau_gals_redshift_residuals.png"
+    path = output_dir / f"{prefix}_redshift_residuals.png"
     fig.savefig(path, dpi=300)
     plt.close(fig)
 
@@ -332,7 +339,7 @@ def save_diagnostic_plots(output_dir, catalogue, results):
         r"$c\,(z_{\rm CMB} - z_{\rm cosmo})$ [km s$^{-1}$]")
     ax.legend(frameon=False)
     fig.tight_layout()
-    path = output_dir / "Bureau_gals_observed_vs_cosmological.png"
+    path = output_dir / f"{prefix}_observed_vs_cosmological.png"
     fig.savefig(path, dpi=300)
     plt.close(fig)
 
@@ -349,7 +356,7 @@ def save_diagnostic_plots(output_dir, catalogue, results):
     ax.set_ylabel(r"Galactic latitude $b$")
     ax.grid(alpha=0.3)
     fig.tight_layout()
-    path = output_dir / "Bureau_gals_sky_map.png"
+    path = output_dir / f"{prefix}_sky_map.png"
     fig.savefig(path, dpi=300)
     plt.close(fig)
 
@@ -391,7 +398,7 @@ def save_diagnostic_plots(output_dir, catalogue, results):
             r"$c\,(z_{\rm cosmo}^{\rm Manticore} - "
             r"z_{\rm cosmo}^{\rm Carrick})$ [km s$^{-1}$]")
         fig.tight_layout()
-        path = output_dir / "Bureau_gals_manticore_vs_carrick.png"
+        path = output_dir / f"{prefix}_manticore_vs_carrick.png"
         fig.savefig(path, dpi=300)
         plt.close(fig)
 
@@ -446,7 +453,7 @@ def save_diagnostic_plots(output_dir, catalogue, results):
         axes[1, 1].set_ylabel("Number of galaxies")
         axes[1, 1].legend(frameon=False)
         fig.tight_layout()
-        path = output_dir / "Bureau_gals_summary.png"
+        path = output_dir / f"{prefix}_summary.png"
         fig.savefig(path, dpi=300)
         plt.close(fig)
     print(f"Saved diagnostics to {output_dir}")

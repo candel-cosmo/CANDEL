@@ -50,11 +50,14 @@ DEFAULT_TRUE_PARAMS = {
 DEFAULT_COLOUR_STD = 0.2  # spread of dereddened F606W-F814W in mock
 DEFAULT_COLOUR_ERR = 0.03
 
+# Mirrors the `[model.anchors]` block of `config_EDD_TRGB.toml`, so the mock
+# tests the anchor uncertainties the real inference actually assumes. The LMC
+# error carries the 0.020 mag I -> F814W transformation.
 DEFAULT_ANCHORS = {
     "mu_LMC": 18.477,
     "e_mu_LMC": 0.026,
-    "e_mag_LMC_TRGB": 0.018,
-    "mu_N4258": 29.398,
+    "e_mag_LMC_TRGB": 0.030,
+    "mu_N4258": 29.397,
     "e_mu_N4258": 0.032,
     "e_mag_N4258_TRGB": 0.0443,
 }

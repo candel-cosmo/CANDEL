@@ -406,10 +406,20 @@ def test_de_cli_has_no_algorithm_hybrid_or_pesce_seed_switch(capsys):
     assert "--adam-" not in help_text
     assert "--eval-chunk" not in help_text
     assert "--population-reduction-evaluations" in help_text
+    assert "--patience PATIENCE" in help_text
+    assert "without a >0.1 logP improvement" in " ".join(
+        help_text.split())
     assert "--phi-integration {fixed-grid,peak-partition}" in help_text
     assert "--peak-candidates-per-wave {1,2,4,8}" in help_text
     assert "data-derived ridge and scrambled Sobol" in " ".join(
         help_text.split())
+
+
+def test_de_patience_must_be_positive(capsys):
+    with pytest.raises(SystemExit, match="--patience must be at least 1"):
+        de.main(["NGC6264", "--patience", "0"])
+
+    assert capsys.readouterr().err == ""
 
 
 def test_de_search_ignores_every_point_initialisation_strategy():

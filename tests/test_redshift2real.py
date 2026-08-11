@@ -5,6 +5,9 @@ from scipy.integrate import simpson
 from candel.model.pv_utils import lp_galaxy_bias
 from candel.redshift2real import Redshift2Real
 from candel.util import SPEED_OF_LIGHT
+from notebooks.redshift2real.wisdom_co_tfr import (
+    lsrk_to_barycentric,
+)
 
 
 def _model(which_bias=None, e_zcmb=None, Vext=None,
@@ -61,3 +64,13 @@ def test_Vext_exponential_decay_window():
     expected = np.exp(-np.clip(decaying.los_grid_r - 30.0, 0, None) / 10.0)
     np.testing.assert_allclose(decaying.Vext_window, expected)
     assert not np.allclose(logp_decaying, logp_constant)
+
+
+def test_wisdom_lsrk_conversion():
+    z_lsrk = np.array([0.01, 0.01])
+    zbary, correction, factor = lsrk_to_barycentric(
+        z_lsrk, np.array([270.0, 90.0]), np.array([30.0, -30.0]))
+
+    np.testing.assert_allclose(correction, [-20.0, 20.0], atol=0.01)
+    np.testing.assert_allclose(zbary, (1 + z_lsrk) * factor - 1)
+    assert zbary[0] < z_lsrk[0] < zbary[1]

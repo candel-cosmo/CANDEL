@@ -160,26 +160,38 @@ high = 1.5
 ###############################################################################
 #                             TRGB Calibration                                #
 ###############################################################################
-# All TRGB magnitudes are in the F814W band.
+# Host TRGB magnitudes are in F814W. The LMC anchor is NOT -- see below.
 #
 # LMC geometric distance (Pietrzynski et al. 2019, arXiv:1903.08096):
 #   mu_LMC = 18.477 +/- 0.026
 #
-# LMC TRGB magnitude (Hoyt et al. 2021, arXiv:2106.13337):
-#   mag_LMC_TRGB = 14.456 +/- 0.018
+# LMC TRGB magnitude (Hoyt 2023, Nat. Astron. 7, 590, arXiv:2106.13337):
+#   mag_LMC_TRGB = 14.439 +/- 0.030
+# This is the Rank 1+2 composite tip in the ground-based OGLE-III I band, i.e.
+# 18.477 - 4.038, from his preferred flat calibration M_I = -4.038 over
+# 1.60 < (V-I)_0 < 1.95. It is NOT F814W. (14.456 +/- 0.018, used until
+# 2026-08-10, was his Field-19 worked example -- wrong field and wrong band.)
+# The error is the non-distance rows of his table 3 (edge 0.008/0.004, sample
+# 0.005/0.002, extinction 0.006/0.014, photometry 0.004/0.010 -> 0.021 mag)
+# added in quadrature to a 0.020 mag I -> F814W transformation, which he
+# explicitly instructs users to carry. Do NOT substitute his
+# +/-0.012(stat) +/-0.032(sys): the 0.026 mag detached-eclipsing-binary term
+# inside that systematic is the Pietrzynski mu_LMC prior above, which the model
+# already samples, so it would be double-counted.
 #
 # NGC 4258 geometric distance (Reid et al. 2019):
-#   mu_N4258 = 29.398 +/- 0.032
+#   mu_N4258 = 29.397 +/- 0.032
 #
-# NGC 4258 TRGB magnitude (Jang & Lee 2020, arXiv:2008.04181):
+# NGC 4258 TRGB magnitude (Jang et al. 2021, ApJ 906, 125, arXiv:2008.04181),
+# in F814W:
 #   mag_N4258_TRGB = 25.347 +/- 0.0443
 
 [model.anchors]
 mu_LMC = 18.477
 e_mu_LMC = 0.026
-mag_LMC_TRGB = 14.456
-e_mag_LMC_TRGB = 0.018
-mu_N4258 = 29.398
+mag_LMC_TRGB = 14.439
+e_mag_LMC_TRGB = 0.030
+mu_N4258 = 29.397
 e_mu_N4258 = 0.032
 mag_N4258_TRGB = 25.347
 e_mag_N4258_TRGB = 0.0443

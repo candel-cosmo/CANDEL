@@ -940,12 +940,15 @@ def load_CCHP_from_config(config_path, ra_dec_only=False):
     # LMC (Pietrzynski et al. 2019): https://arxiv.org/abs/1903.08096
     mu_LMC_anchor = 18.477
     e_mu_LMC_anchor = 0.026
-    # Hoyt+2021 TRGB calibration: https://arxiv.org/abs/2106.13337
-    mag_LMC_TRGB = 14.456
-    e_mag_LMC_TRGB = 0.018
+    # Hoyt (2023) TRGB calibration: https://arxiv.org/abs/2106.13337
+    # Rank 1+2 composite tip in ground-based OGLE-III I, NOT F814W; the error
+    # includes a 0.020 mag I -> F814W transformation. See the TRGB Calibration
+    # block of `config_EDD_TRGB.toml` for the full budget.
+    mag_LMC_TRGB = 14.439
+    e_mag_LMC_TRGB = 0.030
 
     # NGC 4258 distance (Reid et al. 2019)
-    mu_N4258_anchor = 29.398
+    mu_N4258_anchor = 29.397
     e_mu_N4258_anchor = 0.032
     # Jang & Lee 2020 TRGB calibration: https://arxiv.org/abs/2008.04181
     # This is at F814W
@@ -1785,11 +1788,13 @@ def _load_EDD_TRGB_from_config_common(config_path, config_key, loader):
         data["has_volume_density_3d"] = False
 
     anchors = get_nested(config, "model/anchors", {})
+    # Fallbacks mirror `config_EDD_TRGB.toml`; see its TRGB Calibration block for
+    # the LMC error budget and why the Hoyt (2023) systematic is not used as-is.
     data["mu_LMC_anchor"] = anchors.get("mu_LMC", 18.477)
     data["e_mu_LMC_anchor"] = anchors.get("e_mu_LMC", 0.026)
-    data["mag_LMC_TRGB"] = anchors.get("mag_LMC_TRGB", 14.456)
-    data["e_mag_LMC_TRGB"] = anchors.get("e_mag_LMC_TRGB", 0.018)
-    data["mu_N4258_anchor"] = anchors.get("mu_N4258", 29.398)
+    data["mag_LMC_TRGB"] = anchors.get("mag_LMC_TRGB", 14.439)
+    data["e_mag_LMC_TRGB"] = anchors.get("e_mag_LMC_TRGB", 0.030)
+    data["mu_N4258_anchor"] = anchors.get("mu_N4258", 29.397)
     data["e_mu_N4258_anchor"] = anchors.get("e_mu_N4258", 0.032)
     data["mag_N4258_TRGB"] = anchors.get("mag_N4258_TRGB", 25.347)
     data["e_mag_N4258_TRGB"] = anchors.get("e_mag_N4258_TRGB", 0.0443)
