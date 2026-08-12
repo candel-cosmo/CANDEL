@@ -83,28 +83,40 @@ def test_initial_population_puts_required_base_model_seed_first():
     assert de._initial_de_seed_points(None) is None
 
 
-def test_ngc6323_linear_init_lifts_into_quadratic_model():
+def test_iterative_init_radii_lift_into_quadratic_model():
     model = type("Model", (), {
         "_D_A_uniform": True,
         "mass_parameterization": "eta",
         "use_ecc": False,
         "ecc_cartesian": True,
         "use_quadratic_warp": True,
+        "n_spots": 2,
+        "galaxy_name": "NGC4258",
+        "dataset": "unpruned",
     })()
-    gal_cfg = {"init": {
-        "D_A": 101.5905,
-        "eta": 4.9685,
-        "r_ang": [0.3, 0.4],
-        "d2i_dr2": 12.0,
-        "d2Omega_dr2": -34.0,
-    }}
+    gal_cfg = {
+        "init": {
+            "D_A": 7.416,
+            "eta": 6.7223,
+            "r_ang": [0.3, 0.35, 0.4],
+            "d2i_dr2": 12.0,
+            "d2Omega_dr2": -34.0,
+        },
+        "init_qw": {"r_ang": [0.31, 0.36, 0.41]},
+    }
 
+    de._subset_iterative_init_radii(gal_cfg, np.array([0, 2]), 3)
     lifted = de._lift_base_model_init(model, gal_cfg)
 
-    np.testing.assert_allclose(lifted["D_A"], 101.5905)
-    np.testing.assert_allclose(lifted["eta"], 4.9685)
+    np.testing.assert_allclose(lifted["D_A"], 7.416)
+    np.testing.assert_allclose(lifted["eta"], 6.7223)
+    np.testing.assert_allclose(lifted["r_ang"], [0.3, 0.4])
+    assert gal_cfg["init_qw"]["r_ang"] == [0.31, 0.41]
     assert float(lifted["d2i_dr2"]) == 0.0
     assert float(lifted["d2Omega_dr2"]) == 0.0
+    with pytest.raises(ValueError, match="complete unpruned table has 3"):
+        de._subset_iterative_init_radii(
+            {"init": {"r_ang": [4.4, 6.6]}}, np.array([0, 2]), 3)
 
 
 def test_only_quadratic_de_requires_base_model_seed():
