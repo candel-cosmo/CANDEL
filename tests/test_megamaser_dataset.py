@@ -12,6 +12,7 @@ import sys
 import numpy as np
 import pytest
 import tomli
+import tomli_w
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MEGAMASER_DIR = os.path.join(REPO_ROOT, "scripts", "megamaser")
@@ -19,6 +20,9 @@ if MEGAMASER_DIR not in sys.path:
     sys.path.insert(0, MEGAMASER_DIR)
 
 from candel.pvdata import megamaser_data  # noqa: E402
+from candel.model.maser_blackjax import (  # noqa: E402
+    _theta_site_prior_pairs, prepare_floor_init)
+from candel.model.model_H0_maser import MaserDiskModel  # noqa: E402
 from candel.pvdata.megamaser_data import (  # noqa: E402
     DEFAULT_MASER_DATASET, MASER_DATASETS, _apply_clipped_mask,
     clipped_mask_path, load_megamaser_spots,
@@ -173,6 +177,10 @@ def test_spot_counts_and_provenance(dataset):
         data = _load(dataset, galaxy)
         assert data["n_spots"] == n, (dataset, galaxy)
         assert data["dataset"] == dataset
+        is_ngc5765b = galaxy == "NGC5765b"
+        assert ("clump2_floor_mask" in data) == is_ngc5765b
+        assert "sigma_a_likelihood" not in data
+        assert "error_floor_policy" not in data
         # Every spot is classified into exactly one of the three supports.
         n_sys = int((~data["is_highvel"]).sum())
         n_blue = int(data["is_blue"].sum())
@@ -216,6 +224,66 @@ def test_systemics_without_acceleration_are_retained():
                                1000.0 * printed[:, 2], atol=1e-12)
     np.testing.assert_allclose(published["sigma_y"][idx],
                                1000.0 * printed[:, 4], atol=1e-12)
+
+
+@pytest.mark.parametrize(
+    ("dataset", "n_clump2", "n_clump2_accel"),
+    (("original_published", 28, 23),
+     ("fiducial", 16, 16),
+     ("unpruned", 28, 23)))
+def test_ngc5765b_datasets_mark_clump2(
+        dataset, n_clump2, n_clump2_accel):
+    data = _load(dataset, "NGC5765b")
+    clump2 = data["clump2_floor_mask"]
+    assert int(clump2.sum()) == n_clump2
+    assert int((clump2 & data["accel_measured"]).sum()) == n_clump2_accel
+
+
+@pytest.mark.parametrize("dataset", ("original_published", "unpruned"))
+def test_ngc5765b_classification_does_not_replace_measurements(dataset):
+    data = _load(dataset, "NGC5765b")
+    raw = np.loadtxt(os.path.join(
+        maser_data_root(dataset), "NGC5765b_Gao2016_table6.dat"))
+    expected = {
+        "velocity": raw[:, 0],
+        "x": 1000.0 * raw[:, 1],
+        "sigma_x": 1000.0 * raw[:, 2],
+        "y": 1000.0 * raw[:, 3],
+        "sigma_y": 1000.0 * raw[:, 4],
+        "a": raw[:, 5],
+        "sigma_a": raw[:, 6],
+    }
+    for key, values in expected.items():
+        np.testing.assert_array_equal(data[key], values)
+
+
+def test_ngc5765b_acceleration_only_clump2_floor(tmp_path):
+    cfg = _config()
+    apply_dataset(cfg, "original_published")
+    cfg["model"]["ngc5765b_clump2_acceleration_only"] = True
+    path = tmp_path / "config.toml"
+    with open(path, "wb") as f:
+        tomli_w.dump(cfg, f)
+
+    data = _load("original_published", "NGC5765b")
+    gcfg = cfg["model"]["galaxies"]["NGC5765b"]
+    data["D_lo"], data["D_hi"] = gcfg["D_lo"], gcfg["D_hi"]
+    model = MaserDiskModel(path, data)
+
+    assert model.clump2_floor_names == ("sigma_a_floor_clump2",)
+    assert model.error_floor_policy == (
+        "sampled_ngc5765b_clump2_acceleration_only")
+    sites = {site for site, _, _ in _theta_site_prior_pairs(model, h=0.73)}
+    assert {site for site in sites if site.endswith("_clump2")} == {
+        "sigma_a_floor_clump2"}
+
+    params = prepare_floor_init(model, dict(gcfg["init"]))
+    params["sigma_a_floor"] = 0.1
+    params["sigma_a_floor_clump2"] = 0.4
+    phys_args, _ = model.phys_from_params_jax(params, h=0.73)
+    np.testing.assert_allclose(np.asarray(phys_args[17:20]),
+                               np.asarray(phys_args[12:15]))
+    assert float(phys_args[20]) == pytest.approx(0.4**2)
 
 
 def test_unpruned_matches_documented_dataset_policy():
@@ -381,6 +449,15 @@ def test_apply_dataset_namespaces_root_output_idempotently():
     assert root.endswith(os.path.join("Megamaser", "fiducial"))
     apply_dataset(cfg, "fiducial")
     assert cfg["io"]["root_output"] == root
+
+
+def test_apply_dataset_honours_temporary_root(monkeypatch):
+    monkeypatch.setenv(
+        "CANDEL_MEGAMASER_ROOT_OUTPUT", "results_test/Megamaser")
+    cfg = _config()
+    apply_dataset(cfg, "fiducial")
+    assert cfg["io"]["root_output"] == os.path.join(
+        "results_test", "Megamaser", "fiducial")
 
 
 def test_apply_dataset_rejects_cross_dataset_reapply():

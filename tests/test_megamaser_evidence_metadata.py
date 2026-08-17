@@ -50,6 +50,33 @@ def test_chain_attrs_restore_uniform_da_prior():
     assert gblk["use_quadratic_warp"] is False
 
 
+def test_ngc5765b_chain_attrs_restore_error_floor_mode():
+    cfg = {
+        "model": {
+            "use_ngc5765b_clump2_floors": True,
+            "galaxies": {"NGC5765b": {}},
+        },
+    }
+    ev._apply_chain_attrs_to_config(
+        cfg, "NGC5765b",
+        {"error_floor_policy": "sampled_ngc5765b_single_floor"})
+    assert cfg["model"]["use_ngc5765b_clump2_floors"] is False
+    assert cfg["model"]["ngc5765b_clump2_acceleration_only"] is False
+
+    ev._apply_chain_attrs_to_config(
+        cfg, "NGC5765b",
+        {"error_floor_policy":
+         "sampled_ngc5765b_clump2_acceleration_only"})
+    assert cfg["model"]["use_ngc5765b_clump2_floors"] is True
+    assert cfg["model"]["ngc5765b_clump2_acceleration_only"] is True
+
+    ev._apply_chain_attrs_to_config(
+        cfg, "NGC5765b",
+        {"theta_sites": "D_A,sigma_a_floor_clump2"})
+    assert cfg["model"]["use_ngc5765b_clump2_floors"] is True
+    assert cfg["model"]["ngc5765b_clump2_acceleration_only"] is True
+
+
 def test_sampled_global_names_ignore_deterministic_extras():
     target = DummyTarget(("D_A", "eta", "x0"))
     samples = {

@@ -214,7 +214,8 @@ def _setup_dense_mass(kwargs, init_params, model, model_kwargs,
 
 
 def find_initial_point(model, model_kwargs, maxiter=100, seed=42,
-                       return_site_names=False, dynamic_model_kwargs=False):
+                       return_site_names=False, return_objective=False,
+                       dynamic_model_kwargs=False):
     """Run L-BFGS to find a reasonable MCMC starting point.
 
     Traces the model from the prior, maps to unconstrained space, runs
@@ -237,13 +238,16 @@ def find_initial_point(model, model_kwargs, maxiter=100, seed=42,
         populated from the trace that was performed regardless. Allows
         downstream callers to avoid re-tracing the model when the
         optimisation fails. Default False (original single-return API).
+    return_objective : bool, optional
+        If True, return ``(init_params, site_names, negative_log_density)``.
 
     Returns
     -------
     dict or None, or tuple
         Constrained initial parameters, or None if optimisation diverges.
         When ``return_site_names`` is True, returns
-        ``(init_params_or_none, site_names)``.
+        ``(init_params_or_none, site_names)``. When ``return_objective`` is
+        True, also appends the finite negative log-density.
     """
     # Trace at the prior median to get transforms and a reasonable start
     substituted_model = handlers.substitute(
@@ -335,6 +339,8 @@ def find_initial_point(model, model_kwargs, maxiter=100, seed=42,
 
     if not np.isfinite(result.fun):
         fprint("  optimisation diverged, falling back to prior sample.")
+        if return_objective:
+            return None, site_names, np.inf
         if return_site_names:
             return None, site_names
         return None
@@ -370,6 +376,8 @@ def find_initial_point(model, model_kwargs, maxiter=100, seed=42,
     if n_clamped > 0:
         fprint(f"  clamped {n_clamped} parameters to support bounds.")
 
+    if return_objective:
+        return constrained_opt, site_names, float(result.fun)
     if return_site_names:
         return constrained_opt, site_names
     return constrained_opt
@@ -493,10 +501,28 @@ def _initialise_from_lbfgs(model, model_kwargs, kwargs, init_maxiter,
 
     site_names = None
     if init_maxiter > 0:
-        init_params, site_names = find_initial_point(
-            model, model_kwargs, maxiter=init_maxiter,
-            seed=kwargs["seed"], return_site_names=True,
-            dynamic_model_kwargs=dynamic_model_kwargs)
+        num_starts = int(kwargs.get("init_num_starts", 1))
+        if num_starts < 1:
+            raise ValueError("`init_num_starts` must be >= 1.")
+
+        candidates = []
+        for i in range(num_starts):
+            seed = kwargs["seed"] + i
+            fprint(f"L-BFGS start {i + 1}/{num_starts} (seed={seed})")
+            candidate, candidate_sites, objective = find_initial_point(
+                model, model_kwargs, maxiter=init_maxiter, seed=seed,
+                return_site_names=True, return_objective=True,
+                dynamic_model_kwargs=dynamic_model_kwargs)
+            site_names = candidate_sites
+            if candidate is not None:
+                candidates.append((objective, i, candidate, candidate_sites))
+
+        if candidates:
+            objective, i, init_params, site_names = min(candidates)
+            fprint(f"selected L-BFGS start {i + 1}/{num_starts} "
+                   f"(-log p={objective:.2f}).")
+        else:
+            init_params = None
         if init_params is not None:
             fprint("initialising NUTS from L-BFGS solution.")
             init_strategy = init_to_value(values=init_params)

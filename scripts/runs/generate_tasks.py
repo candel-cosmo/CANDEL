@@ -559,6 +559,12 @@ def generate_dynamic_tag(config, base_tag="default"):
             field_str = "+".join(f"{int(i):02d}" for i in field_indices)
             parts.append(f"fields{field_str}")
 
+    # Opt-in label to separate otherwise-identical configs (e.g. repeat runs
+    # of one config under different inference seeds).
+    run_label = get_nested(config, "io/run_label", None)
+    if _is_active(run_label):
+        parts.append(_tag_string(run_label))
+
     if base_tag != "default":
         parts.append(base_tag)
 

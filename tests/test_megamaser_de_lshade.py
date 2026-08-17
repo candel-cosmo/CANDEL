@@ -605,6 +605,8 @@ def test_resume_accepts_legacy_ngc4258_quadratic_seed_policy(tmp_path):
 
 def test_de_checkpoint_filename_separates_optimizer_seeds():
     model = type("Model", (), {
+        "galaxy_name": "NGC5765b",
+        "use_clump2_floors": True,
         "use_ecc": True,
         "use_quadratic_warp": True,
         "phi_integration": "peak-partition",
@@ -616,6 +618,11 @@ def test_de_checkpoint_filename_separates_optimizer_seeds():
     assert seed44 != seed45
     assert seed44.endswith("_seed44_lshade_nopesce.npz")
     assert seed45.endswith("_seed45_lshade_nopesce.npz")
+    model.clump2_acceleration_only = True
+    assert "_accelfloor_" in de._de_checkpoint_filename(model, 44)
+    model.clump2_acceleration_only = False
+    model.use_clump2_floors = False
+    assert "_singlefloor_" in de._de_checkpoint_filename(model, 44)
 
 
 @pytest.mark.parametrize(
@@ -811,8 +818,11 @@ def test_map_posterior_mean_sigma_integrates_grid_and_writes_outputs(
         de._subset_spot_data(data, [2])
 
 
+@pytest.mark.parametrize("temporary", (False, True))
 def test_iterative_clipping_relaunches_until_mask_stabilises(
-        tmp_path, monkeypatch, capsys):
+        tmp_path, monkeypatch, capsys, temporary):
+    if temporary:
+        monkeypatch.setenv(de.ROOT_OUTPUT_ENV, "results_test/Megamaser")
     monkeypatch.setitem(
         de._MASTER_CFG["io"], "root_output", str(tmp_path / "unpruned"))
     data = {"n_spots": 3, "velocity": np.array([10.0, 20.0, 30.0])}
@@ -825,7 +835,7 @@ def test_iterative_clipping_relaunches_until_mask_stabilises(
         add_ecc=False,
         no_quadratic_warp=False, add_quadratic_warp=True,
         mass_parameterization=None, phi_integration=None,
-        fix_floors_pesce=False)
+        fix_floors_pesce=False, single_error_floor=False)
     tag = de._clip_run_tag(args, 7)
 
     def tagged_run(command, check, env):
@@ -858,10 +868,12 @@ def test_iterative_clipping_relaunches_until_mask_stabilises(
     assert [row["pending_clip"] for row in rows] == ["False"] * 3
     assert {row["stabilised"] for row in rows} == {"True"}
     assert (tmp_path / "data" / "clipped" /
-            "NGC6264_clipped_spots_qw.csv").is_file()
+            "NGC6264_clipped_spots_qw.csv").is_file() == (not temporary)
     assert not (tmp_path / "data" / "clipped" /
                 "NGC6264_clipped_spots.csv").exists()
     output = capsys.readouterr().out
+    if temporary:
+        assert "temporary output mode: not updating" in output
     assert "removed=1/3, retained=2/3, pending=0" in output
     assert ("unpruned spot 2: v=20 km/s, posterior mean max |z|=3.000, "
             "attempt=1") in output
@@ -881,7 +893,7 @@ def test_iterative_clipping_leaves_last_attempt_flags_pending(
         add_ecc=False,
         no_quadratic_warp=False, add_quadratic_warp=False,
         mass_parameterization=None, phi_integration=None,
-        fix_floors_pesce=False)
+        fix_floors_pesce=False, single_error_floor=False)
     tag = de._clip_run_tag(args, 7)
 
     def tagged_run(command, check, env):
@@ -925,7 +937,7 @@ def test_iterative_clipping_resume_skips_completed_attempts(
         clip_max_attempts=3, resume=True, f64=False, no_ecc=False,
         add_ecc=False, no_quadratic_warp=False, add_quadratic_warp=False,
         mass_parameterization=None, phi_integration=None,
-        fix_floors_pesce=False)
+        fix_floors_pesce=False, single_error_floor=False)
     tag = de._clip_run_tag(args, 7)
     root = (tmp_path / "unpruned" / "de_checkpoints" / "NGC6264" /
             "iterative_clip" / tag)
@@ -972,7 +984,8 @@ def test_iterative_clip_namespace_separates_model_variants():
         galaxy="NGC6264", iterative_clip_sigma=2.5, f64=False,
         no_ecc=False, add_ecc=False, no_quadratic_warp=False,
         add_quadratic_warp=False, mass_parameterization=None,
-        phi_integration=None, fix_floors_pesce=False)
+        phi_integration=None, fix_floors_pesce=False,
+        single_error_floor=False)
     linear = de._clip_run_tag(args, 7)
     args.add_quadratic_warp = True
     assert de._clip_run_tag(args, 7) != linear

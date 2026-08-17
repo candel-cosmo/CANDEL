@@ -652,12 +652,40 @@ def _trgbh0_main_datasets():
         "model/priors/mag_lim_TRGB": (
             _trgbh0_edd_mag_lim_uninformative_prior()),
     }
+    # Mode-capture check on the realisation-marginalised likelihood. That
+    # likelihood is a logsumexp over the 80 fields evaluated at fixed
+    # parameters, so the posterior is a superposition of 80 well-separated
+    # modes, one per field. The L-BFGS initialisation (init_maxiter=500 from
+    # a 100-draw prior median) selects one basin and NUTS never leaves it:
+    # the fixed-beta baseline reproduces field 52 (H0=64.56, log10 Z=-1586.0)
+    # although field 66 is 11.9 dex higher (H0=72.28), while the free-beta
+    # row lands on field 66. Repeating both rows under different seeds tests
+    # whether the mode is a property of the model or of the initialisation.
+    mode_check = [
+        {**variant, "inference/seed": seed, "io/run_label": f"seed{seed}"}
+        for variant in (student_t({**base, **sky}),
+                        student_t({**base, **sky,
+                                   "model/priors/beta": free_beta}))
+        for seed in (45, 46, 47, 48)
+    ]
+    single_field_check = [
+        {
+            **student_t({**base, **sky}),
+            "io/field_indices": 66,
+            "inference/seed": seed,
+            "io/run_label": f"seed{seed}",
+        }
+        for seed in range(44, 54)
+    ]
+
     return (
         _trgbh0_edd_selection_datasets(manticore_variants, selections)
         + _trgbh0_edd_selection_datasets(
             [student_t(no_reconstruction), gaussian(no_reconstruction)],
             selections)
         + _trgbh0_distance_only_datasets()
+        + _trgbh0_edd_selection_datasets(mode_check, selections)
+        + _trgbh0_edd_selection_datasets(single_field_check, selections)
     )
 
 
@@ -1595,13 +1623,14 @@ TASK_SPECS = {
             "tab:trgb_h0_variants entry): Manticore COLA PCS baseline with "
             "redshift-likelihood, source-density smoothing, angular "
             "sky-exposure, and coherent-flow (free-beta, Vmono) variants, "
-            "plus a no-reconstruction free-Vext control and the "
-            "redshift-free distance run."),
+            "plus a no-reconstruction free-Vext control, the redshift-free "
+            "distance run, and ten field-66 seed repeats."),
         "config_path": "configs/config_EDD_TRGB.toml",
         "tag": "main",
         "common": {
             **TRGBH0_COMMON,
             "inference/init_maxiter": 500,
+            "inference/init_num_starts": 4,
             "inference/init_median_num_samples": 100,
             "inference/num_warmup": 2000,
             "inference/num_samples": 5000,
@@ -1617,7 +1646,7 @@ TASK_SPECS = {
             **_with_root(f"{TRGBH0_ROOT}/table"),
         },
         "datasets": _trgbh0_main_datasets(),
-        "expected_tasks": 17,
+        "expected_tasks": 35,
     },
     "TRGBH0_single": {
         "description": (
