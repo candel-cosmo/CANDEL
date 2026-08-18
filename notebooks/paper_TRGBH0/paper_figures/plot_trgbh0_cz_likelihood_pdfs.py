@@ -3,7 +3,8 @@
 
 Illustrates why the two inferred sigma_v values are not directly comparable:
 the Student-t (fiducial) has a taller, narrower core but much heavier tails
-than the Gaussian, so the same data prefer a smaller scale under the Student-t.
+than the Gaussian, so the likelihood peaks at a smaller scale under the
+Student-t.
 Both densities are evaluated with the exact candel likelihood kernels
 (``normal_logpdf_var`` / ``student_t_logpdf_var``), not a re-implementation.
 """
@@ -30,12 +31,13 @@ import scienceplots  # noqa: E402,F401
 
 OUTNAME = "trgbh0_cz_likelihood_pdfs.pdf"
 
-# Marginalised fixed-beta redshift-likelihood posteriors (paper Sec. 4.1):
-# Gaussian sigma_v is the residual std; Student-t sigma_v is the *scale*
-# (var = sigma_v^2), so its distribution std is sigma_v*sqrt(nu/(nu-2)).
-GAUSS_SIGMA_V = 124.0   # km/s
-STUDENT_SIGMA_V = 66.0  # km/s (scale)
-STUDENT_NU = 2.58
+# Equal-weight stacked fixed-beta redshift-likelihood posteriors, which is the
+# fiducial footing (paper Sec. 4.3). Gaussian sigma_v is the residual std;
+# Student-t sigma_v is the *scale* (var = sigma_v^2), so its distribution std
+# is sigma_v*sqrt(nu/(nu-2)).
+GAUSS_SIGMA_V = 132.0   # km/s
+STUDENT_SIGMA_V = 67.0  # km/s (scale)
+STUDENT_NU = 2.59
 
 
 def main():

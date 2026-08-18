@@ -33,20 +33,10 @@ TABLE = TRGBH0_TABLE_RESULTS
 SINGLE_FIELDS = RESULTS / "single_fields_smoothed"
 OUTDIR = OUTPUT_DIR
 
-FIXED_BETA_POSTERIOR = (
-    TABLE
-    / "EDD_TRGB_rhoSmoothR4_cz-student_t_MAS-PCS_sel-TRGB_magnitude_"
-      "ManticoreLocalCOLA_main.hdf5"
-)
-FREE_BETA_POSTERIOR = (
-    TABLE
-    / "EDD_TRGB_rhoSmoothR4_cz-student_t_MAS-PCS_sel-TRGB_magnitude_"
-      "ManticoreLocalCOLA_beta_free_main.hdf5"
-)
-# Fiducial: free-beta Student-t, 48-pixel sky exposure.
+# Fiducial: beta=1 Student-t, 48-pixel sky exposure.
 SINGLE_PATTERN = (
     "EDD_TRGB_rhoSmoothR4_cz-student_t_MAS-PCS_sel-TRGB_magnitude_"
-    "bmin10_skyhp_nside2_k192_ManticoreLocalCOLA_beta_free_field*_"
+    "bmin10_skyhp_nside2_k192_ManticoreLocalCOLA_field*_"
     "single_smoothed.hdf5"
 )
 FIELD_RE = re.compile(r"_field(\d+)_")
@@ -60,17 +50,12 @@ LN10 = np.log(10.0)
 SIGMA_V_LABEL = r"$\sigma_v~[\mathrm{km}\,\mathrm{s}^{-1}]$"
 LNZ_CMAP = "Blues"
 SIGMA_V_CMAP = "magma"
-MARGINAL_NAME = "trgbh0_student_t_beta_marginal_h0.pdf"
-STACKED_NAME = "trgbh0_student_t_beta_free_h0_posteriors_by_lnz.pdf"
-H0_LNZ_NAME = "trgbh0_student_t_beta_free_h0_vs_lnz.pdf"
-SUMMARY_NAME = "trgbh0_student_t_beta_free_single_fields.csv"
+STACKED_NAME = "trgbh0_baseline_h0_posteriors_by_lnz.pdf"
+H0_LNZ_NAME = "trgbh0_baseline_h0_vs_lnz.pdf"
+SUMMARY_NAME = "trgbh0_baseline_single_fields.csv"
 REFERENCE_BANDS = [
     ("Planck", 67.4, 0.5, TRGBH0_COLOURS[2]),
     ("SH0ES", 73.04, 1.04, TRGBH0_COLOURS[3]),
-]
-POSTERIOR_SPECS = [
-    (r"Free $\beta$", FREE_BETA_POSTERIOR, TRGBH0_COLOURS[0], "-"),
-    (r"$\beta = 1$", FIXED_BETA_POSTERIOR, TRGBH0_COLOURS[1], "--"),
 ]
 
 
@@ -141,20 +126,6 @@ def read_single_field(path):
     return h0, sigma_v, lnz, err_lnz
 
 
-def load_marginal_posteriors():
-    rows = []
-    for label, path, colour, linestyle in POSTERIOR_SPECS:
-        if not path.exists():
-            raise FileNotFoundError(f"Missing posterior: {path}")
-        rows.append({
-            "label": label,
-            "samples": finite_h0(path),
-            "colour": colour,
-            "linestyle": linestyle,
-        })
-    return rows
-
-
 def load_single_fields():
     paths = sorted(SINGLE_FIELDS.glob(SINGLE_PATTERN), key=field_index)
     if not paths:
@@ -205,47 +176,6 @@ def truncated_cmap(name, lower=0.2, upper=0.95):
     colours = base(np.linspace(lower, upper, 256))
     return LinearSegmentedColormap.from_list(
         f"{name}_{lower:.2f}_{upper:.2f}", colours)
-
-
-def plot_marginal(rows, out_pdf):
-    x_grid = density_grid(
-        [row["samples"] for row in rows], qlo=0.1, qhi=99.9)
-
-    with paper_style():
-        fig, ax = plt.subplots(figsize=(3.45, 2.45))
-        for label, mean, sigma, ref_colour in REFERENCE_BANDS:
-            ax.axvspan(
-                mean - sigma,
-                mean + sigma,
-                color=ref_colour,
-                alpha=0.75,
-                lw=0,
-                label=label,
-                zorder=0,
-            )
-        for row in rows:
-            density = kde_on_grid(row["samples"], x_grid)
-            ax.plot(
-                x_grid,
-                density,
-                color=row["colour"],
-                ls=row["linestyle"],
-                lw=1.35,
-                label=row["label"],
-                zorder=3,
-            )
-        ax.set_xlabel(H0_LABEL)
-        ax.set_ylabel("Posterior density")
-        ax.set_xlim(x_grid[0], x_grid[-1])
-        ax.set_ylim(bottom=0)
-        ax.legend(
-            loc="upper right",
-            frameon=False,
-            fontsize=6.4,
-            handlelength=1.4,
-        )
-        fig.tight_layout()
-        return save_pdf_png(fig, out_pdf)
 
 
 def plot_stacked(rows, out_pdf):
@@ -407,14 +337,6 @@ def main():
     args = parse_args()
     field_rows = load_single_fields()
 
-    marginal_pdf = marginal_png = None
-    try:
-        marginal_rows = load_marginal_posteriors()
-        marginal_pdf, marginal_png = plot_marginal(
-            marginal_rows, args.output_dir / MARGINAL_NAME)
-    except FileNotFoundError as exc:
-        print(f"Skipping marginal posterior figure: {exc}")
-
     stacked_pdf, stacked_png = plot_stacked(
         field_rows, args.output_dir / STACKED_NAME)
     h0_lnz_pdf, h0_lnz_png = plot_h0_vs_lnz(
@@ -424,8 +346,7 @@ def main():
     copied = copy_to_paper([stacked_pdf, h0_lnz_pdf], args.paper_figdir)
 
     for path in (
-        marginal_pdf, marginal_png, stacked_pdf, stacked_png,
-        h0_lnz_pdf, h0_lnz_png, summary_csv,
+        stacked_pdf, stacked_png, h0_lnz_pdf, h0_lnz_png, summary_csv,
     ):
         if path is not None:
             print(f"Wrote {path}")

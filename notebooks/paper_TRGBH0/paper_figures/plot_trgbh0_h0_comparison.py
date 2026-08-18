@@ -1,10 +1,8 @@
 #!/usr/bin/env python
 """Plot TRGBH0 H0 posteriors against SH0ES and Planck bands."""
-import glob
 import sys
 from pathlib import Path
 
-import h5py
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
@@ -17,15 +15,16 @@ for path in (SCRIPT_DIR, PLOT_DIR):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from trgbh0_plot_style import (FIGURE_DPI, OUTPUT_DIR, TRGBH0_COLOURS,  # noqa: E402
-                               TRGBH0_TABLE_RESULTS, paper_style,
+from stack_fields import (evidence_weights, load_fields,  # noqa: E402
+                          stacked_samples, weighted_summary)
+from trgbh0_plot_style import (FIGURE_DPI, OUTPUT_DIR,  # noqa: E402
+                               TRGBH0_COLOURS, TRGBH0_RESULTS, paper_style,
                                save_figure)
 
 
 matplotlib.use("Agg")
 import scienceplots  # noqa: E402,F401
 
-RESULTS = TRGBH0_TABLE_RESULTS
 OUTDIR = OUTPUT_DIR
 OUTNAME = "trgbh0_h0_comparison.pdf"
 
@@ -36,16 +35,12 @@ H0_COLOURS = {
     "shoes": TRGBH0_COLOURS[3],
 }
 
-# Fiducial model: Student-t, beta free, 48-pixel sky exposure.
-# Realisation-marginalised chain (table/) vs equal-weight field-stacked
-# (the 80 single-field chains pooled with equal weight).
-FIDUCIAL_MARG = (
-    RESULTS
-    / "EDD_TRGB_rhoSmoothR4_cz-student_t_MAS-PCS_sel-TRGB_magnitude_bmin10_skyhp_nside2_k192_ManticoreLocalCOLA_beta_free_main.hdf5"  # noqa: E501
-)
-FIDUCIAL_FS_GLOB = str(
-    TRGBH0_TABLE_RESULTS.parent / "single_fields_smoothed"
-    / "EDD_TRGB_rhoSmoothR4_cz-student_t_MAS-PCS_sel-TRGB_magnitude_bmin10_skyhp_nside2_k192_ManticoreLocalCOLA_beta_free_field*_single_smoothed.hdf5"  # noqa: E501
+# Fiducial model: Student-t, beta=1, 48-pixel sky exposure. Both curves come
+# from the same 80 single-field chains, stacked by evidence and with equal
+# weight; there is no on-the-fly marginalised chain any more.
+FIDUCIAL_GLOB = (
+    TRGBH0_RESULTS / "single_fields_smoothed"
+    / "EDD_TRGB_rhoSmoothR4_cz-student_t_MAS-PCS_sel-TRGB_magnitude_bmin10_skyhp_nside2_k192_ManticoreLocalCOLA_field*_single_smoothed.hdf5"  # noqa: E501
 )
 
 
@@ -55,28 +50,24 @@ REFERENCE_BANDS = [
 ]
 
 
-def read_h0(path):
-    with h5py.File(path, "r") as handle:
-        return np.asarray(handle["samples/H0"]).reshape(-1)
-
-
-def read_h0_stacked(glob_pattern):
-    files = sorted(glob.glob(glob_pattern))
-    if not files:
-        raise FileNotFoundError(f"No single-field chains match {glob_pattern}")
-    return np.concatenate([read_h0(path) for path in files]), len(files)
-
-
-def kde_line(ax, samples, label, color, fill=False, ls="-", bw=1.0):
+def kde_line(ax, samples, weights, label, color, fill=False, ls="-", bw=1.0):
+    """Weighted KDE, so the evidence stack needs no resampling."""
     samples = np.asarray(samples).reshape(-1)
-    x = np.linspace(np.percentile(samples, 0.1), np.percentile(samples, 99.9),
-                    500)
-    kde = gaussian_kde(samples)
+    lo, hi = weighted_quantiles(samples, weights, (0.001, 0.999))
+    x = np.linspace(lo, hi, 500)
+    kde = gaussian_kde(samples, weights=weights)
     kde.set_bandwidth(kde.factor * bw)
     y = kde(x)
     ax.plot(x, y, color=color, ls=ls, label=label)
     if fill:
         ax.fill_between(x, 0, y, color=color, alpha=0.20)
+
+
+def weighted_quantiles(values, weights, quantiles):
+    order = np.argsort(values)
+    x, w = values[order], np.asarray(weights)[order]
+    cdf = (np.cumsum(w) - 0.5 * w) / w.sum()
+    return np.interp(quantiles, cdf, x)
 
 
 def main():
@@ -94,16 +85,25 @@ def main():
                 zorder=0,
             )
 
-        marginalised = read_h0(FIDUCIAL_MARG)
-        stacked, n_fields = read_h0_stacked(FIDUCIAL_FS_GLOB)
+        index, samples, lnz = load_fields(FIDUCIAL_GLOB)
+        field_weights, n_eff, _ = evidence_weights(lnz)
+        n_fields = index.size
+        evidence = stacked_samples(samples["H0"], field_weights)
+        equal = stacked_samples(samples["H0"])
+        for name, stack in (("evidence", evidence), ("equal", equal)):
+            median, std = weighted_summary(*stack)
+            print(f"  {name}-stacked H0 = {median:.2f} +- {std:.2f}")
+        print(f"  N_eff = {n_eff:.2f} of {n_fields}")
+
         curves = [
-            ("Realisation-marginalised", marginalised,
+            (rf"Evidence-stacked ($N_{{\rm eff}}={n_eff:.2f}$)", evidence,
              H0_COLOURS["student_t"], "-", True),
-            (rf"Field-stacked (${n_fields}$ fields, equal weight)", stacked,
+            (rf"Equal-weight stacked (${n_fields}$ fields)", equal,
              H0_COLOURS["density_sigv"], "--", False),
         ]
-        for label, samples, color, ls, fill in curves:
-            kde_line(ax, samples, label, color, fill=fill, ls=ls, bw=1.5)
+        for label, (values, weights), color, ls, fill in curves:
+            kde_line(ax, values, weights, label, color, fill=fill, ls=ls,
+                     bw=1.5)
 
         ax.set_xlabel(
             r"$H_0 ~ [\mathrm{km}\,\mathrm{s}^{-1}\,\mathrm{Mpc}^{-1}]$")
