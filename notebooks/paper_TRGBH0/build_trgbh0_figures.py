@@ -32,9 +32,9 @@ TARGET_OUTPUTS = {
     "student_t_beta": [
         (
             "trgbh0_student_t_beta/"
-            "trgbh0_student_t_beta_free_h0_posteriors_by_lnz.pdf"
+            "trgbh0_baseline_h0_posteriors_by_lnz.pdf"
         ),
-        "trgbh0_student_t_beta/trgbh0_student_t_beta_free_h0_vs_lnz.pdf",
+        "trgbh0_student_t_beta/trgbh0_baseline_h0_vs_lnz.pdf",
     ],
 }
 
