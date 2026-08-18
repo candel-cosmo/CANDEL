@@ -5,6 +5,7 @@ from candel.field import (field_allows_raw_product_reads, field_metadata,
                           field_requires_cached_products,
                           supported_field_names)
 from candel.pvdata.field_products import los_field_cache_path
+from scripts.megamaser.joint_H0_helpers import _toy_vlos_cache_path
 
 
 def test_raw_reads_are_allowed_for_cheap_fields():
@@ -86,6 +87,16 @@ def test_los_field_cache_path_uses_field_cache_dir(tmp_path):
     assert "v1" not in path.name
     assert "field-0" in path.name
     assert path.suffix == ".hdf5"
+
+
+def test_maser_vlos_cache_path_uses_field_cache_dir(tmp_path):
+    config = {"io": {"field_cache_dir": str(tmp_path)}}
+    payload = {"reconstruction": "ManticoreLocalCOLA"}
+
+    path = Path(_toy_vlos_cache_path(payload, config))
+
+    assert path.parent == tmp_path / "toy_maser_vlos" / "ManticoreLocalCOLA"
+    assert path.suffix == ".npz"
 
 
 def test_los_field_cache_path_separates_density_and_velocity_smoothing(

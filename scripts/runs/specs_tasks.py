@@ -588,9 +588,9 @@ def _trgbh0_main_datasets():
     source-density smoothing, a Student-t redshift likelihood, the 48-pixel
     angular sky-exposure term, and the velocity amplitude fixed at beta=1
     (enforced for Manticore by the generator). Variants change one axis off
-    this baseline: redshift likelihood, smoothing scale, sky exposure,
-    velocity amplitude, and the coherent-flow monopole; a no-reconstruction
-    free-Vext control and the redshift-free distance run complete the set.
+    this baseline: redshift likelihood, smoothing scale, sky exposure, and
+    the coherent-flow monopole; a no-reconstruction free-Vext control and the
+    redshift-free distance run complete the set.
     """
     selections = ("TRGB_magnitude",)
     base = {
@@ -609,7 +609,6 @@ def _trgbh0_main_datasets():
     sky_12pix = _trgbh0_sky_exposure(
         nside=TRGBH0_SKY_EXPOSURE_NSIDE_12PIX,
         kappa=TRGBH0_SKY_EXPOSURE_KAPPA_12PIX)
-    free_beta = {"dist": "uniform", "low": 0.0, "high": 2.0}
 
     def student_t(cfg):
         return {
@@ -638,9 +637,6 @@ def _trgbh0_main_datasets():
         # Angular sky exposure at the 12-pixel (Nside=1) resolution.
         student_t({**base, **sky_12pix}),
         gaussian({**base, **sky_12pix}),
-        # Coherent-flow sector: free velocity amplitude beta.
-        student_t({**base, **sky, "model/priors/beta": free_beta}),
-        gaussian({**base, **sky, "model/priors/beta": free_beta}),
         # Coherent-flow sector: constant velocity monopole.
         student_t({**base, **sky, "model/which_Vext_monopole": "constant"}),
         gaussian({**base, **sky, "model/which_Vext_monopole": "constant"}),
@@ -652,22 +648,6 @@ def _trgbh0_main_datasets():
         "model/priors/mag_lim_TRGB": (
             _trgbh0_edd_mag_lim_uninformative_prior()),
     }
-    # Mode-capture check on the realisation-marginalised likelihood. That
-    # likelihood is a logsumexp over the 80 fields evaluated at fixed
-    # parameters, so the posterior is a superposition of 80 well-separated
-    # modes, one per field. The L-BFGS initialisation (init_maxiter=500 from
-    # a 100-draw prior median) selects one basin and NUTS never leaves it:
-    # the fixed-beta baseline reproduces field 52 (H0=64.56, log10 Z=-1586.0)
-    # although field 66 is 11.9 dex higher (H0=72.28), while the free-beta
-    # row lands on field 66. Repeating both rows under different seeds tests
-    # whether the mode is a property of the model or of the initialisation.
-    mode_check = [
-        {**variant, "inference/seed": seed, "io/run_label": f"seed{seed}"}
-        for variant in (student_t({**base, **sky}),
-                        student_t({**base, **sky,
-                                   "model/priors/beta": free_beta}))
-        for seed in (45, 46, 47, 48)
-    ]
     single_field_check = [
         {
             **student_t({**base, **sky}),
@@ -684,7 +664,6 @@ def _trgbh0_main_datasets():
             [student_t(no_reconstruction), gaussian(no_reconstruction)],
             selections)
         + _trgbh0_distance_only_datasets()
-        + _trgbh0_edd_selection_datasets(mode_check, selections)
         + _trgbh0_edd_selection_datasets(single_field_check, selections)
     )
 
@@ -749,20 +728,6 @@ def _trgbh0_manticore_cola_pcs_field_datasets():
     return _trgbh0_manticore_cola_mas_field_datasets(("PCS",))
 
 
-def _trgbh0_manticore_cola_pcs_freebeta_smoothed_field_datasets():
-    datasets = _trgbh0_manticore_cola_pcs_field_datasets()
-    for dataset in datasets:
-        dataset["model/cz_likelihood"] = "student_t"
-        dataset["model/priors/nu_cz"] = _nu_cz_student_t_prior()
-        dataset["model/priors/beta"] = {
-            "dist": "uniform",
-            "low": 0.0,
-            "high": 2.0,
-        }
-        dataset["model/field_3d_smoothing_scale"] = 4.0
-    return datasets
-
-
 def _trgbh0_manticore_cola_pcs_monopole_smoothed_field_datasets():
     datasets = _trgbh0_manticore_cola_pcs_field_datasets()
     for dataset in datasets:
@@ -799,18 +764,6 @@ def _trgbh0_manticore_cola_pcs_student_t_smoothed_nosky_field_datasets():
     for dataset in datasets:
         dataset["model/cz_likelihood"] = "student_t"
         dataset["model/priors/nu_cz"] = _nu_cz_student_t_prior()
-    return datasets
-
-
-def _trgbh0_manticore_cola_pcs_freebeta_gaussian_smoothed_field_datasets():
-    datasets = _trgbh0_manticore_cola_pcs_field_datasets()  # gaussian base
-    for dataset in datasets:
-        dataset["model/priors/beta"] = {
-            "dist": "uniform",
-            "low": 0.0,
-            "high": 2.0,
-        }
-        dataset["model/field_3d_smoothing_scale"] = 4.0
     return datasets
 
 
@@ -1622,8 +1575,8 @@ TASK_SPECS = {
             "TRGB H0 realisation-marginalised grid (one row per "
             "tab:trgb_h0_variants entry): Manticore COLA PCS baseline with "
             "redshift-likelihood, source-density smoothing, angular "
-            "sky-exposure, and coherent-flow (free-beta, Vmono) variants, "
-            "plus a no-reconstruction free-Vext control, the redshift-free "
+            "sky-exposure, and coherent-flow (Vmono) variants, plus a "
+            "no-reconstruction free-Vext control, the redshift-free "
             "distance run, and ten field-66 seed repeats."),
         "config_path": "configs/config_EDD_TRGB.toml",
         "tag": "main",
@@ -1646,7 +1599,7 @@ TASK_SPECS = {
             **_with_root(f"{TRGBH0_ROOT}/table"),
         },
         "datasets": _trgbh0_main_datasets(),
-        "expected_tasks": 35,
+        "expected_tasks": 25,
     },
     "TRGBH0_single": {
         "description": (
@@ -1706,11 +1659,9 @@ TASK_SPECS = {
             + _pcs_mono_student_t_smoothed()
             + _trgbh0_manticore_cola_pcs_smoothed_nosky_field_datasets()
             + _trgbh0_manticore_cola_pcs_student_t_smoothed_nosky_field_datasets()  # noqa: E501
-            + _trgbh0_manticore_cola_pcs_freebeta_smoothed_field_datasets()  # noqa: E501
-            + _trgbh0_manticore_cola_pcs_freebeta_gaussian_smoothed_field_datasets()  # noqa: E501
             + _pcs_student_t_smoothed_12pix()
         ),
-        "expected_tasks": 960,
+        "expected_tasks": 800,
     },
     "S8_production": {
         "description": (

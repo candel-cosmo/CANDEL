@@ -286,6 +286,44 @@ def test_ngc5765b_acceleration_only_clump2_floor(tmp_path):
     assert float(phys_args[20]) == pytest.approx(0.4**2)
 
 
+def test_ngc5765b_clump2_priors_can_be_overridden(tmp_path):
+    cfg = _config()
+    apply_dataset(cfg, "original_published")
+    path = tmp_path / "config.toml"
+    with open(path, "wb") as f:
+        tomli_w.dump(cfg, f)
+
+    data = _load("original_published", "NGC5765b")
+    gcfg = cfg["model"]["galaxies"]["NGC5765b"]
+    data["D_lo"], data["D_hi"] = gcfg["D_lo"], gcfg["D_hi"]
+    model = MaserDiskModel(path, data)
+
+    for axis in ("x", "y"):
+        target = f"sigma_{axis}_floor_clump2"
+        source = f"sigma_{axis}_floor"
+        spec = gcfg["priors"][target]
+        assert model.prior_dist_name[target] == spec["dist"]
+        assert model.priors[target] is not model.priors[source]
+    assert model.priors["sigma_a_floor_clump2"] is model.priors[
+        "sigma_a_floor"]
+
+
+def test_ngc5765b_fiducial_uses_single_error_floors(tmp_path):
+    cfg = _config()
+    apply_dataset(cfg, "fiducial")
+    path = tmp_path / "config.toml"
+    with open(path, "wb") as f:
+        tomli_w.dump(cfg, f)
+
+    data = _load("fiducial", "NGC5765b")
+    gcfg = cfg["model"]["galaxies"]["NGC5765b"]
+    data["D_lo"], data["D_hi"] = gcfg["D_lo"], gcfg["D_hi"]
+    model = MaserDiskModel(path, data)
+
+    assert model.clump2_floor_names == ()
+    assert model.error_floor_policy == "sampled_ngc5765b_single_floor"
+
+
 def test_unpruned_matches_documented_dataset_policy():
     if not os.path.isdir(maser_data_root("unpruned")):
         pytest.skip("external unpruned megamaser dataset is not provisioned")
@@ -449,6 +487,17 @@ def test_apply_dataset_namespaces_root_output_idempotently():
     assert root.endswith(os.path.join("Megamaser", "fiducial"))
     apply_dataset(cfg, "fiducial")
     assert cfg["io"]["root_output"] == root
+
+
+@pytest.mark.parametrize(
+    ("dataset", "use_clump2"),
+    (("fiducial", False), ("original_published", True),
+     ("unpruned", True), ("clipped", True)))
+def test_apply_dataset_selects_ngc5765b_clump2_floors(
+        dataset, use_clump2):
+    cfg = _config()
+    apply_dataset(cfg, dataset)
+    assert cfg["model"]["use_ngc5765b_clump2_floors"] is use_clump2
 
 
 def test_apply_dataset_honours_temporary_root(monkeypatch):
