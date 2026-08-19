@@ -97,9 +97,9 @@ def main():
 
         curves = [
             (rf"Evidence-stacked ($N_{{\rm eff}}={n_eff:.2f}$)", evidence,
-             H0_COLOURS["student_t"], "-", True),
+             H0_COLOURS["student_t"], "--", False),
             (rf"Equal-weight stacked (${n_fields}$ fields)", equal,
-             H0_COLOURS["density_sigv"], "--", False),
+             H0_COLOURS["density_sigv"], "-", True),
         ]
         for label, (values, weights), color, ls, fill in curves:
             kde_line(ax, values, weights, label, color, fill=fill, ls=ls,

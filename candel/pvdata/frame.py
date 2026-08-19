@@ -31,7 +31,8 @@ from .angular_scatter import (angular_position_scatter_from_config,
                               scatter_data_coordinates)
 from .catalogues import _CATALOGUE_LOADERS, load_CF4_data, load_CF4_mock
 from .field_cache import (_field_cache_dir_from_config,
-                          _field_cache_enabled_from_config)
+                          _field_cache_enabled_from_config,
+                          _field_cache_project_from_config)
 from .field_products import (field_smoothing_scale_from_config,
                              resolve_or_build_los_data_path,
                              velocity_field_smoothing_scale_from_config)
@@ -100,9 +101,14 @@ def load_PV_dataframes(config_path):
             recon_kwargs = recon_main.get(los_reconstruction, None)
         field_cache_enabled = _field_cache_enabled_from_config(
             config, config_pv_model)
+        field_cache_active = (
+            field_cache_enabled and los_reconstruction is not None)
         field_cache_dir = (
             _field_cache_dir_from_config(config, config_pv_model)
-            if field_cache_enabled else None)
+            if field_cache_active else None)
+        field_cache_project = (
+            _field_cache_project_from_config(config)
+            if field_cache_active else None)
         if los_reconstruction is not None:
             if field_cache_enabled:
                 fprint(f"field cache: enabled at `{field_cache_dir}`.")
@@ -115,6 +121,7 @@ def load_PV_dataframes(config_path):
             reconstruction_kwargs=recon_kwargs,
             reconstruction_name=los_reconstruction,
             field_cache_dir=field_cache_dir,
+            field_cache_project=field_cache_project,
             field_cache_enabled=field_cache_enabled,
             field_smoothing_scale=field_smoothing_scale)
         dfs.append(df)
@@ -261,7 +268,8 @@ class PVDataFrame:
     @classmethod
     def from_config_dict(cls, config, name, try_pop_los, config_pv_model,
                          reconstruction_kwargs=None, reconstruction_name=None,
-                         field_cache_dir=None, field_cache_enabled=True,
+                         field_cache_dir=None, field_cache_project=None,
+                         field_cache_enabled=True,
                          field_smoothing_scale=None):
         root = config.pop("root")
         nsamples_subsample = config.pop("nsamples_subsample", None)
@@ -429,6 +437,7 @@ class PVDataFrame:
                 subcube_radius=radius,
                 pad_subcube_boundary=(geometry == "sphere"),
                 cache_dir=field_cache_dir,
+                cache_project=field_cache_project,
                 cache_enabled=field_cache_enabled,
                 geometry=geometry,
                 radius=radius,

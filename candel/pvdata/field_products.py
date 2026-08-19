@@ -28,7 +28,8 @@ from ..util import fprint, get_nested
 from .angular_scatter import (angular_position_scatter_from_config,
                               scatter_data_coordinates)
 from .field_cache import (_field_cache_dir_from_config,
-                          _field_cache_enabled_from_config, _jsonable,
+                          _field_cache_enabled_from_config,
+                          _field_cache_project_from_config, _jsonable,
                           _los_field_cache_path)
 
 _TEMP_LOS_DIRS = set()
@@ -413,6 +414,7 @@ def los_field_cache_path(config, catalogue, reconstruction, los_template,
             config, catalogue, reconstruction)
     payload = {
         "kind": "los",
+        "project": _field_cache_project_from_config(config),
         "catalogue": catalogue,
         "reconstruction": reconstruction,
         "los_template": resolve_los_data_path(

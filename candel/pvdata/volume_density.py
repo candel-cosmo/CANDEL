@@ -36,6 +36,7 @@ from .field_cache import (_VOLUME_FIELD_CACHE_PREFIX, _ArrayShapeOnly,
                           _field_cache_dir_from_config,
                           _field_cache_enabled_from_config,
                           _field_cache_mpi_comm, _field_cache_path,
+                          _field_cache_project_from_config,
                           _field_source_metadata, _jsonable, _read_field_cache,
                           _read_field_cache_mpi_part,
                           _read_h0_volume_cache_superset,
@@ -844,7 +845,8 @@ def _cached_h0_volume_result(
 def _load_volume_data_for_H0_mpi(
         comm, field_name, field_kwargs, field_indices, galaxy_bias, Om0,
         subcube_radius, voxel_subsample_fraction, voxel_subsample_seed,
-        load_velocity, geometry, density_cache_path, velocity_cache_path,
+        load_velocity, geometry, cache_dir, cache_project,
+        density_cache_path, velocity_cache_path,
         source_meta, mode, density_required, velocity_required,
         supersample_factor=1, supersample_radius=0.0,
         field_smoothing_scale=None, velocity_field_smoothing_scale=None,
@@ -1052,14 +1054,15 @@ def _load_volume_data_for_H0_mpi(
             "volume_density_batch_size": 1,
         }
 
-    cache_root = os.path.dirname(os.path.dirname(density_cache_path[0]))
     expected_supersampling = _h0_volume_supersampling_cache_arrays(
         supersample_factor, supersample_radius)
     density_cached = _read_h0_volume_cache_superset(
-        cache_root, {
+        cache_dir, {
             "kind": "volume_field_data",
+            "project": cache_project,
             "product": "h0_volume",
             "loader_name": field_name,
+            "loader_kwargs": _jsonable(field_kwargs),
             "field_indices": _jsonable(np.asarray(field_indices)),
             "subcube_radius": subcube_radius,
             "max_radius": max_radius,
@@ -1074,10 +1077,12 @@ def _load_volume_data_for_H0_mpi(
     velocity_cached = None
     if load_velocity:
         velocity_cached = _read_h0_volume_cache_superset(
-            cache_root, {
+            cache_dir, {
                 "kind": "volume_field_data",
+                "project": cache_project,
                 "product": "h0_volume",
                 "loader_name": field_name,
+                "loader_kwargs": _jsonable(field_kwargs),
                 "field_indices": _jsonable(np.asarray(field_indices)),
                 "subcube_radius": subcube_radius,
                 "max_radius": max_radius,
@@ -1106,7 +1111,8 @@ def _load_volume_data_for_H0(
         field_name, field_kwargs, field_indices, galaxy_bias, Om0,
         subcube_radius=None, voxel_subsample_fraction=1.0,
         voxel_subsample_seed=42, load_velocity=False, geometry="sphere",
-        cache_dir=None, cache_enabled=True, return_cache_fields=False,
+        cache_dir=None, cache_project=None, cache_enabled=True,
+        return_cache_fields=False,
         supersample_factor=1, supersample_radius=0.0,
         supersample_target_dx=None, field_smoothing_scale=None,
         velocity_field_smoothing_scale=None, store_rhat=False):
@@ -1198,8 +1204,10 @@ def _load_volume_data_for_H0(
             supersample_radius)
         base_cache_payload = {
             "kind": "volume_field_data",
+            "project": cache_project,
             "product": "h0_volume",
             "loader_name": field_name,
+            "loader_kwargs": _jsonable(field_kwargs),
             "field_indices": _jsonable(np.asarray(field_indices)),
             "subcube_radius": subcube_radius,
             "max_radius": expected_max_r_3d,
@@ -1292,7 +1300,8 @@ def _load_volume_data_for_H0(
                 mpi_comm, field_name, field_kwargs, field_indices,
                 galaxy_bias, Om0, subcube_radius,
                 voxel_subsample_fraction, voxel_subsample_seed,
-                load_velocity, geometry, density_cache_paths,
+                load_velocity, geometry, cache_dir, cache_project,
+                density_cache_paths,
                 velocity_cache_paths,
                 source_meta, mode, density_required, velocity_required,
                 supersample_factor, supersample_radius,
@@ -1648,6 +1657,9 @@ def _load_h0_volume_data_from_config(config, los_data_path, reconstruction,
     cache_dir = (
         _field_cache_dir_from_config(config)
         if cache_enabled else None)
+    cache_project = (
+        _field_cache_project_from_config(config)
+        if cache_enabled else None)
 
     if field_indices is None:
         paths = los_data_path if isinstance(
@@ -1699,6 +1711,7 @@ def _load_h0_volume_data_from_config(config, los_data_path, reconstruction,
         load_velocity=load_vel,
         geometry=geometry,
         cache_dir=cache_dir,
+        cache_project=cache_project,
         cache_enabled=cache_enabled,
         store_rhat=store_rhat,
         supersample_factor=supersample_factor,
@@ -1711,6 +1724,7 @@ def _load_h0_volume_data_from_config(config, los_data_path, reconstruction,
 def _load_volume_density_3d(loader_name, loader_kwargs, downsample=1,
                             nsim=None, subcube_radius=None,
                             pad_subcube_boundary=False, cache_dir=None,
+                            cache_project=None,
                             cache_enabled=True,
                             return_coordinate_frame=False,
                             field_smoothing_scale=None):
@@ -1744,6 +1758,7 @@ def _load_volume_density_3d(loader_name, loader_kwargs, downsample=1,
     if cache_enabled:
         cache_payload = {
             "kind": "volume_field_data",
+            "project": cache_project,
             "product": "pv_density_cube",
             "loader_name": loader_name,
             "loader_kwargs": _jsonable(loader_kwargs),
@@ -1996,7 +2011,8 @@ def _load_one_pv_volume_density_field(
 
 def _load_volume_density_3d_fields_mpi(
         comm, loader_name, loader_kwargs, field_indices, downsample,
-        subcube_radius, pad_subcube_boundary, cache_path, geometry, radius,
+        subcube_radius, pad_subcube_boundary, cache_dir, cache_project,
+        cache_path, geometry, radius,
         store_rhat_3d, voxel_subsample_fraction, voxel_subsample_seed,
         required, field_smoothing_scale=None, max_radius=None):
     """Build one grouped PV volume-density cache split over MPI ranks."""
@@ -2136,10 +2152,10 @@ def _load_volume_density_3d_fields_mpi(
     if os.environ.get("CANDEL_FIELD_CACHE_MPI", "0") == "1":
         return _pv_mpi_placeholder(cache_meta)
 
-    cache_root = os.path.dirname(os.path.dirname(cache_path[0]))
     cached = _read_pv_volume_cache_superset(
-        cache_root, {
+        cache_dir, {
             "kind": "volume_field_data",
+            "project": cache_project,
             "product": "pv_volume_density",
             "loader_name": loader_name,
             "loader_kwargs": _jsonable(loader_kwargs),
@@ -2162,7 +2178,7 @@ def _load_volume_density_3d_fields_mpi(
 def _load_volume_density_3d_fields(
         loader_name, loader_kwargs, field_indices, downsample=1,
         subcube_radius=None, pad_subcube_boundary=False, cache_dir=None,
-        cache_enabled=True, geometry="cube", radius=None,
+        cache_project=None, cache_enabled=True, geometry="cube", radius=None,
         store_rhat_3d=False, voxel_subsample_fraction=1.0,
         voxel_subsample_seed=42, field_smoothing_scale=None):
     """Load and cache one grouped PV 3D density product.
@@ -2200,6 +2216,7 @@ def _load_volume_density_3d_fields(
 
         cache_payload = {
             "kind": "volume_field_data",
+            "project": cache_project,
             "product": "pv_volume_density",
             "loader_name": loader_name,
             "loader_kwargs": _jsonable(loader_kwargs),
@@ -2238,8 +2255,9 @@ def _load_volume_density_3d_fields(
         if mpi_comm is not None and len(field_indices) > 1:
             return _load_volume_density_3d_fields_mpi(
                 mpi_comm, loader_name, loader_kwargs, field_indices,
-                downsample, subcube_radius, pad_subcube_boundary, cache_paths,
-                geometry, radius, store_rhat_3d, voxel_subsample_fraction,
+                downsample, subcube_radius, pad_subcube_boundary, cache_dir,
+                cache_project, cache_paths, geometry, radius, store_rhat_3d,
+                voxel_subsample_fraction,
                 voxel_subsample_seed, required,
                 field_smoothing_scale=field_smoothing_scale,
                 max_radius=expected_max_r_3d)

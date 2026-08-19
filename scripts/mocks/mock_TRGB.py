@@ -30,6 +30,8 @@ import candel
 from candel.mock import gen_TRGB_mock
 from candel.mock.TRGB_mock import DEFAULT_ANCHORS, DEFAULT_TRUE_PARAMS
 from candel.model.pv_utils import GALAXY_BIAS_MODELS
+from candel.pvdata.field_cache import (
+    _field_cache_dir_from_config, _field_cache_project_from_config)
 from candel.util import results_path
 
 matplotlib.use("Agg")
@@ -335,6 +337,11 @@ def _load_density_3d_data(config, field_name, field_index=0):
     b_min = config["model"].get("selection_integral_b_min")
     supersample_factor, supersample_radius, supersample_target_dx = (
         _h0_volume_supersampling_from_config(config))
+    cache_enabled = config["model"].get("density_3d_cache_enabled", True)
+    cache_dir = (_field_cache_dir_from_config(config)
+                 if cache_enabled else None)
+    cache_project = (_field_cache_project_from_config(config)
+                     if cache_enabled else None)
     key = (
         field_name,
         int(field_index),
@@ -350,6 +357,7 @@ def _load_density_3d_data(config, field_name, field_index=0):
         supersample_factor,
         supersample_radius,
         supersample_target_dx,
+        cache_project,
         load_velocity,
     )
     if key not in _DENSITY_3D_CACHE:
@@ -371,9 +379,9 @@ def _load_density_3d_data(config, field_name, field_index=0):
             supersample_radius=supersample_radius,
             supersample_target_dx=supersample_target_dx,
             store_rhat=b_min is not None,
-            cache_dir=config.get("io", {}).get("field_cache_dir"),
-            cache_enabled=config["model"].get(
-                "density_3d_cache_enabled", True))
+            cache_dir=cache_dir,
+            cache_project=cache_project,
+            cache_enabled=cache_enabled)
     return _DENSITY_3D_CACHE[key]
 
 

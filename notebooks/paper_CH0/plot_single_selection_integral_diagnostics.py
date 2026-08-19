@@ -17,6 +17,8 @@ os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 
 import candel  # noqa: E402
 from candel.pvdata.catalogues import load_SH0ES_separated  # noqa: E402
+from candel.pvdata.field_cache import (  # noqa: E402
+    _field_cache_dir_from_config, _field_cache_project_from_config)
 from candel.pvdata.volume_density import _load_volume_data_for_H0  # noqa: E402
 
 matplotlib.use("Agg")
@@ -295,7 +297,7 @@ def controlled_integrals_for_family(
     config, reconstruction, field_kwargs = family_loader_config(family, rows)
     fields = sorted({row["field"] for row in rows if row["family"] == family})
     family_rows = [row for row in rows if row["family"] == family]
-    cache_dir = repo_path(get_nested(config, ("io", "field_cache_dir")))
+    cache_dir = _field_cache_dir_from_config(config)
 
     field_integrals = {}
     h0 = params["H0_ref"]
@@ -316,6 +318,7 @@ def controlled_integrals_for_family(
             geometry=get_nested(
                 config, ("model", "selection_integral_geometry"), "sphere"),
             cache_dir=str(cache_dir),
+            cache_project=_field_cache_project_from_config(config),
             cache_enabled=True,
             field_smoothing_scale=get_nested(
                 config, ("model", "field_3d_smoothing_scale"), None),

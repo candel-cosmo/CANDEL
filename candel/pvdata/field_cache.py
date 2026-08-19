@@ -31,6 +31,13 @@ from ..util import file_last_edited, fprint, get_nested, get_root_data
 
 _LOS_FIELD_CACHE_PREFIX = "los"
 _VOLUME_FIELD_CACHE_PREFIX = "volume_field_data"
+_FIELD_CACHE_PRODUCTS = {
+    "h0_volume": "selection_volume",
+    "pv_volume_density": "pv_volume_density",
+    "pv_density_cube": "density_cube",
+    "toy_maser_vlos": "maser_los",
+}
+_DROP_PORTABLE_CACHE_VALUE = object()
 
 
 class _ArrayShapeOnly:
@@ -171,10 +178,30 @@ def _field_cache_dir_from_config(config=None, model_config=None):
     if cache_dir is None:
         if config is None:
             return None
-        cache_dir = join(get_root_data(config), "field_cache")
+        raise ValueError(
+            "Field caching requires an explicit `field_cache_dir` in the "
+            "model, pv_model, or io configuration.")
     elif config is not None and not isabs(cache_dir):
         cache_dir = join(get_root_data(config), cache_dir)
     return abspath(cache_dir)
+
+
+def _field_cache_component(value, label):
+    """Validate one portable field-cache path component."""
+    if (not isinstance(value, str) or not value or value in (".", "..")
+            or "/" in value or "\\" in value):
+        raise ValueError(
+            f"Invalid field-cache {label} component {value!r}.")
+    return value
+
+
+def _field_cache_project_from_config(config):
+    """Return the explicit scientific project owning cached products."""
+    project = get_nested(config, "io/field_cache_project", None)
+    if project is None:
+        raise ValueError(
+            "Field caching requires an explicit `io.field_cache_project`.")
+    return _field_cache_component(project, "project")
 
 
 def _field_cache_slug(value, max_len=80):
@@ -208,6 +235,35 @@ def _field_cache_indices_tag(indices):
     return "_".join(ranges)
 
 
+def _field_cache_scope(payload):
+    """Return the canonical field-realisation scope directory."""
+    indices = payload.get("field_indices", None)
+    if indices is None:
+        indices = [payload.get("nsim", 0)]
+    indices = [int(index) for index in indices]
+    if not indices:
+        raise ValueError("Field-cache paths require at least one field index.")
+    if len(indices) == 1:
+        return f"field-{indices[0]}"
+    return f"fields-{_field_cache_indices_tag(indices)}"
+
+
+def _field_cache_product_path(cache_dir, project, reconstruction, product,
+                              field_scope, filename):
+    """Build one canonical project-first field-cache path."""
+    if cache_dir is None:
+        return None
+    product = _FIELD_CACHE_PRODUCTS.get(product, product)
+    components = (
+        _field_cache_component(project, "project"),
+        _field_cache_component(reconstruction, "reconstruction"),
+        _field_cache_component(product, "product"),
+        _field_cache_component(field_scope, "field scope"),
+        _field_cache_component(filename, "filename"),
+    )
+    return join(cache_dir, *components)
+
+
 def _field_cache_single_index(payload):
     """Return the single field index required by per-field cache files."""
     field_indices = payload.get("field_indices", None)
@@ -230,6 +286,42 @@ def _field_cache_payload_digest(payload, length=24):
     payload = _jsonable(payload)
     key = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(key.encode("utf-8")).hexdigest()[:length]
+
+
+def _field_cache_portable_loader_kwargs(loader_kwargs):
+    """Drop machine-local absolute paths from loader cache identity."""
+    def _portable(value):
+        if isinstance(value, os.PathLike):
+            value = os.fspath(value)
+        if isinstance(value, str) and isabs(value):
+            return _DROP_PORTABLE_CACHE_VALUE
+        if isinstance(value, dict):
+            out = {}
+            for key, item in sorted(value.items()):
+                cleaned = _portable(item)
+                if cleaned is not _DROP_PORTABLE_CACHE_VALUE:
+                    out[str(key)] = cleaned
+            return out
+        if isinstance(value, (list, tuple)):
+            out = []
+            for item in value:
+                cleaned = _portable(item)
+                if cleaned is not _DROP_PORTABLE_CACHE_VALUE:
+                    out.append(cleaned)
+            return out
+        return _jsonable(value)
+
+    portable = _portable(loader_kwargs)
+    return {} if portable is _DROP_PORTABLE_CACHE_VALUE else portable
+
+
+def _field_cache_loader_settings_tag(payload):
+    """Return a portable digest for scientific loader configuration."""
+    settings = _field_cache_portable_loader_kwargs(
+        payload.get("loader_kwargs", {}))
+    if not settings:
+        return None
+    return "loader-" + _field_cache_payload_digest(settings, length=12)
 
 
 def _volume_field_product_tag(product):
@@ -263,12 +355,10 @@ def _los_field_cache_path(cache_dir, payload):
     """Return the canonical field-cache path for one LOS HDF5 product."""
     if cache_dir is None:
         return None
-    return join(
-        cache_dir,
-        _field_cache_slug(payload["reconstruction"], max_len=70),
-        _LOS_FIELD_CACHE_PREFIX,
-        _los_field_cache_filename(payload),
-    )
+    return _field_cache_product_path(
+        cache_dir, payload["project"], payload["reconstruction"],
+        _LOS_FIELD_CACHE_PREFIX, _field_cache_scope(payload),
+        _los_field_cache_filename(payload))
 
 
 def _volume_field_source_name(payload):
@@ -277,11 +367,6 @@ def _volume_field_source_name(payload):
         if key in payload:
             return payload[key]
     raise KeyError("volume field cache payload must define a loader name")
-
-
-def _volume_field_cache_subdir(payload):
-    """Directory name for volume-field caches from one reconstruction."""
-    return _field_cache_slug(_volume_field_source_name(payload), max_len=70)
 
 
 def _volume_field_cache_filename(payload):
@@ -314,6 +399,9 @@ def _h0_volume_product_cache_filename(payload):
     if supersample is not None:
         parts.append(_h0_volume_supersample_tag(supersample))
     parts.extend(_field_smoothing_cache_tags(payload))
+    loader_tag = _field_cache_loader_settings_tag(payload)
+    if loader_tag is not None:
+        parts.append(loader_tag)
     parts.append("vel" if payload["load_velocity"] else "density")
     return "__".join(parts) + ".npz"
 
@@ -391,6 +479,9 @@ def _pv_volume_density_product_cache_filename(payload, product_tag):
         parts.append(f"rmax-{_field_cache_float_tag(max_radius)}")
     parts.extend([subsample_tag, rhat_tag])
     parts.extend(_field_smoothing_cache_tags(payload))
+    loader_tag = _field_cache_loader_settings_tag(payload)
+    if loader_tag is not None:
+        parts.append(loader_tag)
     parts.append("density")
     return "__".join(parts) + ".npz"
 
@@ -411,6 +502,9 @@ def _pv_density_cube_product_cache_filename(payload, product_tag):
     if max_radius is not None:
         parts.append(f"rmax-{_field_cache_float_tag(max_radius)}")
     parts.extend(_field_smoothing_cache_tags(payload))
+    loader_tag = _field_cache_loader_settings_tag(payload)
+    if loader_tag is not None:
+        parts.append(loader_tag)
     parts.append("density")
     return "__".join(parts) + ".npz"
 
@@ -421,10 +515,16 @@ def _field_cache_path(cache_dir, prefix, payload):
         return None
     if (prefix == _VOLUME_FIELD_CACHE_PREFIX
             and payload.get("kind") == "volume_field_data"):
-        return join(cache_dir, _volume_field_cache_subdir(payload),
-                    _volume_field_cache_filename(payload))
+        return _field_cache_product_path(
+            cache_dir, payload["project"],
+            _volume_field_source_name(payload), payload["product"],
+            _field_cache_scope(payload),
+            _volume_field_cache_filename(payload))
     digest = _field_cache_payload_digest(payload)
-    return join(cache_dir, prefix, f"{digest}.npz")
+    return _field_cache_product_path(
+        cache_dir, payload["project"],
+        _volume_field_source_name(payload), prefix,
+        _field_cache_scope(payload), f"{digest}.npz")
 
 
 def _read_field_cache(cache_path, label, required_keys):
