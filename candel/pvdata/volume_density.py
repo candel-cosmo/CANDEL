@@ -239,8 +239,12 @@ def _choose_voxel_subsample_indices(n_voxels, fraction, seed):
         n_keep / n_voxels)
 
 
-def _h0_volume_cache_sampling_payload(fraction, seed):
-    """Cache key entries for full-resolution H0 volume data."""
+def _h0_volume_cache_sampling_payload():
+    """Cache key entries for full-resolution H0 volume data.
+
+    Caches always store the full-resolution grid; voxel subsampling is applied
+    after load, so the sampling entry of the cache key is fixed.
+    """
     return {"downsample": 1}
 
 
@@ -1214,8 +1218,7 @@ def _load_volume_data_for_H0(
             "geometry": geometry,
             "sources": source_meta,
         }
-        base_cache_payload.update(_h0_volume_cache_sampling_payload(
-            voxel_subsample_fraction, voxel_subsample_seed))
+        base_cache_payload.update(_h0_volume_cache_sampling_payload())
         base_cache_payload.update(_h0_volume_cache_supersampling_payload(
             supersample_factor, supersample_radius))
         supersampling_cache_arrays = _h0_volume_supersampling_cache_arrays(

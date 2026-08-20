@@ -10,13 +10,3 @@ candel.mock
    :members:
    :undoc-members:
    :show-inheritance:
-
-.. automodule:: candel.mock.EDD_2MTF_mock
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. automodule:: candel.mock.simple_mock
-   :members:
-   :undoc-members:
-   :show-inheritance:

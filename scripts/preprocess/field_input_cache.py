@@ -400,9 +400,7 @@ def _cache_group_key(config):
     if field_indices is None:
         return None
 
-    sampling = pvdata_mod._h0_volume_cache_sampling_payload(
-        get_nested(config, "model/density_3d_subsample_fraction", 1.0),
-        get_nested(config, "model/density_3d_subsample_seed", 42))
+    sampling = pvdata_mod._h0_volume_cache_sampling_payload()
     supersampling = _h0_supersampling_payload(
         config, reconstruction, field_kwargs, field_indices)
     field_smoothing = pvdata_mod.field_smoothing_cache_payload(
@@ -720,10 +718,6 @@ def _h0_cache_file_status(config):
         config, "model/selection_integral_geometry", "sphere")
     grid_radius = get_nested(
         config, "model/selection_integral_grid_radius", None)
-    subsample_fraction = get_nested(
-        config, "model/density_3d_subsample_fraction", 1.0)
-    subsample_seed = get_nested(
-        config, "model/density_3d_subsample_seed", 42)
     load_velocity = _h0_velocity_key(config) == "velocity"
     base_payload = {
         "kind": "volume_field_data",
@@ -737,8 +731,7 @@ def _h0_cache_file_status(config):
         "geometry": geometry,
         "sources": source_meta,
     }
-    base_payload.update(pvdata_mod._h0_volume_cache_sampling_payload(
-        subsample_fraction, subsample_seed))
+    base_payload.update(pvdata_mod._h0_volume_cache_sampling_payload())
     supersampling = _h0_supersampling_payload(
         config, reconstruction, field_kwargs, field_indices)
     base_payload.update(supersampling)

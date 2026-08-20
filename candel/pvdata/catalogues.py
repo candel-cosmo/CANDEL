@@ -1129,50 +1129,6 @@ def load_CCHP_from_config(config_path, ra_dec_only=False):
     return data
 
 
-def match_cchp_to_csp(cchp_data, csp_data):
-    """
-    Match CCHP TRGB hosts to CSP SNe by SN name.
-
-    Handles naming convention differences: CCHP uses '2011fe' while CSP uses
-    'SN2011fe'.
-
-    Returns
-    -------
-    cchp_idx : ndarray
-        Indices into cchp_data for matched SNe.
-    csp_idx : ndarray
-        Indices into csp_data for matched SNe.
-    """
-    cchp_names = cchp_data["SN"]
-    csp_names = csp_data["sn"]
-
-    # CSP names have "SN" prefix, strip it for matching
-    csp_name_to_idx = {}
-    for i, name in enumerate(csp_names):
-        key = name[2:] if name.startswith("SN") else name
-        csp_name_to_idx[key] = i
-
-    cchp_idx, csp_idx = [], []
-    for i, name in enumerate(cchp_names):
-        if name in csp_name_to_idx:
-            cchp_idx.append(i)
-            csp_idx.append(csp_name_to_idx[name])
-
-    cchp_idx = np.array(cchp_idx, dtype=int)
-    csp_idx = np.array(csp_idx, dtype=int)
-
-    fprint(f"matched {len(cchp_idx)}/{len(cchp_names)} CCHP SNe to CSP.")
-
-    # Print unmatched CCHP SNe
-    matched_set = set(cchp_idx)
-    unmatched = [cchp_names[i] for i in range(len(cchp_names))
-                 if i not in matched_set]
-    if unmatched:
-        fprint(f"unmatched CCHP SNe: {unmatched}")
-
-    return cchp_idx, csp_idx
-
-
 def load_CSP_from_config(config_path):
     """
     Load CSP SNe data from config, wrapped in PVDataFrame for inference.
@@ -1874,85 +1830,6 @@ def load_EDD_2MTF(root, zcmb_min=None, zcmb_max=None, b_min=7.5,
 
     if return_mask:
         return data, mask
-    return data
-
-
-def load_EDD_2MTF_from_config(config_path):
-    """Load EDD 2MTF data with LOS from config."""
-    config = load_config(config_path, replace_los_prior=False)
-    use_recon = get_nested(config, "model/use_reconstruction", False)
-    config["io"]["load_host_los"] = use_recon
-    config["io"]["load_rand_los"] = use_recon
-    d = config["io"]["PV_main"]["EDD_2MTF"]
-    root = d["root"]
-
-    zcmb_min = d.get("zcmb_min", None)
-    zcmb_max = d.get("zcmb_max", None)
-    b_min = d.get("b_min", 7.5)
-    eta_min = d.get("eta_min", None)
-    eta_max = d.get("eta_max", None)
-
-    reconstruction = d.get("reconstruction", None)
-    field_indices = get_nested(config, "io/field_indices", None)
-    field_smoothing_scale = field_smoothing_scale_from_config(config)
-    velocity_field_smoothing_scale = (
-        velocity_field_smoothing_scale_from_config(config))
-    los_data_path = None
-    rand_los_data_path = None
-
-    if get_nested(config, "io/load_host_los", False):
-        los_file = d.get("los_file", None)
-        los_data_path = resolve_or_build_los_data_path(
-            config, "EDD_2MTF", reconstruction, los_file,
-            field_smoothing_scale=field_smoothing_scale,
-            velocity_field_smoothing_scale=velocity_field_smoothing_scale,
-            config_path=config_path, field_indices=field_indices)
-
-    if get_nested(config, "io/load_rand_los", False):
-        rand_file = get_nested(config, "io/los_file_random", None)
-        rand_los_data_path = resolve_los_data_path(
-            rand_file, reconstruction, field_smoothing_scale, config=config,
-            velocity_field_smoothing_scale=velocity_field_smoothing_scale)
-
-    data, mask = load_EDD_2MTF(
-        root, zcmb_min=zcmb_min, zcmb_max=zcmb_max, b_min=b_min,
-        eta_min=eta_min, eta_max=eta_max,
-        los_data_path=los_data_path, return_mask=True,
-        field_indices=field_indices)
-    if los_data_path is None:
-        scatter = angular_position_scatter_from_config(config)
-        if scatter is not None:
-            scatter_data_coordinates(data, scatter, label="EDD_2MTF")
-
-    # Rename to match model expectations
-    data["RA_host"] = data.pop("RA")
-    data["dec_host"] = data.pop("dec")
-    data["czcmb"] = data.pop("zcmb") * SPEED_OF_LIGHT
-    data["e_czcmb"] = np.full(len(data["czcmb"]), 10.0)  # ~10 km/s
-
-    # Median errors for selection function
-    data["e_mag_median"] = float(np.median(data["e_mag"]))
-    data["e_eta_median"] = float(np.median(data["e_eta"]))
-
-    if los_data_path is not None:
-        los_data_path = getattr(los_data_path, "resolved_path", los_data_path)
-        data["host_los_density"] = data.pop("los_density")
-        data["host_los_velocity"] = data.pop("los_velocity")
-        data["host_los_r"] = data.pop("los_r")
-        data["host_los_field_indices"] = data.pop("los_field_indices")
-
-    if rand_los_data_path is not None:
-        rand_los = load_los(rand_los_data_path, {}, mask=None, verbose=False)
-        data["rand_los_density"] = rand_los["los_density"]
-        data["rand_los_velocity"] = rand_los["los_velocity"]
-        data["rand_los_r"] = rand_los["los_r"]
-        data["rand_los_RA"] = rand_los.get("los_RA", None)
-        data["rand_los_dec"] = rand_los.get("los_dec", None)
-        data["has_rand_los"] = True
-        data["num_rand_los"] = data["rand_los_density"].shape[1]
-    else:
-        data["has_rand_los"] = False
-
     return data
 
 

@@ -156,9 +156,7 @@ def _h0_volume_entries(config, cache_root, project, legacy_root=None):
         "max_radius": max_radius,
         "geometry": geometry,
         "sources": sources,
-        **_h0_volume_cache_sampling_payload(
-            get_nested(config, "model/density_3d_subsample_fraction", 1.0),
-            get_nested(config, "model/density_3d_subsample_seed", 42)),
+        **_h0_volume_cache_sampling_payload(),
         **_h0_volume_cache_supersampling_payload(
             factor, supersample_radius),
     }

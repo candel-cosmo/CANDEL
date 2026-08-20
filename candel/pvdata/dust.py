@@ -184,23 +184,3 @@ def query_AH_grid(ell, b, d_grid, map_name="bayestar", return_std=False):
     AH = np.asarray(result).reshape(n_los, n_grid)
     valid = np.isfinite(AH)
     return AH, valid
-
-
-def query_reddening(ell, b, dist_kpc, map_name="bayestar"):
-    """Query reddening from a 3D Galactic dust map."""
-    coords = _make_galactic_coords(ell, b, dist_kpc)
-
-    if map_name == "bayestar":
-        dust = _get_bayestar()
-        E_BV = dust(coords, mode="mean")
-    elif map_name == "marshall":
-        dust = _get_marshall()
-        A_Ks = dust(coords)
-        E_BV = A_Ks / 0.306
-    else:
-        raise ValueError(f"Unknown dust map: {map_name}. "
-                         f"Use 'bayestar' or 'marshall'.")
-
-    if np.ndim(E_BV) == 0 or (hasattr(E_BV, "size") and E_BV.size == 1):
-        return float(E_BV)
-    return np.asarray(E_BV)
