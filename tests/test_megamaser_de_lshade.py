@@ -6,6 +6,7 @@ import sys
 import numpy as np
 import pytest
 import tomli
+from numpyro.distributions import Normal, Uniform
 from scipy.stats import chisquare, ks_2samp
 
 
@@ -1104,6 +1105,24 @@ def test_objective_policy_tracks_support_geometry_data_and_fixed_values():
         de.maser_physics.C_v = saved_C_v
 
 
+def test_prior_digest_is_independent_of_numpyro_field_order(monkeypatch):
+    model = type("Model", (), {"priors": {
+        "theta": Normal(1.0, 2.0), "bounded": Uniform(-3.0, 4.0)}})()
+    baseline = de._objective_prior_digest(model)
+    normal_fields = Normal.gather_pytree_data_fields()
+    uniform_fields = Uniform.gather_pytree_data_fields()
+    monkeypatch.setattr(
+        Normal, "gather_pytree_data_fields",
+        classmethod(lambda cls: tuple(reversed(normal_fields))))
+    monkeypatch.setattr(
+        Uniform, "gather_pytree_data_fields",
+        classmethod(lambda cls: tuple(reversed(uniform_fields))))
+
+    assert de._objective_prior_digest(model) == baseline
+    model.priors["theta"] = Normal(2.0, 1.0)
+    assert de._objective_prior_digest(model) != baseline
+
+
 @pytest.mark.parametrize(
     ("phi_integration", "use_ecc", "expected_reuse"),
     (("fixed-grid", False, True),
@@ -1175,6 +1194,32 @@ def test_resume_rejects_legacy_objective(tmp_path):
     with np.load(legacy) as checkpoint:
         with pytest.raises(ValueError, match="objective policy"):
             de._validate_de_checkpoint_policy(checkpoint, str(legacy))
+
+
+def test_resume_revalidates_nondeterministic_prior_fingerprint(tmp_path):
+    checkpoint_path = tmp_path / "nondeterministic_prior.npz"
+    saved_policy = "objective:priors" + "a" * 16 + ":phys1"
+    requested_policy = "objective:priors" + "b" * 16 + ":phys1"
+    population = np.array([[0.1], [0.9]])
+    fitness = np.array([1.0, 2.0])
+    np.savez(
+        checkpoint_path, algorithm=np.asarray("lshade"),
+        seed_policy=np.asarray("data_sobol_only"),
+        population_schedule=np.asarray("nfe_linear"),
+        objective_policy=np.asarray(saved_policy), population=population,
+        fitness=fitness)
+
+    with np.load(checkpoint_path) as checkpoint:
+        assert de._validate_de_checkpoint_policy(
+            checkpoint, str(checkpoint_path),
+            objective_policy=requested_policy)
+        np.testing.assert_array_equal(
+            de._revalidate_de_checkpoint_objective(
+                checkpoint, lambda points, desc: fitness),
+            fitness)
+        with pytest.raises(ValueError, match="not serialization-only"):
+            de._revalidate_de_checkpoint_objective(
+                checkpoint, lambda points, desc: fitness + 1.0)
 
 
 def test_lshade_trials_are_reproducible_and_bounded():
