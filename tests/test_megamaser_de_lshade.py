@@ -836,7 +836,7 @@ def test_iterative_clipping_relaunches_until_mask_stabilises(
         add_ecc=False,
         no_quadratic_warp=False, add_quadratic_warp=True,
         mass_parameterization=None, phi_integration=None,
-        fix_floors_pesce=False, single_error_floor=False)
+        single_error_floor=False)
     tag = de._clip_run_tag(args, 7)
 
     def tagged_run(command, check, env):
@@ -894,7 +894,7 @@ def test_iterative_clipping_leaves_last_attempt_flags_pending(
         add_ecc=False,
         no_quadratic_warp=False, add_quadratic_warp=False,
         mass_parameterization=None, phi_integration=None,
-        fix_floors_pesce=False, single_error_floor=False)
+        single_error_floor=False)
     tag = de._clip_run_tag(args, 7)
 
     def tagged_run(command, check, env):
@@ -938,7 +938,7 @@ def test_iterative_clipping_resume_skips_completed_attempts(
         clip_max_attempts=3, resume=True, f64=False, no_ecc=False,
         add_ecc=False, no_quadratic_warp=False, add_quadratic_warp=False,
         mass_parameterization=None, phi_integration=None,
-        fix_floors_pesce=False, single_error_floor=False)
+        single_error_floor=False)
     tag = de._clip_run_tag(args, 7)
     root = (tmp_path / "unpruned" / "de_checkpoints" / "NGC6264" /
             "iterative_clip" / tag)
@@ -985,8 +985,7 @@ def test_iterative_clip_namespace_separates_model_variants():
         galaxy="NGC6264", iterative_clip_sigma=2.5, f64=False,
         no_ecc=False, add_ecc=False, no_quadratic_warp=False,
         add_quadratic_warp=False, mass_parameterization=None,
-        phi_integration=None, fix_floors_pesce=False,
-        single_error_floor=False)
+        phi_integration=None, single_error_floor=False)
     linear = de._clip_run_tag(args, 7)
     args.add_quadratic_warp = True
     assert de._clip_run_tag(args, 7) != linear
