@@ -10,6 +10,7 @@ import os
 import sys
 
 import numpy as np
+from numpyro.distributions import DoublyTruncatedPowerLaw
 import pytest
 import tomli
 import tomli_w
@@ -72,6 +73,28 @@ def test_default_dataset_has_complete_config_init():
     assert MASER_DATASETS == (
         "original_published", "fiducial", "unpruned", "clipped")
     assert _config()["io"]["dataset"] == DEFAULT_MASER_DATASET
+
+
+def test_da2_prior_is_applied_to_sampled_da(tmp_path):
+    cfg = _config()
+    apply_dataset(cfg, "fiducial")
+    cfg["model"]["D_c_prior"] = "volume_D_A"
+    path = tmp_path / "config.toml"
+    with open(path, "wb") as f:
+        tomli_w.dump(cfg, f)
+
+    data = _load("fiducial", "NGC6323")
+    gcfg = cfg["model"]["galaxies"]["NGC6323"]
+    data["D_lo"], data["D_hi"] = gcfg["D_lo"], gcfg["D_hi"]
+    model = MaserDiskModel(path, data)
+
+    assert model.D_A_prior == "volume_D_A"
+    assert isinstance(model.priors["D"], DoublyTruncatedPowerLaw)
+    lo, hi = model.priors["D"].low, model.priors["D"].high
+    d1, d2 = lo + 0.25 * (hi - lo), lo + 0.75 * (hi - lo)
+    assert float(model.priors["D"].log_prob(d2)
+                 - model.priors["D"].log_prob(d1)) == pytest.approx(
+                     2 * np.log(float(d2 / d1)))
 
 
 def test_maser_data_root_rejects_unknown_dataset():
