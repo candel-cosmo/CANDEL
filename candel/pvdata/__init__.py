@@ -34,10 +34,8 @@ from .catalogues import (                                                       
     load_EDD_TRGB_grouped,                                                      # noqa
     load_EDD_TRGB_grouped_from_config,                                          # noqa
     load_EDD_2MTF,                                                              # noqa
-    load_EDD_2MTF_from_config,                                                  # noqa
     load_CSP,                                                                   # noqa
     load_CSP_from_config,                                                       # noqa
-    match_cchp_to_csp,                                                          # noqa
     )
 
 from .frame import (                                                            # noqa
@@ -51,7 +49,6 @@ from .dust import (                                                             
     postprocess_extinction_profiles,                                            # noqa
     query_AH,                                                                   # noqa
     query_AH_grid,                                                              # noqa
-    query_reddening,                                                            # noqa
     read_dustmap,                                                               # noqa
     )
 

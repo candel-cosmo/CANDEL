@@ -27,14 +27,16 @@ import numpy as np
 from palette import PALETTE, PLANCK_C, RED, SELECTION, SHOES_C, TEAL
 
 ROOT = Path(__file__).resolve().parents[2]
-DATASET = "original_published"
+DATASET = "clipped"
 RESULTS = ROOT / "results" / "Megamaser" / DATASET / "H0"
 OUTDIR = "/Users/rstiskalek/Papers/MMH0/figs"
 
 # The forest figure compares the two baseline input spot tables at fixed
 # modelling variant.  The published catalogues are deliberately not shown:
 # they are the historical reference and live in the H0-variants table only.
-# The other figures in this module stay on DATASET.
+# The other figures in this module stay on DATASET, which is `clipped`
+# (updated-ours) so that the population corners are shown on a baseline
+# table rather than on the historical catalogues.
 H0_ROOT = ROOT / "results" / "Megamaser"
 DATASETS = ["fiducial", "clipped"]
 DATASET_LABEL = {"fiducial": "P20",
@@ -346,12 +348,18 @@ def fig_corner(selection, out):
     ranges = {"sigma_pec": [0, None]}
     ranges.update({k: sel_range[k] for k in sel_keys})
 
+    # The distance-threshold priors extend far past the posterior (99th
+    # percentile 182 and 121 Mpc), so clip the plotted axes without touching
+    # the KDE boundaries above.
+    param_limits = {"D_lim": [15.0, 250.0], "D_width": [15.0, 150.0]}
+    param_limits = {k: v for k, v in param_limits.items() if k in sel_keys}
+
     os.makedirs(os.path.dirname(out), exist_ok=True)
     plot_corner_getdist(
         samples_list, labels=labels, keys=keys, cols=[TEAL, RED],
         filled=True, show_fig=False, filename=out, fontsize=17,
         legend_fontsize=24, mag_range=[0.0, 300.0], ell_range=[0.0, 360.0],
-        b_range=[-90.0, 90.0], ranges=ranges)
+        b_range=[-90.0, 90.0], ranges=ranges, param_limits=param_limits)
 
 
 if __name__ == "__main__":

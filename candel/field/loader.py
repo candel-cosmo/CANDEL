@@ -895,11 +895,6 @@ def field_metadata(name):
     return UNKNOWN_FIELD_METADATA
 
 
-def field_product_policy(name):
-    """Return field-product cache metadata."""
-    return field_metadata(name)
-
-
 def field_requires_cached_products(name):
     """Return whether field-derived products must already exist on disk."""
     return field_metadata(name).require_cached_products

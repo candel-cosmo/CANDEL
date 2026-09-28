@@ -28,7 +28,3 @@ from .inference import (                                                        
     save_mcmc_samples,                                                          # noqa
     get_log_density,                                                            # noqa
     )
-
-from .checkpointed_nuts import run_checkpointed_nuts                            # noqa
-
-from .nested import run_nss, decompose_model                                    # noqa

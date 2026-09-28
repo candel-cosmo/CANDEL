@@ -25,7 +25,6 @@ from .loader import (                                                           
     field_allows_raw_product_reads,                                             # noqa
     field_mas_directory,                                                        # noqa
     field_metadata,                                                             # noqa
-    field_product_policy,                                                       # noqa
     field_requires_cached_products,                                             # noqa
     name2field_loader,                                                          # noqa
     supported_field_names,                                                      # noqa

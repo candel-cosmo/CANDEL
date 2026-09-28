@@ -50,6 +50,22 @@ def test_chain_attrs_restore_uniform_da_prior():
     assert gblk["use_quadratic_warp"] is False
 
 
+def test_chain_attrs_restore_da2_prior():
+    cfg = {"model": {"D_c_prior": "uniform_D_A",
+                     "galaxies": {"NGC4258": {}}}}
+    ev._apply_chain_attrs_to_config(
+        cfg, "NGC4258", {"D_c_prior": "volume_D_A"})
+    assert cfg["model"]["D_c_prior"] == "volume_D_A"
+
+
+def test_da2_prior_is_tagged_in_chain_suffix():
+    model = SimpleNamespace(
+        use_ecc=False, use_quadratic_warp=True, galaxy_name="NGC4258")
+    args = SimpleNamespace(da2_prior=True)
+    assert rm._variant_suffix(model, args, "config") == \
+        "_qw_da2_initconfig"
+
+
 def test_ngc5765b_chain_attrs_restore_error_floor_mode():
     cfg = {
         "model": {

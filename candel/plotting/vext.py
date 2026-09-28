@@ -84,39 +84,6 @@ def interpolate_cartesian_vector_field(V, r, rbins, method="cubic"):
     return jnp.stack(comps, axis=-1)
 
 
-def interpolate_latitude_field(b_deg, r, rbins, method="cubic"):
-    """Interpolate latitude via sin(b); return degrees."""
-    b_rad = jnp.deg2rad(jnp.asarray(b_deg)).reshape(-1, rbins.size)
-    sin_b = jnp.sin(b_rad)
-
-    def interp_row(y):
-        return _interp1d_const(r, rbins, y, method)
-
-    sin_b_interp = vmap(interp_row)(sin_b)
-    sin_b_interp = jnp.clip(sin_b_interp, -1.0, 1.0)
-    return jnp.rad2deg(jnp.arcsin(sin_b_interp))
-
-
-def interpolate_longitude_field(l_deg, r, rbins, method="cubic"):
-    """Interpolate longitude via sin/cos; return degrees in [0, 360)."""
-    l_rad = jnp.deg2rad(jnp.asarray(l_deg)).reshape(-1, rbins.size)
-    sin_l = jnp.sin(l_rad)
-    cos_l = jnp.cos(l_rad)
-
-    def interp_row(y):
-        return _interp1d_const(r, rbins, y, method)
-
-    sin_l_i = vmap(interp_row)(sin_l)
-    cos_l_i = vmap(interp_row)(cos_l)
-
-    # renormalise to unit circle to avoid drift
-    s = jnp.sqrt(jnp.clip(sin_l_i**2 + cos_l_i**2, 1e-20, None))
-    sin_l_i = sin_l_i / s
-    cos_l_i = cos_l_i / s
-
-    return jnp.rad2deg(jnp.arctan2(sin_l_i, cos_l_i)) % 360.0
-
-
 def radial_knots_to_cartesian(Vmag, ell, b):
     """Convert sampled Galactic radial Vext knots to ICRS Cartesian vectors."""
     Vmag = np.asarray(Vmag)

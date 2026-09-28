@@ -183,6 +183,7 @@ e_mag_N4258_TRGB = 0.0443
 ###############################################################################
 
 [io]
+field_cache_project = "TRGBH0"
 root_output = "results/EDD_TRGB"
 fname_output = "results/EDD_TRGB/test.hdf5"
 

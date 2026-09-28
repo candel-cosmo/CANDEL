@@ -44,7 +44,7 @@ import jax
 import jax.numpy as jnp
 import numpy as _np
 from jax.scipy.special import logsumexp
-from numpyro.distributions import Delta, Uniform
+from numpyro.distributions import Delta, DoublyTruncatedPowerLaw, Uniform
 
 from ..util import fprint, fsection, get_nested
 from . import maser_physics as _maser_physics
@@ -375,28 +375,36 @@ class MaserDiskModel(ModelBase):
             else:
                 self.error_floor_policy = "sampled_ngc5765b_single_floor"
 
-        # Megamaser distance is ALWAYS sampled as uniform D_A. The legacy
-        # uniform-D_c sampling path was removed; D_c_prior is no longer a knob.
+        # Megamaser distance is always sampled directly as D_A. The legacy
+        # D_c sampling path remains unsupported; only the density on D_A is
+        # selectable.
         self._D_A_uniform = True
         if "D_lo" in data and "D_hi" in data:
             D_prior_type = get_nested(
                 self.config, "model/D_c_prior", "uniform_D_A")
-            if D_prior_type != "uniform_D_A":
+            if D_prior_type not in ("uniform_D_A", "volume_D_A"):
                 raise ValueError(
-                    "Megamaser distance is always sampled as uniform D_A; "
+                    "Megamaser distance must be sampled directly as D_A; "
                     f"model/D_c_prior={D_prior_type!r} is no longer supported "
-                    "(remove the key or set it to 'uniform_D_A').")
+                    "(use 'uniform_D_A' or 'volume_D_A').")
             lo, hi = float(data["D_lo"]), float(data["D_hi"])
             # Config D_lo/D_hi are comoving bounds; convert to D_A bounds
-            # at the fiducial cosmology (H0_ref, Om) so the uniform-D_A
-            # prior brackets the same physical distance range.
+            # at the fiducial cosmology (H0_ref, Om) so the D_A prior brackets
+            # the same physical distance range.
             h_ref = float(get_nested(
                 self.config, "model/H0_ref", 73.0)) / 100.0
             z_bounds = self.distance2redshift(jnp.asarray([lo, hi]), h=h_ref)
             lo_DA = float(lo / (1.0 + z_bounds[0]))
             hi_DA = float(hi / (1.0 + z_bounds[1]))
-            self.priors["D"] = Uniform(lo_DA, hi_DA)
-            fprint(f"D prior: D_A ~ Uniform({lo_DA:.1f}, {hi_DA:.1f}) Mpc "
+            if D_prior_type == "volume_D_A":
+                self.priors["D"] = DoublyTruncatedPowerLaw(
+                    2.0, lo_DA, hi_DA)
+            else:
+                self.priors["D"] = Uniform(lo_DA, hi_DA)
+            self.D_A_prior = D_prior_type
+            label = "D_A^2" if D_prior_type == "volume_D_A" else "Uniform"
+            fprint(f"D prior: p(D_A) ~ {label} on "
+                   f"[{lo_DA:.1f}, {hi_DA:.1f}] Mpc "
                    f"(from D_c [{lo:.1f}, {hi:.1f}] at H0_ref="
                    f"{100 * h_ref:.0f}, Om={self.Om:.3f})")
             fprint("distance coordinate: D_A sampled directly; D_c init "
@@ -500,14 +508,21 @@ class MaserDiskModel(ModelBase):
         self.use_ecc = gal_cfg.get("use_ecc", use_ecc)
         self.ecc_cartesian = gal_cfg.get("ecc_cartesian", True)
         self.use_quadratic_warp = gal_cfg.get("use_quadratic_warp", use_qw)
-        if self.use_ecc and isinstance(
-                self.priors["dperiapsis_dr"], Delta):
-            raise ValueError(
-                "Eccentric megamaser models must sample dperiapsis_dr; "
-                "its prior cannot be Delta.")
+        # A Delta prior on dperiapsis_dr fixes the periapsis warp rather than
+        # sampling it, which this used to refuse.  The likelihood sees
+        # (e_x, e_y, dperiapsis_dr) only through R(delta) . e with
+        # delta = dperiapsis_dr * (r - r_ref), so the rotation angle is
+        # unidentified as |e| -> 0 and sampling it funnels: it adds a
+        # dimension carrying no information and drags the astrometric centre
+        # with it.  Fix it for galaxies with no radial lever arm on the warp
+        # (see the per-galaxy prior overrides in config_maser.toml).
+        self.sample_periapsis_warp = not isinstance(
+            self.priors.get("dperiapsis_dr"), Delta)
         flags = []
         if self.use_ecc:
-            flags.append("ecc" + ("(cart)" if self.ecc_cartesian else ""))
+            flags.append("ecc" + ("(cart)" if self.ecc_cartesian else "")
+                         + ("" if self.sample_periapsis_warp
+                            else ", fixed periapsis warp"))
         if self.use_quadratic_warp:
             flags.append("quad_warp")
         fprint("features: " + (", ".join(flags) if flags else "none"))

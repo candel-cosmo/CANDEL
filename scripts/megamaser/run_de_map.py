@@ -110,7 +110,8 @@ from candel.pvdata.megamaser_data import (  # noqa: E402
 from candel.util import (fprint, fsection, get_nested,  # noqa: E402
                          results_path)
 from maser_config import (ROOT_OUTPUT_ENV, add_dataset_arg,  # noqa: E402
-                          apply_dataset, check_init_block)
+                          apply_dataset, check_init_block,
+                          variant_init_block)
 
 if _F64_ENABLED_HERE:
     print(f"float64 enabled ({_F64_REASON})", flush=True)
@@ -994,7 +995,8 @@ def _lshade_trials(population, fitness, mutation_archive, m_f, m_cr, rng,
                   + f[:, None] * (pop[r1] - union[r2]))
 
     # Triangle-wave fold of out-of-bounds values back into [0, 1], in the
-    # population dtype (matches candel.inference.optimise._reflect_bounds).
+    # population dtype. Reflecting rather than clipping avoids the boundary
+    # attractor where clipped difference vectors collapse.
     mutants = np.abs(mutants)
     cycle = np.floor(mutants).astype(np.int32)
     frac = mutants - np.floor(mutants)
@@ -1225,8 +1227,8 @@ def _phi_integration_suffix(model):
             if model.phi_integration == "peak-partition" else "")
 
 
-def _de_checkpoint_filename(model, seed, fix_floors_pesce=False):
-    floor_suffix = "_pescefloors" if fix_floors_pesce else ""
+def _de_checkpoint_filename(model, seed):
+    floor_suffix = ""
     if getattr(model, "galaxy_name", None) == "NGC5765b":
         if getattr(model, "clump2_acceleration_only", False):
             floor_suffix += "_accelfloor"
@@ -1260,6 +1262,45 @@ def _objective_data_digest(model):
     return digest.hexdigest()[:16] if found else "none"
 
 
+def _update_prior_digest(digest, value):
+    """Hash a prior pytree by named fields, independent of set iteration."""
+    value_type = type(value)
+    gather_data = getattr(value_type, "gather_pytree_data_fields", None)
+    gather_aux = getattr(value_type, "gather_pytree_aux_fields", None)
+    if gather_data is not None:
+        class_name = f"{value_type.__module__}.{value_type.__qualname__}"
+        digest.update(f"object:{class_name}".encode())
+        fields = set(gather_data())
+        if gather_aux is not None:
+            fields.update(gather_aux())
+        fields.discard("_support")
+        for field in sorted(fields):
+            digest.update(f"field:{field}".encode())
+            _update_prior_digest(digest, value.__dict__.get(field))
+        return
+    if isinstance(value, dict):
+        digest.update(b"dict")
+        for key in sorted(value):
+            _update_prior_digest(digest, key)
+            _update_prior_digest(digest, value[key])
+        return
+    if isinstance(value, (list, tuple)):
+        digest.update(type(value).__name__.encode())
+        for item in value:
+            _update_prior_digest(digest, item)
+        return
+    if value is None:
+        digest.update(b"none")
+        return
+    value = np.ascontiguousarray(np.asarray(value))
+    if value.dtype.hasobject:
+        raise TypeError(
+            f"Cannot fingerprint prior value of type {value_type.__name__}.")
+    digest.update(value.dtype.str.encode())
+    digest.update(np.asarray(value.shape, dtype=np.int64).tobytes())
+    digest.update(value.tobytes())
+
+
 def _objective_prior_digest(model):
     """Digest effective prior families and parameters used by the objective."""
     priors = getattr(model, "priors", None)
@@ -1268,15 +1309,7 @@ def _objective_prior_digest(model):
     digest = hashlib.sha256()
     for name, prior in sorted(priors.items()):
         digest.update(name.encode())
-        digest.update(
-            f"{type(prior).__module__}.{type(prior).__qualname__}".encode())
-        leaves, tree = jax.tree_util.tree_flatten(prior)
-        digest.update(str(tree).encode())
-        for leaf in leaves:
-            value = np.ascontiguousarray(np.asarray(leaf))
-            digest.update(value.dtype.str.encode())
-            digest.update(np.asarray(value.shape, dtype=np.int64).tobytes())
-            digest.update(value.tobytes())
+        _update_prior_digest(digest, prior)
     return digest.hexdigest()[:16]
 
 
@@ -1345,17 +1378,7 @@ def _objective_policy(model, fixed_params=None):
         f"{radial}{phi}{geometry}{physics}{fixed}")
 
 
-def _init_block(gal_cfg, model):
-    """Variant-specific [init...] block (init_ecc / init_qw / init_ecc_qw)
-    selected by use_ecc/use_quadratic_warp, falling back to [init]."""
-    suffix = _variant_suffix(model)
-    if suffix:
-        name = "init" + suffix
-        if name in gal_cfg:
-            fprint(f"init block: [{name}]")
-            return gal_cfg[name]
-        fprint(f"init block: [{name}] absent, falling back to [init]")
-    return gal_cfg.get("init", {})
+_init_block = variant_init_block
 
 
 _DE_HISTORY_KEYS = ("history_generation", "history_logp", "history_D_A")
@@ -1602,8 +1625,7 @@ def _clip_run_tag(args, seed):
             key: getattr(args, key) for key in (
                 "f64", "no_ecc", "add_ecc", "no_quadratic_warp",
                 "add_quadratic_warp", "mass_parameterization",
-                "phi_integration", "fix_floors_pesce",
-                "single_error_floor")},
+                "phi_integration", "single_error_floor")},
     }
     digest = hashlib.sha256(
         json.dumps(payload, sort_keys=True).encode()).hexdigest()[:10]
@@ -1851,9 +1873,38 @@ def _validate_de_checkpoint_policy(
         str(np.asarray(checkpoint["objective_policy"]).item())
         if "objective_policy" in checkpoint.files else None)
     if saved_objective != objective_policy:
+        prior_pattern = r":priors[0-9a-f]{16}(?=:phys)"
+        saved_without_prior, saved_count = re.subn(
+            prior_pattern, ":priors<digest>", saved_objective or "")
+        requested_without_prior, requested_count = re.subn(
+            prior_pattern, ":priors<digest>", objective_policy)
+        if (saved_count == requested_count == 1
+                and saved_without_prior == requested_without_prior):
+            fprint("Legacy checkpoint has a nondeterministic prior "
+                   "fingerprint and requires exact population revalidation.")
+            return True
         raise ValueError(
             f"Checkpoint objective policy is {saved_objective or 'legacy'!r}, "
             f"requested {objective_policy!r}; start a fresh run.")
+    return False
+
+
+def _revalidate_de_checkpoint_objective(checkpoint, exact_eval):
+    saved = np.asarray(checkpoint["fitness"])
+    current = np.asarray(exact_eval(
+        np.asarray(checkpoint["population"]),
+        desc="Checkpoint objective revalidation"))
+    if saved.shape != current.shape or not np.array_equal(saved, current):
+        finite = np.isfinite(saved) & np.isfinite(current)
+        max_delta = (float(np.max(np.abs(saved[finite] - current[finite])))
+                     if np.any(finite) else float("inf"))
+        raise ValueError(
+            "Checkpoint prior fingerprint mismatch is not serialization-only: "
+            "the exact saved-population fitness changed "
+            f"(max |delta|={max_delta:.6g}); start a fresh run.")
+    fprint("Accepted legacy checkpoint after exact saved-population "
+           "objective revalidation.")
+    return current
 
 
 def _screen_eval(batch_eval, x, desc, chunk=512):
@@ -1973,12 +2024,11 @@ def _print_required_de_seeds(names, seed_points, fitness,
         fprint(f"initial-population rank = {rank}/{fitness.size}")
 
 
-# Per-observable noise floors, in the order candel_theta_from_point emits them.
-_PESCE_FLOOR_UNITS = (("sigma_x_floor", "uas"), ("sigma_y_floor", "uas"),
-                      ("sigma_v_sys", "km/s"), ("sigma_v_hv", "km/s"),
-                      ("sigma_a_floor", "km/s/yr"))
-_PESCE_FLOOR_NAMES = tuple(name for name, _ in _PESCE_FLOOR_UNITS)
-_FLOOR_UNIT = dict(_PESCE_FLOOR_UNITS)
+_FLOOR_UNIT = {
+    "sigma_x_floor": "uas", "sigma_y_floor": "uas",
+    "sigma_v_sys": "km/s", "sigma_v_hv": "km/s",
+    "sigma_a_floor": "km/s/yr",
+}
 _DISTANCE_SLICE_FRACTIONS = np.asarray(
     (0.001, 0.003, 0.01, 0.03, 0.1, 0.2))
 
@@ -2055,9 +2105,10 @@ def _run_de(target, opt_cfg, seed, n_dev=1, devices=(), checkpoint_path=None,
     distance_idx = names.index(distance_name)
     N_sobol = 2 ** log2_N
     ckpt = None
+    revalidate_resume_objective = False
     if resume_path is not None:
         ckpt = _load_de_checkpoint(resume_path, lo, hi, names, sizes)
-        _validate_de_checkpoint_policy(
+        revalidate_resume_objective = _validate_de_checkpoint_policy(
             ckpt, resume_path, objective_policy=objective_policy,
             seed_policy=seed_policy, optimizer_seed=seed)
     # seed_points arrive in full target.names order; drop the fixed columns.
@@ -2154,13 +2205,19 @@ def _run_de(target, opt_cfg, seed, n_dev=1, devices=(), checkpoint_path=None,
         fprint("Reference score reused the exact DE objective executable and "
                "was not inserted into the initial population.")
 
+    revalidated_fitness = None
+    if revalidate_resume_objective:
+        revalidated_fitness = _revalidate_de_checkpoint_objective(
+            ckpt, exact_eval)
+
     if resume_path is not None:
         key = np.asarray(ckpt["key"])
         gen_start = int(ckpt["generation_counter"])
         gens_without_improvement = int(ckpt["gens_without_improvement"])
         best_logp_so_far = float(ckpt["best_logp_so_far"])
         population = np.asarray(ckpt["population"])
-        fitness = np.asarray(ckpt["fitness"])
+        fitness = (revalidated_fitness if revalidated_fitness is not None
+                   else np.asarray(ckpt["fitness"]))
         best_solution = np.asarray(ckpt["best_solution"])
         best_fitness = np.asarray(ckpt["best_fitness"])
         initial_pop_size = int(
@@ -2504,12 +2561,6 @@ def main(argv=None):
                              "published Pesce/Reid values (with their exact "
                              "paper error floors) and score the data-only "
                              "sum_i 2D (r,phi) marginal (no global priors).")
-    parser.add_argument("--fix-floors-pesce", action="store_true",
-                        help="Run the full DE but hold the five error floors "
-                             "(sigma_x_floor, sigma_y_floor, sigma_v_sys, "
-                             "sigma_v_hv, sigma_a_floor) fixed at the "
-                             "published Pesce/Reid values; all other globals "
-                             "searched.")
     floor_mode = parser.add_mutually_exclusive_group()
     floor_mode.add_argument(
         "--single-error-floor", action="store_true",
@@ -2585,10 +2636,6 @@ def main(argv=None):
                              "ARC: request N with submit.sh --gpu-count N "
                              "(-> --gres=gpu:N).")
     args = parser.parse_args(argv)
-    if args.clump2_acceleration_floor_only and args.fix_floors_pesce:
-        parser.error("--clump2-acceleration-floor-only cannot be combined "
-                     "with --fix-floors-pesce")
-
     if args.no_ecc and args.add_ecc:
         raise SystemExit("--no-ecc and --add-ecc are mutually exclusive.")
     if args.patience is not None and args.patience < 1:
@@ -2600,10 +2647,6 @@ def main(argv=None):
     if args.fix_globals and args.fix_globals_pesce:
         raise SystemExit(
             "--fix-globals and --fix-globals-pesce are mutually exclusive.")
-    if args.fix_floors_pesce and (args.fix_globals or args.fix_globals_pesce):
-        raise SystemExit(
-            "--fix-floors-pesce only applies to the DE; it cannot combine "
-            "with --fix-globals/--fix-globals-pesce (those skip the DE).")
     master_cfg = _MASTER_CFG
     dataset = apply_dataset(master_cfg, args.dataset)
     galaxies = master_cfg["model"]["galaxies"]
@@ -2742,7 +2785,7 @@ def main(argv=None):
     if args.mass_parameterization is not None:
         config["model"]["galaxies"][args.galaxy][
             "mass_parameterization"] = args.mass_parameterization
-    if args.single_error_floor or args.fix_floors_pesce:
+    if args.single_error_floor:
         config["model"]["use_ngc5765b_clump2_floors"] = False
     elif args.clump2_acceleration_floor_only:
         config["model"]["use_ngc5765b_clump2_floors"] = True
@@ -2816,7 +2859,6 @@ def main(argv=None):
     pesce_logp = None
     pesce_params = None
     pesce_status = ()
-    fixed_floors = None
     if args.fix_globals_pesce:
         try:
             init_params, pesce_status = _pesce_init(target, args.galaxy,
@@ -2831,14 +2873,8 @@ def main(argv=None):
         try:
             pesce_params, pesce_status = _pesce_init(
                 target, args.galaxy, master_cfg)
-            if args.fix_floors_pesce:
-                fixed_floors = {n: pesce_params[n] for n in _PESCE_FLOOR_NAMES
-                                if n in target.names}
         except KeyError as exc:
             fprint(f"Pesce/Reid baseline unavailable: {exc}")
-            if args.fix_floors_pesce:
-                raise SystemExit(
-                    f"--fix-floors-pesce needs Pesce floors: {exc}") from exc
     r_refinement = (
         "three-point global-scan interpolation"
         if model.phi_integration == "peak-partition"
@@ -2876,8 +2912,7 @@ def main(argv=None):
                 os.environ[_CLIP_TAG_ENV], f"attempt_{attempt:02d}")
         os.makedirs(ckpt_dir, exist_ok=True)
         ckpt_path = os.path.join(
-            ckpt_dir, _de_checkpoint_filename(
-                model, seed, fix_floors_pesce=args.fix_floors_pesce))
+            ckpt_dir, _de_checkpoint_filename(model, seed))
         fprint(f"DE checkpoint: {ckpt_path}")
         resume_path = (
             ckpt_path if args.resume and os.path.isfile(ckpt_path)
@@ -2988,10 +3023,10 @@ def main(argv=None):
             target, opt_cfg, seed, n_dev=n_dev, devices=gpu_devices,
             checkpoint_path=ckpt_path, resume_path=resume_path,
             checkpoint_interval=args.checkpoint_interval_minutes * 60.0,
-            seed_points=seed_points, fixed_params=fixed_floors,
+            seed_points=seed_points,
             reference_params=pesce_params,
             reference_status=pesce_status,
-            objective_policy=_objective_policy(model, fixed_floors),
+            objective_policy=_objective_policy(model),
             peak_candidates_per_wave=args.peak_candidates_per_wave,
             seed_policy=(
                 _DE_BASE_MODEL_SEED_POLICY

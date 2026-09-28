@@ -34,8 +34,8 @@ from candel.pvdata import field_products as field_products_mod  # noqa: E402
 from candel.pvdata import frame as frame_mod  # noqa: E402
 from candel.pvdata import los as los_mod  # noqa: E402
 from candel.pvdata import volume_density as volume_density_mod  # noqa: E402
-from candel.pvdata.field_cache import \
-    _field_cache_dir_from_config  # noqa: E402
+from candel.pvdata.field_cache import (  # noqa: E402
+    _field_cache_dir_from_config, _field_cache_project_from_config)
 from candel.util import SPEED_OF_LIGHT  # noqa: E402
 
 pvdata_mod = SimpleNamespace(
@@ -43,6 +43,8 @@ pvdata_mod = SimpleNamespace(
     SPEED_OF_LIGHT=SPEED_OF_LIGHT,
     _field_cache_enabled_from_config=(
         field_cache_mod._field_cache_enabled_from_config),
+    _field_cache_portable_loader_kwargs=(
+        field_cache_mod._field_cache_portable_loader_kwargs),
     _VOLUME_FIELD_CACHE_PREFIX=field_cache_mod._VOLUME_FIELD_CACHE_PREFIX,
     _field_cache_path=field_cache_mod._field_cache_path,
     _field_source_metadata=field_cache_mod._field_source_metadata,
@@ -380,6 +382,7 @@ def _cache_group_key(config):
             "kind": "volume_field_data_set",
             "product": "pv_volume_density",
             "cache_dir": _field_cache_dir_from_config(config),
+            "project": _field_cache_project_from_config(config),
             "entries": [entry["payload"] for entry in entries],
         })
     if _variant_action(config) != "check/cache":
@@ -397,9 +400,7 @@ def _cache_group_key(config):
     if field_indices is None:
         return None
 
-    sampling = pvdata_mod._h0_volume_cache_sampling_payload(
-        get_nested(config, "model/density_3d_subsample_fraction", 1.0),
-        get_nested(config, "model/density_3d_subsample_seed", 42))
+    sampling = pvdata_mod._h0_volume_cache_sampling_payload()
     supersampling = _h0_supersampling_payload(
         config, reconstruction, field_kwargs, field_indices)
     field_smoothing = pvdata_mod.field_smoothing_cache_payload(
@@ -410,7 +411,10 @@ def _cache_group_key(config):
         "kind": "volume_field_data",
         "product": "h0_volume",
         "cache_dir": _field_cache_dir_from_config(config),
+        "project": _field_cache_project_from_config(config),
         "reconstruction": reconstruction,
+        "loader_kwargs": pvdata_mod._field_cache_portable_loader_kwargs(
+            field_kwargs),
         "los_file": los_file,
         "selection_integral_geometry": get_nested(
             config, "model/selection_integral_geometry", "sphere"),
@@ -446,6 +450,7 @@ def _pv_volume_cache_entries(config):
         names = [names]
     cache_dir = _field_cache_dir_from_config(
         config, get_nested(config, "pv_model", {}))
+    cache_project = _field_cache_project_from_config(config)
     downsample = int(get_nested(config, "pv_model/density_3d_downsample", 1))
     geometry = get_nested(config, "pv_model/density_3d_geometry", "cube")
     radius = get_nested(config, "pv_model/density_3d_radius", None)
@@ -491,6 +496,7 @@ def _pv_volume_cache_entries(config):
         for i, nsim in enumerate(field_indices):
             payload = {
                 "kind": "volume_field_data",
+                "project": cache_project,
                 "product": "pv_volume_density",
                 "loader_name": reconstruction,
                 "loader_kwargs": pvdata_mod._jsonable(recon_kwargs),
@@ -526,7 +532,10 @@ def _variant_action(config):
     which_run = get_nested(config, "model/which_run", None)
     h0_runs = ("CH0", "CCHP", "CCHP_CSP", "EDD_TRGB", "EDD_TRGB_grouped")
     if which_run not in h0_runs:
-        return "check/cache"
+        return (
+            "check/cache"
+            if pvdata_mod._field_cache_enabled_from_config(config)
+            else "cache off")
 
     which_sel = get_nested(config, "model/which_selection", None)
     if not get_nested(config, "model/use_reconstruction", False):
@@ -709,23 +718,20 @@ def _h0_cache_file_status(config):
         config, "model/selection_integral_geometry", "sphere")
     grid_radius = get_nested(
         config, "model/selection_integral_grid_radius", None)
-    subsample_fraction = get_nested(
-        config, "model/density_3d_subsample_fraction", 1.0)
-    subsample_seed = get_nested(
-        config, "model/density_3d_subsample_seed", 42)
     load_velocity = _h0_velocity_key(config) == "velocity"
     base_payload = {
         "kind": "volume_field_data",
+        "project": _field_cache_project_from_config(config),
         "product": "h0_volume",
         "loader_name": reconstruction,
+        "loader_kwargs": pvdata_mod._jsonable(field_kwargs),
         "field_indices": pvdata_mod._jsonable(
             pvdata_mod.np.asarray(field_indices)),
         "subcube_radius": grid_radius,
         "geometry": geometry,
         "sources": source_meta,
     }
-    base_payload.update(pvdata_mod._h0_volume_cache_sampling_payload(
-        subsample_fraction, subsample_seed))
+    base_payload.update(pvdata_mod._h0_volume_cache_sampling_payload())
     supersampling = _h0_supersampling_payload(
         config, reconstruction, field_kwargs, field_indices)
     base_payload.update(supersampling)
@@ -960,8 +966,13 @@ def _variant_info(config_path, selection=None):
         if isinstance(which_run, list):
             which_run = "+".join(which_run)
     which_selection = _selection_label(which_selection)
-    cache_dir = _field_cache_dir_from_config(config)
     action = _variant_action(config)
+    if action == "check/cache":
+        cache_dir = _field_cache_dir_from_config(config)
+        cache_project = _field_cache_project_from_config(config)
+    else:
+        cache_dir = None
+        cache_project = None
     product = _cache_product_description(config)
     return {
         "config": _short_path(config_path),
@@ -969,6 +980,7 @@ def _variant_info(config_path, selection=None):
         "selection": which_selection,
         "action": action,
         "cache_dir": cache_dir,
+        "cache_project": cache_project,
         "cache_group": _cache_group_key(config),
         "supersampling": _h0_supersampling_description(config),
         "smoothing": _field_smoothing_description(config),
@@ -1189,7 +1201,8 @@ def _load_for_cache(config_path):
     config = candel.load_config(config_path, replace_los_prior=False)
     which_run = get_nested(config, "model/which_run", None)
     cache_dir = _field_cache_dir_from_config(config)
-    _log(f"field cache directory: `{cache_dir}`.")
+    cache_project = _field_cache_project_from_config(config)
+    _log(f"field cache directory: `{cache_dir}/{cache_project}`.")
 
     run_config_path = config_path
     tmp_config_path = None

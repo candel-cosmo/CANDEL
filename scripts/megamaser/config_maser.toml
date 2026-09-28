@@ -14,6 +14,13 @@ target_accept_r = 0.35
 blackjax_initial_step_size = 0.005
 phi_step_size = 0.05
 reflect_prob = 0.25
+# Use the inverse conditional Hessian of the NUTS target as the dense mass
+# matrix, measured once at the end of the latent burn-in, and adapt only the
+# step size thereafter.  BlackJAX's window adaptation Welford-averages theta
+# across latent Gibbs sweeps, so it estimates the MARGINAL covariance while
+# NUTS integrates the CONDITIONAL target; where those differ sharply the
+# warmup step size collapses and trajectories grow to hundreds of steps.
+conditional_mass = true
 
 [model]
 Om = 0.315
@@ -191,7 +198,12 @@ dist = "normal"
 loc = 0.0
 scale = 0.025
 
-# Sample the periapsis warp whenever eccentricity is enabled.
+# Periapsis warp, sampled by default when eccentricity is enabled.  It enters
+# the likelihood only as a rotation of (e_x, e_y), so it is unidentified where
+# eccentricity is, and sampling it then funnels.  Diagnostic before trusting an
+# --add-ecc fit: compare the dperiapsis_dr posterior sd against this prior's
+# 207.85; at a ratio near 1 the fit is reporting the prior back, and the warp
+# should be fixed with a per-galaxy `dist = "delta"` override (see NGC6323).
 [model.priors.dperiapsis_dr]
 dist = "uniform"
 low = -360.0
@@ -224,12 +236,15 @@ force_f64 = true
 use_ecc = false
 ecc_cartesian = true
 use_quadratic_warp = false
-# Move systemic phi with its fixed linear astrometric-centre response during
-# each global NUTS update. This weakens the x0/dv_sys/eta--phi ridge while
-# leaving the conditional latent Gibbs target and every high-velocity phi
-# unchanged.
+# Move systemic phi with its fixed linear response to the astrometric centre
+# AND to dv_sys during each global NUTS update.  This weakens the
+# x0/dv_sys/eta--phi ridge while leaving the conditional latent Gibbs target
+# and every high-velocity phi unchanged.  The mass matrix cannot do this job:
+# the metric only changes how NUTS explores p(theta | latents), whereas the
+# transport changes that conditional itself, which is the Gibbs bottleneck.
 mcmc_transport_systemic_phi = true
-mcmc_target_accept_theta = 0.85
+# Inherit the global 0.99 target; the legacy 0.85 setting destabilises this
+# fixed metric as the conditional curvature changes across latent sweeps.
 mcmc_sample_n_inner = 60
 # Denser phi grids for NGC4258 (position errors ~3 uas -> narrow phi peaks).
 n_phi_hv_high = 20001

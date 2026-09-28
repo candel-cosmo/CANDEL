@@ -114,7 +114,9 @@ def _apply_chain_attrs_to_config(cfg, galaxy, attrs):
         gblk["use_quadratic_warp"] = _attr_bool(attrs, "use_quadratic_warp")
     if "use_ecc" in attrs:
         gblk["use_ecc"] = _attr_bool(attrs, "use_ecc")
-    if _attr_bool(attrs, "uniform_da_prior"):
+    if "D_c_prior" in attrs:
+        cfg["model"]["D_c_prior"] = _attr_str(attrs, "D_c_prior")
+    elif _attr_bool(attrs, "uniform_da_prior"):
         cfg["model"]["D_c_prior"] = "uniform_D_A"
     if galaxy == "NGC5765b":
         if "error_floor_policy" in attrs:
@@ -242,7 +244,7 @@ def _sampled_global_names(target, samples):
             f"chain is missing sampled sites {missing}; cannot score the "
             "marginal posterior. Evidence is scored only in sampled site "
             "coordinates; check the chain metadata (uniform_da_prior, "
-            "mass_parameterization, fix_floors_pesce).")
+            "mass_parameterization).")
     return names
 
 
@@ -373,12 +375,6 @@ def main(argv=None):
         check_chain_dataset(attrs, dataset, args.chain)
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
-    if _attr_bool(attrs, "fix_floors_pesce"):
-        raise SystemExit(
-            "the diagnostic for --fix-floors-pesce chains is not supported "
-            "yet "
-            "(the fixed floors are dropped from the sampled sites).")
-
     fsection(f"Single-galaxy marginal-objective diagnostic: {args.galaxy}")
     fprint(f"chain: {args.chain}")
     gblk = master_cfg["model"]["galaxies"][args.galaxy]

@@ -68,8 +68,10 @@ visualise the posterior distributions using the utility functions:
 
 .. code-block:: python
 
-   from candel.plotting.corner import plot_corner_from_hdf5
+   from candel import read_samples
+   from candel.plotting.corner import plot_corner
 
-   plot_corner_from_hdf5("./results/quickstart/tfr_samples.hdf5")
+   samples = read_samples("./results/quickstart", "tfr_samples.hdf5")
+   plot_corner(samples)
 
 This will generate a corner plot of the free parameters in your model.

@@ -1310,6 +1310,7 @@ TASK_SPECS = {
             "Manticore/COLA PCS run."),
         "config_path": "configs/config.toml",
         "common": {
+            "io/field_cache_project": "TEST",
             "inference/model": "SNModel",
             "io/catalogue_name": "Foundation",
             "inference/num_chains": 1,
@@ -1520,6 +1521,7 @@ TASK_SPECS = {
             "CF4 W1 and SDSS FP radial Vext comparison."),
         "config_path": "configs/config.toml",
         "common": {
+            "io/field_cache_project": "VextRad",
             "inference/model": "TFRModel",
             "inference/num_chains": 1,
             "inference/chain_method": "sequential",
@@ -1669,6 +1671,7 @@ TASK_SPECS = {
         "config_path": "configs/config.toml",
         "tag": "default",
         "common": {
+            "io/field_cache_project": "S8",
             "pv_model/kind": S8_PV_KIND,
             "pv_model/galaxy_bias": S8_BIAS_MODELS,
             "pv_model/density_3d_downsample": 1,
@@ -1691,6 +1694,7 @@ TASK_SPECS = {
         "config_path": "configs/config.toml",
         "tag": "paper",
         "common": {
+            "io/field_cache_project": "VFO",
             "pv_model/density_3d_geometry": "sphere",
             "pv_model/density_3d_radius": 150.0,
             "pv_model/density_3d_downsample": 1,
@@ -1708,6 +1712,7 @@ TASK_SPECS = {
         "config_path": "configs/config.toml",
         "tag": "single",
         "common": {
+            "io/field_cache_project": "VFO",
             "inference/model": "TFRModel",
             "io/catalogue_name": "CF4_W1",
             "pv_model/galaxy_bias": "double_powerlaw",

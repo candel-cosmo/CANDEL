@@ -14,6 +14,8 @@ os.environ.setdefault("JAX_PLATFORM_NAME", "cpu")
 os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 
 import candel  # noqa: E402
+from candel.pvdata.field_cache import (  # noqa: E402
+    _field_cache_dir_from_config, _field_cache_project_from_config)
 from candel.pvdata.volume_density import _load_volume_data_for_H0  # noqa: E402
 
 matplotlib.use("Agg")
@@ -104,7 +106,8 @@ def load_swift_volume(rows):
         voxel_subsample_fraction=1.0,
         load_velocity=False,
         geometry="sphere",
-        cache_dir=str(ROOT / "data" / "field_cache"),
+        cache_dir=_field_cache_dir_from_config(config),
+        cache_project=_field_cache_project_from_config(config),
         cache_enabled=True,
         field_smoothing_scale=None,
         velocity_field_smoothing_scale=None,

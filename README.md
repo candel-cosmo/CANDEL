@@ -54,7 +54,7 @@ candel/
     mwcepheids/   Milky Way Cepheid calibration model
   pvdata/         Data loaders for all supported catalogues
   cosmo/          Cosmography, growth rate, PV covariance matrices
-  inference/      NUTS sampling, nested sampling (NSS), Sobol+Adam optimisation, evidence estimation
+  inference/      NUTS sampling, Sobol+Adam optimisation, evidence estimation
   field/          3D density/velocity field loading and LOS interpolation
   redshift2real/  Map observed redshift → cosmological redshift given a velocity field
   mock/           Synthetic catalogue generation for testing
@@ -100,7 +100,6 @@ Megamaser jobs use the unified runner above; MCMC is the default sampler.
 
 - **NUTS** (default for the non-maser distance-indicator models): No-U-Turn Sampler via NumPyro. Robust, gradient-based.
 - **BlackJAX explicit MCMC:** dedicated megamaser disk sampler in `scripts/megamaser/run_maser.py`.
-- **Nested Slice Sampling (NSS):** Bayesian evidence computation via a self-contained reimplementation of the NSS algorithm ([Yallup et al. 2026](https://arxiv.org/abs/2601.23252)) in `candel/inference/nested.py`. No external nested-sampling dependency required.
 - **Sobol + Adam MAP:** Multi-start MAP optimisation using Sobol quasi-random initialisation and Adam gradient descent. Configured via the `[optimise]` section of the TOML config.
 
 ## Results
@@ -129,8 +128,6 @@ source venv_candel/bin/activate
 python -m pip install --upgrade pip setuptools
 python -m pip install -e .
 ```
-
-Nested sampling (NSS) is self-contained and ships with CANDEL; no extra nested-sampling dependency is required.
 
 For learned harmonic-mean evidence estimates, also install [harmonic](https://github.com/astro-informatics/harmonic).
 

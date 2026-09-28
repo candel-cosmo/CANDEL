@@ -119,6 +119,7 @@ e_mag_N4258_TRGB = 0.0443
 ###############################################################################
 
 [io]
+field_cache_project = "CCHP"
 root_output = "results/CCHP"
 fname_output = "results/CCHP/test_sn_sel.hdf5"
 

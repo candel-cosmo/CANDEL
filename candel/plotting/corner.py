@@ -118,6 +118,10 @@ def name2label(name):
         "sigma_v_sys": r"$\sigma_{v,\mathrm{sys}}$",
         "sigma_v_hv": r"$\sigma_{v,\mathrm{hv}}$",
         "sigma_a_floor": r"$\sigma_{a,\mathrm{fl}}$",
+        "sigma_x_floor_clump2": r"$\sigma^{(2)}_{x,\mathrm{fl}}$",
+        "sigma_y_floor_clump2": r"$\sigma^{(2)}_{y,\mathrm{fl}}$",
+        "sigma_v_floor_clump2": r"$\sigma^{(2)}_{v,\mathrm{sys}}$",
+        "sigma_a_floor_clump2": r"$\sigma^{(2)}_{a,\mathrm{fl}}$",
         "ecc": r"$e$",
         "e_x": r"$e_x$",
         "e_y": r"$e_y$",
@@ -227,6 +231,10 @@ def name2labelgetdist(name):
         "sigma_v_sys": r"\sigma_{v,\mathrm{sys}}",
         "sigma_v_hv": r"\sigma_{v,\mathrm{hv}}",
         "sigma_a_floor": r"\sigma_{a,\mathrm{fl}}",
+        "sigma_x_floor_clump2": r"\sigma^{(2)}_{x,\mathrm{fl}}",
+        "sigma_y_floor_clump2": r"\sigma^{(2)}_{y,\mathrm{fl}}",
+        "sigma_v_floor_clump2": r"\sigma^{(2)}_{v,\mathrm{sys}}",
+        "sigma_a_floor_clump2": r"\sigma^{(2)}_{a,\mathrm{fl}}",
         "ecc": r"e",
         "e_x": r"e_x",
         "e_y": r"e_y",
@@ -264,7 +272,9 @@ def sort_params(keys):
         "cz_lim_selection_width", "x0", "y0", "i0", "Omega0",
         "di_dr", "dOmega_dr", "d2i_dr2", "d2Omega_dr2",
         "sigma_x_floor", "sigma_y_floor", "sigma_v_sys", "sigma_v_hv",
-        "sigma_a_floor", "ecc", "e_x", "e_y", "periapsis",
+        "sigma_a_floor", "sigma_x_floor_clump2", "sigma_y_floor_clump2",
+        "sigma_v_floor_clump2", "sigma_a_floor_clump2",
+        "ecc", "e_x", "e_y", "periapsis",
         "periapsis_rad", "dperiapsis_dr", "a_TFR", "b_TFR", "c_TFR",
         "alpha", "beta", "sigma_int", "sigma_v", "logM_miss",
         "Mmiss_distance", "Mmiss_ell", "Mmiss_b", "Vext", "Vext_mag",
@@ -424,8 +434,11 @@ def plot_corner_getdist(samples_list, labels=None, cols=None, show_fig=True,
                         legend_fontsize=None, filled=True,
                         apply_ell_offset=False, mag_range=None,
                         ell_range=None, b_range=None, points=None,
-                        ranges=None, truths=None):
-    """Plot a GetDist triangle plot for one or more posterior samples."""
+                        ranges=None, truths=None, param_limits=None):
+    """Plot a GetDist triangle plot for one or more posterior samples.
+
+    `ranges` are hard prior boundaries used by the KDE; `param_limits` only
+    sets the plotted axis range and does not affect the density estimate."""
     if mag_range is None:
         mag_range = [0, None]
     if ell_range is None:
@@ -529,6 +542,7 @@ def plot_corner_getdist(samples_list, labels=None, cols=None, show_fig=True,
             line_args=line_args,
             legend_labels=labels,
             legend_loc="upper right",
+            param_limits=param_limits or {},
         )
 
         if points is not None:

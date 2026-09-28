@@ -67,6 +67,7 @@ def _volume_mag_selection_integral(
 def test_h0_volume_supersampling_is_generic_cache_payload():
     payload = {
         "kind": "volume_field_data",
+        "project": "TRGBH0",
         "product": "h0_volume",
         "loader_name": "toy_reconstruction",
         "field_indices": [0],
@@ -353,8 +354,10 @@ def test_h0_volume_uses_per_field_warmed_cache(
 
     payload = {
         "kind": "volume_field_data",
+        "project": "TRGBH0",
         "product": "h0_volume",
         "loader_name": "fake_manticore",
+        "loader_kwargs": {"Om0": 0.3},
         "field_indices": [1],
         "subcube_radius": 50.0,
         "geometry": "sphere",
@@ -367,12 +370,15 @@ def test_h0_volume_uses_per_field_warmed_cache(
         },
         "load_velocity": False,
     }
-    cache_path = Path(_field_cache_path(
-        tmp_path, _VOLUME_FIELD_CACHE_PREFIX, payload))
-    assert cache_path.parent.name == "fake_manticore"
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
     r_3d, _ = _expected_h0_volume_grid_from_loader(
         FakeLoader(1), "sphere", 50.0, 4, 15.0)
+    payload["max_radius"] = float(np.max(r_3d))
+    cache_path = Path(_field_cache_path(
+        tmp_path, _VOLUME_FIELD_CACHE_PREFIX, payload))
+    assert cache_path.parent == (
+        tmp_path / "TRGBH0" / "fake_manticore"
+        / "selection_volume" / "field-1")
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
     np.savez(
         cache_path,
         rho_3d_fields=np.full((1, len(r_3d)), 20.0, dtype=np.float32),
@@ -386,6 +392,7 @@ def test_h0_volume_uses_per_field_warmed_cache(
     loaded = _load_volume_data_for_H0(
         "fake_manticore", {"Om0": 0.3}, [1], "linear", 0.3,
         subcube_radius=50.0, geometry="sphere", cache_dir=tmp_path,
+        cache_project="TRGBH0",
         cache_enabled=True, supersample_radius=15.0,
         supersample_target_dx=1.0)
 
@@ -411,8 +418,10 @@ def test_h0_volume_target_dx_warmed_superset_matches_resolved_factor(
 
     payload = {
         "kind": "volume_field_data",
+        "project": "TRGBH0",
         "product": "h0_volume",
         "loader_name": "fake_manticore",
+        "loader_kwargs": {"Om0": 0.3},
         "field_indices": [1],
         "subcube_radius": 50.0,
         "geometry": "sphere",
@@ -423,8 +432,13 @@ def test_h0_volume_target_dx_warmed_superset_matches_resolved_factor(
     r_3d, _ = _expected_h0_volume_grid_from_loader(
         FakeLoader(1), "sphere", 50.0, 4, 15.0)
     for factor, value in ((4, 40.0), (8, 80.0)):
+        factor_r_3d = (
+            r_3d if factor == 4 else
+            _expected_h0_volume_grid_from_loader(
+                FakeLoader(1), "sphere", 50.0, factor, 15.0)[0])
         cache_payload = {
             **payload,
+            "max_radius": float(np.max(factor_r_3d)),
             "supersample": {
                 "factor": factor,
                 "radius": 15.0,
@@ -434,10 +448,6 @@ def test_h0_volume_target_dx_warmed_superset_matches_resolved_factor(
         cache_path = Path(_field_cache_path(
             tmp_path, _VOLUME_FIELD_CACHE_PREFIX, cache_payload))
         cache_path.parent.mkdir(parents=True, exist_ok=True)
-        factor_r_3d = (
-            r_3d if factor == 4 else
-            _expected_h0_volume_grid_from_loader(
-                FakeLoader(1), "sphere", 50.0, factor, 15.0)[0])
         np.savez(
             cache_path,
             rho_3d_fields=np.full(
@@ -453,6 +463,7 @@ def test_h0_volume_target_dx_warmed_superset_matches_resolved_factor(
     loaded = _load_volume_data_for_H0(
         "fake_manticore", {"Om0": 0.3}, [1], "linear", 0.3,
         subcube_radius=50.0, geometry="sphere", cache_dir=tmp_path,
+        cache_project="TRGBH0",
         cache_enabled=True, supersample_radius=15.0,
         supersample_target_dx=1.0)
 
@@ -483,6 +494,7 @@ def test_h0_volume_missing_warmed_cache_errors_before_raw_load(
         _load_volume_data_for_H0(
             "fake_manticore", {"Om0": 0.3}, [1], "linear", 0.3,
             subcube_radius=50.0, geometry="sphere", cache_dir=tmp_path,
+            cache_project="TRGBH0",
             cache_enabled=True, supersample_radius=15.0,
             supersample_target_dx=1.0)
     except RuntimeError as exc:
@@ -513,8 +525,10 @@ def test_h0_volume_raw_readable_field_builds_cache_on_miss(
 
     loaded = _load_volume_data_for_H0(
         "ManticoreLocalCOLA", {"Om0": 0.306}, [0], "linear", 0.306,
-        geometry="cube", cache_dir=tmp_path, cache_enabled=True)
+        geometry="cube", cache_dir=tmp_path, cache_project="TRGBH0",
+        cache_enabled=True)
 
     np.testing.assert_allclose(
         np.asarray(loaded["density_3d_fields"]), np.ones((1, 4, 4, 4)))
-    assert list((tmp_path / "ManticoreLocalCOLA").glob("*.npz"))
+    assert list((tmp_path / "TRGBH0" / "ManticoreLocalCOLA"
+                 / "selection_volume" / "field-0").glob("*.npz"))

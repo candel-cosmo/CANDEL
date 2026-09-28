@@ -156,6 +156,7 @@ high = 1.0
 ################################################################################
 
 [io]
+field_cache_project = "CH0"
 root_output = "results/CH0"
 fname_output = "results/CH0/test.hdf5"
 los_file_random = "data/los_random_<X>.hdf5"

@@ -10,6 +10,7 @@ import os
 import sys
 
 import numpy as np
+from numpyro.distributions import DoublyTruncatedPowerLaw
 import pytest
 import tomli
 import tomli_w
@@ -72,6 +73,28 @@ def test_default_dataset_has_complete_config_init():
     assert MASER_DATASETS == (
         "original_published", "fiducial", "unpruned", "clipped")
     assert _config()["io"]["dataset"] == DEFAULT_MASER_DATASET
+
+
+def test_da2_prior_is_applied_to_sampled_da(tmp_path):
+    cfg = _config()
+    apply_dataset(cfg, "fiducial")
+    cfg["model"]["D_c_prior"] = "volume_D_A"
+    path = tmp_path / "config.toml"
+    with open(path, "wb") as f:
+        tomli_w.dump(cfg, f)
+
+    data = _load("fiducial", "NGC6323")
+    gcfg = cfg["model"]["galaxies"]["NGC6323"]
+    data["D_lo"], data["D_hi"] = gcfg["D_lo"], gcfg["D_hi"]
+    model = MaserDiskModel(path, data)
+
+    assert model.D_A_prior == "volume_D_A"
+    assert isinstance(model.priors["D"], DoublyTruncatedPowerLaw)
+    lo, hi = model.priors["D"].low, model.priors["D"].high
+    d1, d2 = lo + 0.25 * (hi - lo), lo + 0.75 * (hi - lo)
+    assert float(model.priors["D"].log_prob(d2)
+                 - model.priors["D"].log_prob(d1)) == pytest.approx(
+                     2 * np.log(float(d2 / d1)))
 
 
 def test_maser_data_root_rejects_unknown_dataset():
@@ -561,3 +584,53 @@ def test_check_init_block_rejects_wrong_spot_count():
 def test_check_init_block_accepts_matching_block():
     init = {"r_ang": [1.0] * 358, "D_A": 7.4}
     assert check_init_block(init, _FakeModel()) is init
+
+
+def _ecc_model(tmp_path, galaxy, fix_warp, name):
+    cfg = _config()
+    apply_dataset(cfg, "original_published")
+    gcfg = cfg["model"]["galaxies"][galaxy]
+    gcfg["use_ecc"] = True
+    priors = gcfg.setdefault("priors", {})
+    if fix_warp:
+        priors["dperiapsis_dr"] = {"dist": "delta", "value": 0.0}
+    else:
+        priors.pop("dperiapsis_dr", None)
+    path = tmp_path / name
+    with open(path, "wb") as f:
+        tomli_w.dump(cfg, f)
+    root = maser_data_root("original_published")
+    if not os.path.isdir(root):
+        pytest.skip(f"external megamaser dataset is not provisioned: {root}")
+    data = load_megamaser_spots(root, galaxy, v_sys_obs=gcfg["v_sys_obs"],
+                                use_ecc=True)
+    data["D_lo"], data["D_hi"] = gcfg["D_lo"], gcfg["D_hi"]
+    return MaserDiskModel(path, data)
+
+
+def test_eccentric_model_can_fix_the_periapsis_warp(tmp_path):
+    """A Delta prior on dperiapsis_dr fixes the warp instead of sampling it.
+
+    Fixing it must drop exactly that site and keep e_x/e_y, which are smooth
+    through e = 0 in the Cartesian parameterisation.  See
+    ``_configure_features`` for why the warp is unidentified as |e| -> 0.
+    """
+    free = _ecc_model(tmp_path, "NGC6323", False, "free.toml")
+    fixed = _ecc_model(tmp_path, "NGC6323", True, "fixed.toml")
+
+    assert free.sample_periapsis_warp is True
+    assert fixed.sample_periapsis_warp is False
+
+    free_sites = {s for s, _, _ in _theta_site_prior_pairs(free, h=0.73)}
+    fixed_sites = {s for s, _, _ in _theta_site_prior_pairs(fixed, h=0.73)}
+    assert "dperiapsis_dr" in free_sites
+    assert "dperiapsis_dr" not in fixed_sites
+    assert {"e_x", "e_y"} <= fixed_sites
+    assert free_sites - fixed_sites == {"dperiapsis_dr"}
+
+
+def test_shipped_config_fixes_the_ngc6323_periapsis_warp():
+    """The override that makes --add-ecc usable on NGC6323 stays in place."""
+    prior = _config()["model"]["galaxies"]["NGC6323"]["priors"][
+        "dperiapsis_dr"]
+    assert prior == {"dist": "delta", "value": 0.0}
