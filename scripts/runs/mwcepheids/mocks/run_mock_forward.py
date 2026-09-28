@@ -18,16 +18,17 @@ import signal
 import sys
 import time
 import tomllib
+import traceback
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
-from mock_forward_utils import (MOCK_CFG_MW, MOCK_CFG_PI,  # noqa: E402
-                                TRUE_PARAMS, generate_mock_forward)
+from mock_forward_utils import MOCK_CFG_MW, MOCK_CFG_PI, generate_mock_forward
+from mock_utils import TRUE_PARAMS
 from mpi4py import MPI
 
-from candel.inference import run_MWCepheids_inference  # noqa: E402
-from candel.model import MWCepheidModel  # noqa: E402
+from candel.inference import run_MWCepheids_inference
+from candel.model import MWCepheidModel
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -38,7 +39,8 @@ ALL_TASKS = {
     "C27": ("C27", SCRIPT_DIR / "config_mock_pi.toml", MOCK_CFG_PI),
 }
 
-# Parameters to track (true_params key -> NumPyro sample name mapping)
+# Global parameters (same name in TRUE_PARAMS and the NumPyro model) and
+# per-campaign population hyperparameters (suffixed with the campaign name)
 PRIMARY_PARAMS = ["M_H_1", "b_W", "Z_W", "delta_pi", "sigma_int"]
 POPULATION_PARAMS = ["mu_logP", "sigma_logP", "mu_OH", "sigma_OH"]
 
@@ -57,7 +59,7 @@ def load_mock_config(toml_path):
 
 
 def run_one_mock_forward(seed, campaign, toml_path, mock_cfg,
-                         true_params, quiet=True, logP_min=None):
+                         true_params, quiet=True):
     """Run one mock: generate data, run inference, compute biases."""
     data, n_parent, n_sel = generate_mock_forward(
         seed, true_params, mock_cfg, campaign)
@@ -71,8 +73,10 @@ def run_one_mock_forward(seed, campaign, toml_path, mock_cfg,
     # Override inference seed per mock for independent chains
     config["inference"]["seed"] = seed
 
-    if logP_min is not None:
-        config["model"][campaign]["selection"]["logP_min"] = logP_min
+    # Model period cut must equal the one used to generate the mock
+    if mock_cfg.get("logP_min") is not None:
+        config["model"][campaign]["selection"]["logP_min"] = float(
+            mock_cfg["logP_min"])
 
     model = MWCepheidModel(config, data)
     mcmc, samples = run_MWCepheids_inference(
@@ -83,20 +87,15 @@ def run_one_mock_forward(seed, campaign, toml_path, mock_cfg,
     biases = {}
     # Primary parameters (same name in true_params and NumPyro)
     for param in PRIMARY_PARAMS:
-        if param not in samples:
-            continue
         samp = np.asarray(samples[param])
         biases[param] = (samp.mean() - true_params[param]) / samp.std()
 
-    # Population hyperparameters (suffixed with campaign in NumPyro)
-    # True values may be in mock_cfg (campaign-specific) or TRUE_PARAMS
+    # Population hyperparameters (suffixed with campaign in NumPyro); their
+    # true values are the campaign-specific generator settings.
     for param in POPULATION_PARAMS:
         key = f"{param}_{campaign}"
-        if key not in samples:
-            continue
-        true_val = mock_cfg.get(param, true_params.get(param))
         samp = np.asarray(samples[key])
-        biases[key] = (samp.mean() - true_val) / samp.std()
+        biases[key] = (samp.mean() - mock_cfg[param]) / samp.std()
 
     # Remap parameter names
     for old, new in PARAM_REMAP.items():
@@ -151,8 +150,9 @@ def master(comm, n_workers, n_mocks, campaign, toml_path, mock_cfg,
         now = datetime.now().strftime("%H:%M:%S")
         if result is None:
             n_skipped += 1
-            print(f"[WARN {now}] {label}: {n_done}/{n_mocks} — seed timed "
-                  f"out on rank {source} ({elapsed:.0f}s)", flush=True)
+            print(f"[WARN {now}] {label}: {n_done}/{n_mocks} — seed failed "
+                  f"or timed out on rank {source} ({elapsed:.0f}s)",
+                  flush=True)
         else:
             results.append(result)
             print(f"[INFO {now}] {label}: {n_done}/{n_mocks} done "
@@ -169,14 +169,14 @@ def master(comm, n_workers, n_mocks, campaign, toml_path, mock_cfg,
           f"({elapsed / n_mocks:.1f}s/mock)")
     if n_skipped:
         print(f"[WARN] {label}: {n_skipped}/{n_mocks} mocks skipped "
-              f"(timed out)")
+              f"(failed or timed out)")
 
     # Collect biases (use remapped names)
     all_params = [PARAM_REMAP.get(p, p) for p in PRIMARY_PARAMS] + [
         f"{p}_{campaign}" for p in POPULATION_PARAMS]
     biases = {p: [] for p in all_params}
     n_selected_list = []
-    for b, n_parent, n_sel in results:
+    for b, _, n_sel in results:
         n_selected_list.append(n_sel)
         for p in all_params:
             if p in b:
@@ -209,8 +209,7 @@ def master(comm, n_workers, n_mocks, campaign, toml_path, mock_cfg,
     return label, biases, param_names, n_skipped
 
 
-def worker(comm, campaign, toml_path, mock_cfg, true_params, timeout,
-           logP_min=None):
+def worker(comm, campaign, toml_path, mock_cfg, true_params, timeout):
     """Ranks 1..N: receive seeds, run mocks, send back results."""
     def _alarm_handler(signum, frame):
         raise TimeoutError
@@ -228,9 +227,13 @@ def worker(comm, campaign, toml_path, mock_cfg, true_params, timeout,
             signal.alarm(timeout)
         try:
             result = run_one_mock_forward(
-                seed, campaign, toml_path, mock_cfg, true_params, quiet=True,
-                logP_min=logP_min)
+                seed, campaign, toml_path, mock_cfg, true_params, quiet=True)
         except TimeoutError:
+            result = None
+        except Exception:
+            # Report the failure instead of leaving the master waiting.
+            print(f"[ERROR] seed {seed} failed:\n{traceback.format_exc()}",
+                  file=sys.stderr, flush=True)
             result = None
         finally:
             signal.alarm(0)
@@ -249,14 +252,15 @@ def print_table(all_results):
             if p not in all_params:
                 all_params.append(p)
 
-    header = f"{'Run':<18s}" + "".join(f"{p:>20s}" for p in all_params)
+    w = max(len(label) for label, _, _ in all_results) + 2
+    header = f"{'Run':<{w}s}" + "".join(f"{p:>20s}" for p in all_params)
     print(f"\n{'=' * 60}")
     print("Summary: mean standardised bias +/- std")
     print("=" * 60)
     print(header)
     print("-" * len(header))
     for label, biases, _ in all_results:
-        row = f"{label:<18s}"
+        row = f"{label:<{w}s}"
         for p in all_params:
             if p in biases:
                 b = biases[p]
@@ -308,18 +312,17 @@ def main():
 
         os.makedirs(args.outdir, exist_ok=True)
 
-        logP_min = args.logP_min
-
-        script_dir = os.path.dirname(os.path.abspath(__file__))
         tasks = []
         for c in args.campaigns:
-            campaign, toml_filename, mock_cfg = ALL_TASKS[c]
-            # Override logP_min for data generation if requested
-            if logP_min is not None and mock_cfg.get("logP_min") is not None:
-                mock_cfg = dict(mock_cfg)
-                mock_cfg["logP_min"] = logP_min
-            toml_path = os.path.join(script_dir, toml_filename)
-            tasks.append((campaign, toml_path, mock_cfg))
+            campaign, toml_path, mock_cfg = ALL_TASKS[c]
+            # The override applies only to campaigns with a period cut; it
+            # is used for both data generation and the model.
+            logP_min = None
+            if (args.logP_min is not None
+                    and mock_cfg.get("logP_min") is not None):
+                logP_min = args.logP_min
+                mock_cfg = dict(mock_cfg, logP_min=logP_min)
+            tasks.append((campaign, toml_path, mock_cfg, logP_min))
 
         config = {
             "n_mocks": args.n_mocks,
@@ -327,7 +330,6 @@ def main():
             "true_params": tp,
             "tasks": tasks,
             "timeout": args.timeout,
-            "logP_min": logP_min,
         }
     else:
         config = None
@@ -339,12 +341,11 @@ def main():
     tp = config["true_params"]
     tasks = config["tasks"]
     timeout = config["timeout"]
-    logP_min = config["logP_min"]
 
     all_results = []
     labels = []
     total_skipped = 0
-    for campaign, toml_path, mock_cfg in tasks:
+    for campaign, toml_path, mock_cfg, logP_min in tasks:
         if rank == 0:
             label, biases, params, n_skipped = master(
                 comm, n_workers, n_mocks, campaign, toml_path, mock_cfg,
@@ -353,14 +354,15 @@ def main():
             labels.append(label)
             total_skipped += n_skipped
         else:
-            worker(comm, campaign, toml_path, mock_cfg, tp, timeout, logP_min)
+            worker(comm, campaign, toml_path, mock_cfg, tp, timeout)
 
     single_task = len(tasks) == 1
 
     if rank == 0:
         print_table(all_results)
         if total_skipped:
-            print(f"\n[WARN] Total skipped (timed out): {total_skipped}")
+            print(f"\n[WARN] Total skipped (failed or timed out): "
+                  f"{total_skipped}")
 
         # In single-task mode, keep the per-task .npz (a separate
         # collector or multi-campaign run will combine them later).

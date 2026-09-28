@@ -608,14 +608,14 @@ def selection_correction(campaign, d, data, params,
         log_P_sel = jnp.zeros(data.n_stars)
 
         if sel_c22.mW.apply:
-            mW_max = params["mW_max_C22"]
-            mW_width = params.get("mW_width_C22", 0.0)
             # width=0 means hard cut: all observed stars already pass,
             # so the per-star factor is 1 (log=0) and only the
-            # normalisation integral contributes.
-            if mW_width > 0:
+            # normalisation integral contributes. Branch on the static
+            # config, since an inferred width is a tracer.
+            if sel_c22.mW.infer_width or sel_c22.mW.width > 0:
                 log_P_sel = log_P_sel + log_probit_selection(
-                    data.mW_H, mW_max, mW_width, is_upper=True)
+                    data.mW_H, params["mW_max_C22"],
+                    params["mW_width_C22"], is_upper=True)
 
         if sel_c22.AH.apply and not marg_d:
             AH_max = params["AH_max_C22"]
@@ -644,11 +644,10 @@ def selection_correction(campaign, d, data, params,
                     data.pi_EDR3, pi_min, pi_w, is_upper=False)
 
         if sel_c22.logP.apply:
-            logP_min = params["logP_min_C22"]
-            logP_w = params.get("logP_width_C22", sel_c22.logP.width)
-            if logP_w > 0:
+            if sel_c22.logP.infer_width or sel_c22.logP.width > 0:
                 log_P_sel = log_P_sel + log_probit_selection(
-                    data.logP, logP_min, logP_w, is_upper=False)
+                    data.logP, params["logP_min_C22"],
+                    params["logP_width_C22"], is_upper=False)
 
         numpyro.factor(f"sel_prob_{campaign}", jnp.sum(log_P_sel))
 

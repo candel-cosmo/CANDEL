@@ -165,7 +165,6 @@ class ModelSetupMixin:
             n_cached_arms = _cached_spiral_arm_count(config)
             if n_cached_arms is not None:
                 self._arms_xy = None
-                self._n_arms = n_cached_arms
                 logger.info(
                     f"Spiral arms enabled: using {n_cached_arms} arms from "
                     "precomputed cache")
@@ -174,7 +173,6 @@ class ModelSetupMixin:
                     R_sun=self.disk_R_sun,
                     use_extrapolated=spiral_cfg.get("use_extrapolated", True),
                     ds=spiral_cfg.get("ds", None))
-                self._n_arms = len(self._arms_xy)
 
         # R21 model parameters
         r21_cfg = model_cfg.get("R21", {})

@@ -15,24 +15,16 @@ import os
 import signal
 import sys
 import time
+import traceback
 from datetime import datetime
 from pathlib import Path
 
 import mock_utils
 import numpy as np
-from mock_utils import (DEFAULT_CONFIGS, TRUE_VALS, likelihood_label,
-                        parse_likelihood, run_one_mock)
+from mock_utils import (DEFAULT_CONFIGS, SIMPLE_TASKS, TRUE_VALS,
+                        likelihood_label, parse_likelihood, print_bias_table,
+                        run_one_mock)
 from mpi4py import MPI
-
-TASKS = [
-    ("C22", "gaussian"),
-    ("C22", "chi2"),
-    ("C27", "gaussian"),
-    ("C27", "parallax_selection"),
-    ("C27", "chi2"),
-]
-
-PARAMS = ["MWH", "bW", "ZW", "delta_pi"]
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_OUTDIR = REPO_ROOT / "results" / "MWCepheids" / "mocks"
@@ -74,8 +66,9 @@ def master(comm, n_workers, n_mocks, label, outdir):
         now = datetime.now().strftime("%H:%M:%S")
         if result is None:
             n_skipped += 1
-            print(f"[WARN {now}] {label}: {n_done}/{n_mocks} — seed timed "
-                  f"out on rank {source} ({elapsed:.0f}s)", flush=True)
+            print(f"[WARN {now}] {label}: {n_done}/{n_mocks} — seed failed "
+                  f"or timed out on rank {source} ({elapsed:.0f}s)",
+                  flush=True)
         else:
             results.append(result)
             print(f"[INFO {now}] {label}: {n_done}/{n_mocks} done "
@@ -92,7 +85,7 @@ def master(comm, n_workers, n_mocks, label, outdir):
           f"({elapsed / n_mocks:.1f}s/mock)")
     if n_skipped:
         print(f"[WARN] {label}: {n_skipped}/{n_mocks} mocks skipped "
-              f"(timed out)")
+              f"(failed or timed out)")
 
     biases = {lab: [] for lab in TRUE_VALS}
     for b in results:
@@ -140,46 +133,17 @@ def worker(comm, which, configs, use_gaussian, sigma_int_val, timeout):
                 sigma_int_val=sigma_int_val)
         except TimeoutError:
             result = None
+        except Exception:
+            # Report the failure instead of leaving the master waiting.
+            print(f"[ERROR] seed {seed} failed:\n{traceback.format_exc()}",
+                  file=sys.stderr, flush=True)
+            result = None
         finally:
             signal.alarm(0)
 
         comm.send(result, dest=0, tag=TAG_RESULT)
 
     signal.signal(signal.SIGALRM, old_handler)
-
-
-def collect_results(outdir, labels):
-    """Load saved .npz files, return (results dict, list of file paths)."""
-    all_results = {}
-    files = []
-    for label in labels:
-        fpath = f"{outdir}/mock_{label}.npz"
-        try:
-            data = np.load(fpath)
-            biases = {p: data[p] for p in PARAMS if p in data}
-            all_results[label] = biases
-            files.append(fpath)
-        except FileNotFoundError:
-            print(f"[WARN] Missing {fpath}, skipping")
-    return all_results, files
-
-
-def print_table(all_results):
-    header = f"{'Run':<28s}" + "".join(f"{p:>18s}" for p in PARAMS)
-    print(f"\n{'=' * 60}")
-    print("Summary")
-    print("=" * 60)
-    print(header)
-    print("-" * len(header))
-    for label, biases in all_results.items():
-        row = f"{label:<28s}"
-        for p in PARAMS:
-            if p in biases:
-                b = biases[p]
-                row += f"{f'{b.mean():+.2f} +/- {b.std():.2f}':>18s}"
-            else:
-                row += f"{'---':>18s}"
-        print(row)
 
 
 def main():
@@ -227,7 +191,7 @@ def main():
         if args.campaign is not None and args.likelihood is not None:
             task_list = [(args.campaign, args.likelihood)]
         elif args.campaign is None and args.likelihood is None:
-            task_list = TASKS
+            task_list = SIMPLE_TASKS
         else:
             parser.error(
                 "--campaign and --likelihood must be used together")
@@ -267,27 +231,29 @@ def main():
 
     single_task = len(tasks) == 1
 
-    labels = []
+    all_results = {}
     for which, configs, use_gaussian, label in tasks:
         if rank == 0:
             label, biases = master(
                 comm, n_workers, n_mocks, label, outdir)
-            labels.append(label)
+            all_results[label] = biases
         else:
             worker(comm, which, configs, use_gaussian,
                    sigma_int_val, timeout)
 
     # In single-task mode, keep the per-task .npz for collect_mock_simple.py
     if rank == 0 and not single_task:
-        all_results, intermediate_files = collect_results(outdir, labels)
-        print_table(all_results)
+        print(f"\n{'=' * 60}")
+        print("Summary")
+        print("=" * 60)
+        print_bias_table(all_results)
 
         combined = {}
         for label, biases in all_results.items():
             for p, vals in biases.items():
                 combined[f"{label}/{p}"] = vals
         combined["labels"] = np.array(list(all_results.keys()))
-        combined["params"] = np.array(PARAMS)
+        combined["params"] = np.array(list(TRUE_VALS))
         combined["n_mocks"] = np.array(n_mocks)
         combined["sigma_int"] = np.array(
             sigma_int_val if sigma_int_val is not None
@@ -298,7 +264,8 @@ def main():
         np.savez(outfile, **combined)
         print(f"\n[INFO] Combined results saved to {outfile}")
 
-        for f in intermediate_files:
+        for label in all_results:
+            f = f"{outdir}/mock_{label}.npz"
             os.remove(f)
             print(f"[INFO] Removed {f}")
 

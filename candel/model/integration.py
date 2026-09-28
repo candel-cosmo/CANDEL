@@ -189,14 +189,15 @@ def ln_simpson(ln_y, x, axis=-1):
     locations `x`, and return the log of the integral
 
     Note: `x` values must be increasing and `x` and `ln_y` must have the
-    same length.
+    same length along `axis`.
 
     Parameters
     ----------
     ln_y : array_like
         Array of log function values to be integrated.
     x : array_like
-        The points at which `ln_y` is evaluated.
+        The points at which `ln_y` is evaluated. Either broadcastable to
+        `ln_y`, or 1D and shared by all slices of `ln_y` along `axis`.
     axis : int
         Axis of `ln_y` to integrate over.
 
@@ -208,6 +209,12 @@ def ln_simpson(ln_y, x, axis=-1):
     ln_y = jnp.asarray(ln_y)
     x = jnp.asarray(x)
     N = ln_y.shape[axis]
+
+    # Align a shared 1D grid with `axis` so its spacings broadcast.
+    if x.ndim == 1 and ln_y.ndim > 1:
+        shape = [1] * ln_y.ndim
+        shape[axis] = N
+        x = x.reshape(shape)
 
     if N % 2 == 0:
         raise ValueError("Even number of integration points is not supported.")

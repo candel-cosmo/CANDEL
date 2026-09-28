@@ -66,8 +66,9 @@ d_spacing = 0.01
 [model.C27.selection]
 apply_pi = true
 pi_min = 0.8
-pi_smooth = false
-pi_width = 0.0
+# Must match the mock generator (DEFAULT_CONFIGS["C27"]["varpi_width"])
+pi_smooth = true
+pi_width = 0.05
 apply_mW = false
 delta_pi_max = 0.1
 

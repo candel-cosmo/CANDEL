@@ -10,18 +10,10 @@ import argparse
 import os
 from pathlib import Path
 
+import mock_utils
 import numpy as np
-from mock_utils import likelihood_label, parse_likelihood
-
-TASKS = [
-    ("C22", "gaussian"),
-    ("C22", "chi2"),
-    ("C27", "gaussian"),
-    ("C27", "parallax_selection"),
-    ("C27", "chi2"),
-]
-
-PARAMS = ["MWH", "bW", "ZW", "delta_pi"]
+from mock_utils import (SIMPLE_TASKS, TRUE_VALS, likelihood_label,
+                        parse_likelihood, print_bias_table)
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_OUTDIR = REPO_ROOT / "results" / "MWCepheids" / "mocks"
@@ -41,7 +33,7 @@ def main():
 
     # Build expected labels
     labels = []
-    for campaign, likelihood in TASKS:
+    for campaign, likelihood in SIMPLE_TASKS:
         use_gaussian = parse_likelihood(likelihood)
         label = f"{campaign}_{likelihood_label(use_gaussian)}"
         if sigma_int_tag is not None:
@@ -58,7 +50,7 @@ def main():
             missing.append(label)
             continue
         data = np.load(fpath)
-        biases = {p: data[p] for p in PARAMS if p in data}
+        biases = {p: data[p] for p in TRUE_VALS if p in data}
         all_results[label] = biases
         files.append(fpath)
 
@@ -71,12 +63,9 @@ def main():
         return
 
     # Print summary table
-    n_mocks = None
     first = np.load(files[0])
-    if "n_mocks" in first:
-        n_mocks = int(first["n_mocks"])
+    n_mocks = int(first["n_mocks"]) if "n_mocks" in first else None
 
-    header = f"{'Run':<28s}" + "".join(f"{p:>18s}" for p in PARAMS)
     print(f"\n{'=' * 60}")
     print("Summary")
     print("=" * 60)
@@ -85,23 +74,13 @@ def main():
     if sigma_int_tag is not None:
         print(f"  sigma_int = {args.sigma_int}")
     else:
-        print("  sigma_int = 0.06 (default)")
+        print(f"  sigma_int = {mock_utils.sigma_int} (default)")
     print()
-    print(header)
-    print("-" * len(header))
 
     # Strip sigma_int suffix from labels for display
     sint_suffix = f"_sint{sigma_int_tag}" if sigma_int_tag is not None else ""
-    for label, biases in all_results.items():
-        short = label.removesuffix(sint_suffix)
-        row = f"{short:<28s}"
-        for p in PARAMS:
-            if p in biases:
-                b = biases[p]
-                row += f"{f'{b.mean():+.2f} +/- {b.std():.2f}':>18s}"
-            else:
-                row += f"{'---':>18s}"
-        print(row)
+    print_bias_table({label.removesuffix(sint_suffix): biases
+                      for label, biases in all_results.items()})
 
     # Save combined file
     combined = {}
@@ -109,10 +88,9 @@ def main():
         for p, vals in biases.items():
             combined[f"{label}/{p}"] = vals
     combined["labels"] = np.array(list(all_results.keys()))
-    combined["params"] = np.array(PARAMS)
+    combined["params"] = np.array(list(TRUE_VALS))
 
     # Get n_mocks and sigma_int from first file
-    first = np.load(files[0])
     if "n_mocks" in first:
         combined["n_mocks"] = first["n_mocks"]
     if "sigma_int" in first:

@@ -21,8 +21,6 @@ TRUE_PARAMS = {
     "delta_pi": -0.014,
     "sigma_int": 0.06,
     "f_pi": 1.0,
-    "mu_OH": 0.00,
-    "sigma_OH": 0.15,
 }
 
 EPSILON_OH = 0.06  # fixed metallicity measurement uncertainty
@@ -37,12 +35,6 @@ sigma_int = TRUE_PARAMS["sigma_int"]
 sigma_m_obs = 0.028
 sigma_varpi_obs = 0.019
 
-# PL parameters used for photometric parallax selection
-MWH_sel = -5.90
-bW_sel = -3.30
-ZW_sel = -0.22
-sigma_varpi_phot = 0.06
-
 # Simplified model name mapping
 TRUE_VALS = {
     "MWH": TRUE_PARAMS["M_H_1"],
@@ -51,25 +43,21 @@ TRUE_VALS = {
     "delta_pi": TRUE_PARAMS["delta_pi"],
 }
 
-# Default per-campaign configurations
+# Default per-campaign configurations. Selection: soft parallax cut
+# Phi((varpi_obs - varpi_cut) / varpi_width), hard mW_obs < mW_max and
+# logP >= logP_min; a None threshold disables that cut.
 DEFAULT_CONFIGS = {
     "C22": dict(
         N_parent=2000, d_min=0.3, d_max=10.0, dist_k=2,
-        sigma_m_obs=0.028, sigma_pi_obs=0.019,
+        sigma_m_obs=sigma_m_obs, sigma_pi_obs=sigma_varpi_obs,
         mu_logP=0.8, sigma_logP=0.3, mu_OH=0.0, sigma_OH=0.15,
-        varpi_cut=None, varpi_width=0.05,
-        varpi_phot_cut=None, varpi_phot_width=None,
-        mW_max=6.5, mW_width=None,
-        logP_min=np.log10(8), logP_max=None,
+        varpi_cut=None, mW_max=6.5, logP_min=np.log10(8),
     ),
     "C27": dict(
         N_parent=100, d_min=0.3, d_max=2, dist_k=2,
-        sigma_m_obs=0.028, sigma_pi_obs=0.019,
+        sigma_m_obs=sigma_m_obs, sigma_pi_obs=sigma_varpi_obs,
         mu_logP=0.75, sigma_logP=0.2, mu_OH=0.0, sigma_OH=0.15,
-        varpi_cut=0.8, varpi_width=0.05,
-        varpi_phot_cut=None, varpi_phot_width=None,
-        mW_max=None, mW_width=None,
-        logP_min=None, logP_max=None,
+        varpi_cut=0.8, varpi_width=0.05, mW_max=None, logP_min=None,
     ),
 }
 
@@ -97,24 +85,19 @@ def model(m_obs, varpi_obs, logP, OH, sigma_m, sigma_varpi, sigma_int,
     sigma_varpi_m = 0.2 * jnp.log(10) * varpi_phot * sigma_m_tot
     sigma_tilde = jnp.sqrt(sigma_varpi_m**2 + sigma_varpi**2)
 
-    if use_gaussian is True:
+    if use_gaussian is True or use_gaussian == "parallax_selection":
         with numpyro.plate("data", len(m_obs)):
             numpyro.sample(
                 "obs",
                 dist.Normal(varpi_phot - delta_pi, sigma_tilde),
                 obs=varpi_obs,
             )
-    elif use_gaussian == "parallax_selection":
-        with numpyro.plate("data", len(m_obs)):
-            numpyro.sample(
-                "obs",
-                dist.Normal(varpi_phot - delta_pi, sigma_tilde),
-                obs=varpi_obs,
-            )
+
+    if use_gaussian == "parallax_selection":
         sel_corr = jnp.sum(
             3 * jnp.log(varpi_cut + delta_pi) - 3 * jnp.log(varpi_phot))
         numpyro.factor("selection_correction", sel_corr)
-    else:
+    elif use_gaussian is not True:
         chi2 = jnp.sum(
             ((varpi_obs - varpi_phot + delta_pi) / sigma_tilde)**2)
         numpyro.factor("chi2", -0.5 * chi2)
@@ -123,42 +106,18 @@ def model(m_obs, varpi_obs, logP, OH, sigma_m, sigma_varpi, sigma_int,
 # ---------------------------------------------------------------------------
 # Mock data generation
 # ---------------------------------------------------------------------------
-def apply_selection(varpi_obs, m_obs, logP, OH, rng, cfg):
+def apply_selection(varpi_obs, m_obs, logP, rng, cfg):
     """Build selection mask from active cuts in cfg."""
     prob = np.ones(len(varpi_obs))
 
-    if cfg.get("varpi_cut") is not None:
-        if cfg.get("varpi_width") and cfg["varpi_width"] > 0:
-            prob *= norm.cdf(
-                (varpi_obs - cfg["varpi_cut"]) / cfg["varpi_width"])
-        else:
-            prob *= (varpi_obs > cfg["varpi_cut"]).astype(float)
+    if cfg["varpi_cut"] is not None:
+        prob *= norm.cdf((varpi_obs - cfg["varpi_cut"]) / cfg["varpi_width"])
+    if cfg["mW_max"] is not None:
+        prob *= m_obs < cfg["mW_max"]
+    if cfg["logP_min"] is not None:
+        prob *= logP >= cfg["logP_min"]
 
-    if cfg.get("varpi_phot_cut") is not None:
-        M_sel = MWH_sel + bW_sel * (logP - 1) + ZW_sel * OH
-        vp = 10**(-0.2 * (m_obs - M_sel - 10))
-        if sigma_varpi_phot is not None and sigma_varpi_phot > 0:
-            vp = vp + rng.normal(0, sigma_varpi_phot, len(vp))
-        if (cfg.get("varpi_phot_width") is not None
-                and cfg["varpi_phot_width"] > 0):
-            prob *= norm.cdf(
-                (vp - cfg["varpi_phot_cut"]) / cfg["varpi_phot_width"])
-        else:
-            prob *= (vp > cfg["varpi_phot_cut"]).astype(float)
-
-    if cfg.get("mW_max") is not None:
-        if cfg.get("mW_width") and cfg["mW_width"] > 0:
-            prob *= norm.cdf((cfg["mW_max"] - m_obs) / cfg["mW_width"])
-        else:
-            prob *= (m_obs < cfg["mW_max"]).astype(float)
-
-    if cfg.get("logP_min") is not None:
-        prob *= (logP >= cfg["logP_min"]).astype(float)
-    if cfg.get("logP_max") is not None:
-        prob *= (logP <= cfg["logP_max"]).astype(float)
-
-    sel = rng.uniform(size=len(varpi_obs)) < prob
-    return sel
+    return rng.uniform(size=len(varpi_obs)) < prob
 
 
 def generate_one_campaign(rng, cfg, true_params=None):
@@ -171,7 +130,7 @@ def generate_one_campaign(rng, cfg, true_params=None):
         true_params = TRUE_PARAMS
 
     N = cfg["N_parent"]
-    e = cfg.get("dist_k", 2) + 1
+    e = cfg["dist_k"] + 1
     u = rng.uniform(0, 1, N)
     d_true = (cfg["d_min"]**e + u * (cfg["d_max"]**e - cfg["d_min"]**e)
               )**(1 / e)
@@ -192,23 +151,22 @@ def generate_one_campaign(rng, cfg, true_params=None):
     mu = 5 * np.log10(d_true) + 10
     m = M + mu + rng.normal(0, true_params["sigma_int"], N)
 
-    sm = cfg.get("sigma_m_obs", sigma_m_obs)
-    sv = cfg.get("sigma_pi_obs", sigma_varpi_obs)
+    sm = cfg["sigma_m_obs"]
+    sv = cfg["sigma_pi_obs"]
     sigma_m = np.full(N, sm)
     sigma_varpi = np.full(N, sv)
     m_obs = m + rng.normal(0, sm, N)
 
     # Parallax
-    f_pi = true_params.get("f_pi", 1.0)
     varpi_true = 1.0 / d_true
     varpi_obs = (varpi_true - true_params["delta_pi"]
-                 + rng.normal(0, f_pi * sv, N))
+                 + rng.normal(0, true_params["f_pi"] * sv, N))
 
     # Metallicity observation
     OH_obs = OH_true + rng.normal(0, EPSILON_OH, N)
 
     # Selection
-    sel = apply_selection(varpi_obs, m_obs, logP, OH_true, rng, cfg)
+    sel = apply_selection(varpi_obs, m_obs, logP, rng, cfg)
 
     return {
         "d_true": d_true, "logP": logP,
@@ -281,8 +239,6 @@ def run_one_mock(seed, which, configs, true_vals=None, verbose=False,
     posterior = mcmc.get_samples()
     biases = {}
     for lab, tv in true_vals.items():
-        if lab not in posterior:
-            continue
         samp = np.asarray(posterior[lab])
         biases[lab] = (samp.mean() - tv) / samp.std()
     return biases
@@ -291,6 +247,31 @@ def run_one_mock(seed, which, configs, true_vals=None, verbose=False,
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+# (campaign, likelihood) combinations run by run_mock_simple.py
+SIMPLE_TASKS = [
+    ("C22", "gaussian"),
+    ("C22", "chi2"),
+    ("C27", "gaussian"),
+    ("C27", "parallax_selection"),
+    ("C27", "chi2"),
+]
+
+
+def print_bias_table(all_results, params=tuple(TRUE_VALS)):
+    """Print mean +/- std of the standardised biases per run."""
+    header = f"{'Run':<28s}" + "".join(f"{p:>18s}" for p in params)
+    print(header)
+    print("-" * len(header))
+    for label, biases in all_results.items():
+        row = f"{label:<28s}"
+        for p in params:
+            if p in biases:
+                b = biases[p]
+                row += f"{f'{b.mean():+.2f} +/- {b.std():.2f}':>18s}"
+            else:
+                row += f"{'---':>18s}"
+        print(row)
+
 def likelihood_label(use_gaussian):
     if use_gaussian is True:
         return "gaussian"
