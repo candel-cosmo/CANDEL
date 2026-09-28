@@ -8,10 +8,10 @@ EDD TRGB hosts. Writes the magnitude-redshift PPC (main text), the sky PPC
 (appendix), and the distance PPC.
 
 Three variants are supported: ``fiducial`` is the baseline model (48-pixel
-HEALPix angular sky-exposure, free beta), evaluated on its dominant realisation
-(field 66); ``skyexp`` is the superseded 12-pixel fixed-beta run; and
-``baseline`` omits the sky-exposure term. The sky-exposure term is required for
-the angular PPC to reproduce the observed host concentration.
+HEALPix angular sky-exposure), evaluated on its dominant realisation (field
+66); ``noexp`` is the same realisation without the sky-exposure term; and
+``skyexp`` is the superseded 12-pixel run. The sky-exposure term is required
+for the angular PPC to reproduce the observed host concentration.
 """
 import argparse
 import copy
@@ -36,33 +36,35 @@ from candel.mock import (generate_trgb_ppc, plot_trgb_ppc,  # noqa: E402
 
 matplotlib.use("Agg")
 
-# Fiducial run: Student-t, 4 Mpc/h smoothing, free beta, 48-pixel angular
-# sky-exposure. Its realisation-marginalised posterior has an effective sample
-# of ~1 field, so it collapses onto its single dominant realisation; the PPC
-# therefore uses that field's single-field posterior and realisation. Field 66
-# dominates (highest harmonic evidence, median H0=72.2 and Vext toward
-# (285, -3), matching the marginalised result). The superseded 12-pixel
-# fixed-beta (skyexp) and no-exposure (baseline) marginalised variants are kept
-# for reference.
+# Baseline run: Student-t, 4 Mpc/h smoothing, beta=1, 48-pixel angular
+# sky-exposure. The evidence weights over the 80 realisations have an effective
+# sample of ~1 field, so the ensemble collapses onto its single dominant
+# realisation; the PPC therefore uses that field's single-field posterior and
+# realisation. Field 66 dominates (highest harmonic evidence, median H0=72.3
+# and Vext toward (285, -3), matching the evidence-stacked result). The
+# no-exposure check uses the same realisation so that the comparison isolates
+# the sky-exposure term; the 12-pixel run is kept for reference.
 GENERATED = ROOT / "scripts/runs/generated_configs/TRGBH0_main"
 SINGLE_SMOOTHED = TRGBH0_RESULTS / "single_fields_smoothed"
 _STEM = "EDD_TRGB_rhoSmoothR4_cz-student_t_MAS-PCS_sel-TRGB_magnitude_bmin10_"
+FIELD = 66
 
 # variant -> (config stem, posterior path, Manticore realisation index).
 VARIANTS = {
     "fiducial": (
-        _STEM + "skyhp_nside2_k192_ManticoreLocalCOLA_beta_free_main",
+        _STEM + "skyhp_nside2_k192_ManticoreLocalCOLA_main",
         SINGLE_SMOOTHED / (_STEM + "skyhp_nside2_k192_ManticoreLocalCOLA"
-                           "_beta_free_field66_single_smoothed.hdf5"),
-        66),
+                           f"_field{FIELD}_single_smoothed.hdf5"),
+        FIELD),
+    "noexp": (
+        _STEM + "ManticoreLocalCOLA_main",
+        SINGLE_SMOOTHED / (_STEM + "ManticoreLocalCOLA"
+                           f"_field{FIELD}_single_smoothed.hdf5"),
+        FIELD),
     "skyexp": (
         _STEM + "skyhp_nside1_k48_ManticoreLocalCOLA_main",
         TRGBH0_TABLE_RESULTS / (_STEM + "skyhp_nside1_k48"
                                 "_ManticoreLocalCOLA_main.hdf5"),
-        0),
-    "baseline": (
-        _STEM + "ManticoreLocalCOLA_main",
-        TRGBH0_TABLE_RESULTS / (_STEM + "ManticoreLocalCOLA_main.hdf5"),
         0),
 }
 SEED = 42
@@ -118,10 +120,13 @@ def main():
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         np.savez(cache, **{k: ppc[k] for k in _keys if k in ppc})
 
+    # Only the baseline carries the paper figure names; the checks are tagged
+    # so that they cannot overwrite them.
+    tag = "" if args.variant == "fiducial" else f"_{args.variant}"
     outputs = {
-        "trgbh0_ppc_magnitude_redshift.pdf": plot_trgb_ppc,
-        "trgbh0_ppc_sky.pdf": plot_trgb_ppc_sky,
-        "trgbh0_ppc_distance.pdf": plot_trgb_ppc_distance,
+        f"trgbh0_ppc_magnitude_redshift{tag}.pdf": plot_trgb_ppc,
+        f"trgbh0_ppc_sky{tag}.pdf": plot_trgb_ppc_sky,
+        f"trgbh0_ppc_distance{tag}.pdf": plot_trgb_ppc_distance,
     }
     figdirs = [OUTPUT_DIR] + ([args.figdir] if args.figdir else [])
     stats = {}
@@ -130,8 +135,8 @@ def main():
             figdir.mkdir(parents=True, exist_ok=True)
             stats[name] = plotter(ppc, str(figdir / name), mnras=True)
 
-    mag_cz = stats["trgbh0_ppc_magnitude_redshift.pdf"]
-    dist = stats["trgbh0_ppc_distance.pdf"]
+    mag_cz = stats[f"trgbh0_ppc_magnitude_redshift{tag}.pdf"]
+    dist = stats[f"trgbh0_ppc_distance{tag}.pdf"]
     print(f"n_ppc            : {len(ppc['mag_sim'])}", flush=True)
     print(f"KS mag p         : {mag_cz['ks_mag_pvalue']:.4g}", flush=True)
     print(f"KS cz  p         : {mag_cz['ks_cz_pvalue']:.4g}", flush=True)
