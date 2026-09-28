@@ -68,11 +68,17 @@ git checkout --quiet "$SRC_REF"
 git rm -r -q --ignore-unmatch \
   candel/model/maser_*.py candel/model/model_H0_maser.py \
   candel/pvdata/megamaser_data.py \
+  candel/inference/optimise.py \
+  'docs/notes/megamaser_*.md' 'docs/notes/reid_*.md' \
+  scripts/preprocess/migrate_field_cache.py \
+  scripts/sync scripts/others \
+  tests/test_migrate_field_cache.py tests/test_field_product_policy.py \
   scripts/megamaser \
   notebooks/paper_MMH0 \
   'tests/test_megamaser_*.py' tests/test_reid_chain_loader.py \
   tools/mcp \
   .agents .claude .codex AGENT_MEMORY.md AGENTS.md CLAUDE.md .mcp.json \
+  findings .iwe \
   local_config_backup.toml \
   release
 
@@ -87,13 +93,18 @@ fi
 
 # --- 2d. Verification gates ---
 fail=0
-if git grep -i -qE 'maser|mmh0|\breid\b' -- '*.py' '*.md' '*.toml' '*.sh' '*.cfg' '*.txt' '*.gitignore'; then
+if git grep -i -qE 'maser|mmh0|\breid\b' -- '*.py' '*.md' '*.toml' '*.sh' '*.cfg' '*.txt' '*.rst' '*.gitignore'; then
   echo "[make_public] GATE FAIL: maser/mmh0/reid text remains in source:" >&2
-  git grep -i -nE 'maser|mmh0|\breid\b' -- '*.py' '*.md' '*.toml' '*.sh' '*.cfg' '*.txt' '*.gitignore' >&2
+  git grep -i -nE 'maser|mmh0|\breid\b' -- '*.py' '*.md' '*.toml' '*.sh' '*.cfg' '*.txt' '*.rst' '*.gitignore' >&2
   fail=1
 fi
 if git ls-files | grep -qi 'local_config_backup'; then
   echo "[make_public] GATE FAIL: local_config_backup.* present." >&2; fail=1
+fi
+if git ls-files | grep -qE '^(findings|\.iwe)/'; then
+  echo "[make_public] GATE FAIL: dev-only findings wiki must never reach the public tree:" >&2
+  git ls-files | grep -E '^(findings|\.iwe)/' >&2
+  fail=1
 fi
 if git ls-files | grep -qE '(^|/)release/|(^|/)make_public\.sh$|public_scrub\.patch$'; then
   echo "[make_public] GATE FAIL: release tooling must never reach the public tree:" >&2

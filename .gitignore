@@ -68,3 +68,4 @@ notebooks/manticore_velocity_field/
 notebooks/manticore_velocity_field_cache.npz
 scripts/megamaser/check_reid/reidlik_build/
 for_mark_reid/
+texput.log

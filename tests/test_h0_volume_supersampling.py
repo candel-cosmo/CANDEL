@@ -219,7 +219,7 @@ def test_h0_field_smoothing_applies_to_density_only(monkeypatch):
     monkeypatch.setattr(
         volume_density_mod, "name2field_loader", lambda name: FakeLoader)
     monkeypatch.setattr(
-        volume_density_mod, "apply_gaussian_smoothing", fake_smooth)
+        volume_density_mod, "_smooth_field_gaussian", fake_smooth)
 
     _load_volume_data_for_H0(
         "fake", {"Om0": 0.3}, [0], "linear", 0.3,
@@ -254,7 +254,7 @@ def test_h0_velocity_smoothing_requires_explicit_config(monkeypatch):
     monkeypatch.setattr(
         volume_density_mod, "name2field_loader", lambda name: FakeLoader)
     monkeypatch.setattr(
-        volume_density_mod, "apply_gaussian_smoothing", fake_smooth)
+        volume_density_mod, "_smooth_field_gaussian", fake_smooth)
 
     _load_volume_data_for_H0(
         "fake", {"Om0": 0.3}, [0], "linear", 0.3,

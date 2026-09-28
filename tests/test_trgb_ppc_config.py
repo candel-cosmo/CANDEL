@@ -287,12 +287,11 @@ def test_trgb_model_sky_exposure_applies_theta_to_hosts_and_volume():
     log_S_pix = jnp.array([[np.log(2.0), -jnp.inf,
                             np.log(5.0), np.log(7.0)]])
     theta_support = jnp.array([0.2, 0.3, 0.5])
-    ratio_support = theta_support * 3
     theta_full = jnp.array([0.2, 0.0, 0.3, 0.5])
     fn = handlers.seed(
         handlers.substitute(
             model._sample_TRGB_sky_exposure,
-            data={"TRGB_sky_exposure_ratio": ratio_support}),
+            data={"TRGB_sky_exposure_theta": theta_support}),
         rng_seed=0)
 
     log_S, host_log_theta, log_theta = fn(log_S_pix)
@@ -319,13 +318,12 @@ def test_trgb_model_sky_exposure_drops_zero_selection_pixels():
     log_S_pix = jnp.array([[np.log(2.0), -jnp.inf,
                             np.log(3.0), -jnp.inf]])
     theta_support = jnp.array([0.2, 0.3, 0.5, 0.1])
-    ratio_support = theta_support * 2
     theta_full = jnp.array([0.2, 0.0, 0.5, 0.0])
     theta_full = theta_full / jnp.sum(theta_full)
     fn = handlers.seed(
         handlers.substitute(
             model._sample_TRGB_sky_exposure,
-            data={"TRGB_sky_exposure_ratio": ratio_support}),
+            data={"TRGB_sky_exposure_theta": theta_support}),
         rng_seed=0)
 
     log_S, host_log_theta, log_theta = fn(log_S_pix)
@@ -351,11 +349,10 @@ def test_trgb_model_sky_exposure_uniform_theta_cancels_normalization():
 
     log_S_pix = jnp.array([[-jnp.inf, np.log(4.0), -jnp.inf, np.log(6.0)]])
     theta_support = jnp.array([0.5, 0.5])
-    ratio_support = theta_support * 2
     fn = handlers.seed(
         handlers.substitute(
             model._sample_TRGB_sky_exposure,
-            data={"TRGB_sky_exposure_ratio": ratio_support}),
+            data={"TRGB_sky_exposure_theta": theta_support}),
         rng_seed=0)
 
     log_S, host_log_theta, _ = fn(log_S_pix)

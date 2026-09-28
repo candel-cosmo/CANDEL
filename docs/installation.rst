@@ -3,7 +3,7 @@ Installation
 
 .. code-block:: bash
 
-   git clone git@github.com:Richard-Sti/CANDEL.git
+   git clone https://github.com/Richard-Sti/CANDEL.git
    cd CANDEL
 
    python -m venv venv_candel

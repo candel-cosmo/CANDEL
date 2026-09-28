@@ -54,7 +54,7 @@ candel/
     mwcepheids/   Milky Way Cepheid calibration model
   pvdata/         Data loaders for all supported catalogues
   cosmo/          Cosmography, growth rate, PV covariance matrices
-  inference/      NUTS sampling, Sobol+Adam optimisation, evidence estimation
+  inference/      NUTS sampling, L-BFGS initialisation, evidence estimation
   field/          3D density/velocity field loading and LOS interpolation
   redshift2real/  Map observed redshift → cosmological redshift given a velocity field
   mock/           Synthetic catalogue generation for testing
@@ -66,6 +66,7 @@ scripts/
   megamaser/      Maser disk BlackJAX runner, DE initialiser, and quadrature diagnostics
   H0_convergence/ H0 selection-integral convergence checks
   BORG_fields/    Reconstruction-field product helpers
+  data/           EDD TRGB catalogue parsing and plots
   diagnostics/    Standalone model-component diagnostics
   mocks/          Mock TRGB inference runs
   preprocess/     Precompute line-of-sight density/velocity data
@@ -100,7 +101,7 @@ Megamaser jobs use the unified runner above; MCMC is the default sampler.
 
 - **NUTS** (default for the non-maser distance-indicator models): No-U-Turn Sampler via NumPyro. Robust, gradient-based.
 - **BlackJAX explicit MCMC:** dedicated megamaser disk sampler in `scripts/megamaser/run_maser.py`.
-- **Sobol + Adam MAP:** Multi-start MAP optimisation using Sobol quasi-random initialisation and Adam gradient descent. Configured via the `[optimise]` section of the TOML config.
+- **L-BFGS initialisation:** multi-start L-BFGS-B optimisation of the posterior to initialise NUTS chains, set by `init_maxiter` and `init_num_starts` in the `[inference]` section of the TOML config.
 
 ## Results
 
@@ -120,7 +121,7 @@ CANDEL underpins a series of recent analyses:
 
 ## Installation
 ```
-git clone git@github.com:Richard-Sti/CANDEL.git
+git clone https://github.com/Richard-Sti/CANDEL.git
 cd CANDEL
 
 python -m venv venv_candel
@@ -153,6 +154,14 @@ output paths such as `fname_output` are resolved against `root_results`.
 Absolute paths are left unchanged. Cluster submission helpers may use
 additional machine/module keys; see [`docs/configuration.rst`](docs/configuration.rst)
 for the full configuration schema.
+
+## Known issues
+
+- **TODO:** some scripts and notebooks still hard-code machine-specific paths
+  (e.g. `/mnt/users/...`, `/Users/...`) instead of resolving them through
+  `local_config.toml`: `scripts/H0_convergence/posterior_selection_integral_subsample.{py,sh}`,
+  `scripts/sharing/load_zcosmo_posterior.py`, and many of the paper notebooks
+  under `notebooks/`. Adjust these paths before running them.
 
 ## Citation
 

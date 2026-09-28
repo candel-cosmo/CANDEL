@@ -1,3 +1,43 @@
+diff --git a/.gitignore b/.gitignore
+index e6f83a4..1b77ed7 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -33,7 +33,6 @@ scripts/runs/logs
+ scripts/runs/logs
+ scripts/runs/generated_configs/
+ scripts/mocks/logs/
+-scripts/megamaser/logs/
+ scripts/H0_convergence/outputs/
+ 
+ modules_arc.sh
+@@ -41,7 +40,8 @@ python.sh
+ bash.sh
+ *.out
+ GEMINI.md
+-local_config.toml
++local_config*.toml
++!example_local_config.toml
+ 
+ *.png
+ *.pdf
+@@ -56,8 +56,6 @@ local_config.toml
+ **/*plot*/**/*.csv
+ **/*plot*/**/*.txt
+ background_info/
+-# Private Reid fit_disk source/build artifacts are not public.
+-background_info/fit_disk_Reid/
+ docs/plans/
+ remote_logs/
+ notebooks/paper_S8/sr_interp_cache/
+@@ -66,6 +64,5 @@ notebooks/paper_TRGBH0/output/
+ notebooks/paper_VFO/output/
+ notebooks/manticore_velocity_field/
+ notebooks/manticore_velocity_field_cache.npz
+-scripts/megamaser/check_reid/reidlik_build/
+ for_mark_reid/
+ texput.log
+diff --git a/README.md b/README.md
+index b79a135..470f4d8 100644
 --- a/README.md
 +++ b/README.md
 @@ -7,7 +7,7 @@
@@ -9,7 +49,7 @@
  
  **Documentation:** [candel.readthedocs.io](https://candel.readthedocs.io/en/latest/)
  
-@@ -20,7 +20,7 @@
+@@ -20,7 +20,7 @@ When a reconstructed density and velocity field is supplied, CANDEL jointly cali
  CANDEL runs locally for small samples or scales to computing clusters with GPU support (one GPU per chain). It includes cluster submission helpers and batch job generation tools for launching large parameter-grid runs from a frozen copy of the code.
  
  ### Key capabilities
@@ -18,7 +58,7 @@
  - **Joint field-and-calibration inference:** distance-indicator relations and the underlying density/velocity field are constrained simultaneously, rather than calibrated in separate steps.
  - **Reduced sampler dimensionality:** latent observables are marginalised analytically wherever Gaussian conjugacy allows, with Gauss--Hermite quadrature otherwise.
  - **Flexible galaxy-bias models:** linear ($1 + b_1 \delta$), quadratic ($1 + b_1 \delta + b_2 \delta^2$), power-law ($\rho^\alpha$), and double power-law.
-@@ -44,7 +44,6 @@
+@@ -44,7 +44,6 @@ These models work in units of $h^{-1}\,\mathrm{Mpc}$ (i.e. assume $h = 1$). Mult
  - **Cepheid-calibrated $H_0$:** 35 Cepheid host galaxies from SH0ES
  - **Milky Way Cepheid calibration:** standalone Galactic Cepheid period-luminosity calibration via `model.which_run = "MWCepheids"`
  - **TRGB-calibrated $H_0$:** Tip of the Red Giant Branch distances from CCHP and EDD, including grouped EDD hosts
@@ -26,15 +66,23 @@
  
  ## Package structure
  
-@@ -63,7 +62,6 @@
+@@ -63,7 +62,6 @@ candel/
  
  scripts/
    runs/           PV and H0 model configs and main runner
 -  megamaser/      Maser disk BlackJAX runner, DE initialiser, and quadrature diagnostics
    H0_convergence/ H0 selection-integral convergence checks
    BORG_fields/    Reconstruction-field product helpers
-   diagnostics/    Standalone model-component diagnostics
-@@ -88,18 +86,9 @@
+   data/           EDD TRGB catalogue parsing and plots
+@@ -71,7 +69,6 @@ scripts/
+   mocks/          Mock TRGB inference runs
+   preprocess/     Precompute line-of-sight density/velocity data
+   sharing/        Posterior/data sharing utilities
+-  sync/           Cluster sync helpers
+ ```
+ 
+ ## Running inference
+@@ -89,18 +86,9 @@ python scripts/runs/generate_tasks.py list
  python scripts/runs/generate_tasks.py build test
  ```
  
@@ -51,12 +99,104 @@
 -- **NUTS** (default for the non-maser distance-indicator models): No-U-Turn Sampler via NumPyro. Robust, gradient-based.
 -- **BlackJAX explicit MCMC:** dedicated megamaser disk sampler in `scripts/megamaser/run_maser.py`.
 +- **NUTS** (default for the distance-indicator models): No-U-Turn Sampler via NumPyro. Robust, gradient-based.
- - **Nested Slice Sampling (NSS):** Bayesian evidence computation via a self-contained reimplementation of the NSS algorithm ([Yallup et al. 2026](https://arxiv.org/abs/2601.23252)) in `candel/inference/nested.py`. No external nested-sampling dependency required.
- - **Sobol + Adam MAP:** Multi-start MAP optimisation using Sobol quasi-random initialisation and Adam gradient descent. Configured via the `[optimise]` section of the TOML config.
+ - **L-BFGS initialisation:** multi-start L-BFGS-B optimisation of the posterior to initialise NUTS chains, set by `init_maxiter` and `init_num_starts` in the `[inference]` section of the TOML config.
  
+ ## Results
+diff --git a/candel/model/__init__.py b/candel/model/__init__.py
+index ad1c156..faeb239 100644
+--- a/candel/model/__init__.py
++++ b/candel/model/__init__.py
+@@ -32,7 +32,6 @@ from .model_PV_FP import FPModel
+ from .model_H0_CH0 import CH0Model                                              # noqa
+ from .model_H0_TRGB import TRGBModel                                            # noqa
+ from .dev.model_H0_2MTF import EDD2MTFModel                                     # noqa
+-from .model_H0_maser import MaserDiskModel                                     # noqa
+ from .mwcepheids import MWCepheidModel                                          # noqa
+ from .interp import LOSInterpolator                                             # noqa
+ from .integration import (ln_simpson, ln_simpson_uniform,                       # noqa
+diff --git a/candel/model/utils.py b/candel/model/utils.py
+index 50e976b..51cf02e 100644
+--- a/candel/model/utils.py
++++ b/candel/model/utils.py
+@@ -179,7 +179,7 @@ class SineAngle(Distribution):
+ 
+     Isotropic random orientation gives P(i) ∝ sin(i) for the inclination
+     angle i ∈ [low, high] (in radians internally, but the distribution
+-    works in DEGREES to match the maser model convention).
++    works in DEGREES to match the model convention).
+ 
+     PDF:
+         f(i) = sin(i) / (cos(low) - cos(high)),  low <= i <= high
+diff --git a/candel/pvdata/__init__.py b/candel/pvdata/__init__.py
+index 94fae91..17061fd 100644
+--- a/candel/pvdata/__init__.py
++++ b/candel/pvdata/__init__.py
+@@ -52,13 +52,6 @@ from .dust import (
+     read_dustmap,                                                               # noqa
+     )
+ 
+-from .megamaser_data import (                                                   # noqa
+-    DEFAULT_MASER_DATASET,                                                      # noqa
+-    MASER_DATASETS,                                                             # noqa
+-    load_megamaser_spots,                                                       # noqa
+-    maser_data_root,                                                            # noqa
+-    )
+-
+ from .mwcepheids import (                                                       # noqa
+     AnchorCepheidData,                                                          # noqa
+     CepheidData,                                                                # noqa
+diff --git a/candel/pvdata/field_cache.py b/candel/pvdata/field_cache.py
+index 511e441..8509252 100644
+--- a/candel/pvdata/field_cache.py
++++ b/candel/pvdata/field_cache.py
+@@ -35,7 +35,6 @@ _FIELD_CACHE_PRODUCTS = {
+     "h0_volume": "selection_volume",
+     "pv_volume_density": "pv_volume_density",
+     "pv_density_cube": "density_cube",
+-    "toy_maser_vlos": "maser_los",
+ }
+ _DROP_PORTABLE_CACHE_VALUE = object()
+ 
+diff --git a/scripts/H0_convergence/posterior_selection_integral_subsample.py b/scripts/H0_convergence/posterior_selection_integral_subsample.py
+index 6102c2b..84c4025 100644
+--- a/scripts/H0_convergence/posterior_selection_integral_subsample.py
++++ b/scripts/H0_convergence/posterior_selection_integral_subsample.py
+@@ -34,7 +34,7 @@ from candel.model.utils import log_prob_integrand_sel, predict_cz
+ 
+ 
+ def ensure_gpu_ld_library_path() -> None:
+-    """Mirror megamaser GPU scripts: expose CUDA libs before importing JAX."""
++    """Mirror the GPU scripts: expose CUDA libs before importing JAX."""
+     local_config = ROOT / "local_config.toml"
+     if not local_config.exists():
+         return
+diff --git a/scripts/runs/main.py b/scripts/runs/main.py
+index 495abb0..de4265e 100644
+--- a/scripts/runs/main.py
++++ b/scripts/runs/main.py
+@@ -147,7 +147,7 @@ _SPOT_ARRAY_KEYS = ("velocity", "x", "sigma_x", "y", "sigma_y",
+ 
+ 
+ def downsample_spots(data, max_spots, seed=42):
+-    """Randomly downsample maser spot data to at most `max_spots`."""
++    """Randomly downsample spot data to at most `max_spots`."""
+     n = data["n_spots"]
+     if max_spots >= n:
+         return data
+@@ -170,7 +170,7 @@ if __name__ == "__main__":
+     parser.add_argument("--config", type=str, required=True,
+                         help="Path to the configuration file.")
+     parser.add_argument("--max-spots", type=int, default=None,
+-                        help="Randomly downsample maser spots to this many.")
++                        help="Randomly downsample spots to this many.")
+     # Re-expose the pre-parsed options so they show up in --help
+     parser.add_argument("--host-devices", type=int,
+                         help="NumPyro host device count (handled pre-import).")
+diff --git a/setup.py b/setup.py
+index da2768b..ec8e990 100644
 --- a/setup.py
 +++ b/setup.py
-@@ -21,8 +21,8 @@
+@@ -21,8 +21,8 @@ setup(
      author="Richard Stiskalek",
      author_email="richard.stiskalek@protonmail.com",
      description=(
@@ -67,116 +207,3 @@
      ),
      long_description=open("README.md").read(),
      long_description_content_type="text/markdown",
---- a/candel/model/__init__.py
-+++ b/candel/model/__init__.py
-@@ -32,7 +32,6 @@
- from .model_H0_CH0 import CH0Model                                              # noqa
- from .model_H0_TRGB import TRGBModel                                            # noqa
- from .dev.model_H0_2MTF import EDD2MTFModel                                     # noqa
--from .model_H0_maser import MaserDiskModel                                     # noqa
- from .mwcepheids import MWCepheidModel                                          # noqa
- from .interp import LOSInterpolator                                             # noqa
- from .integration import (ln_simpson, ln_simpson_uniform,                       # noqa
---- a/candel/pvdata/__init__.py
-+++ b/candel/pvdata/__init__.py
-@@ -55,10 +55,6 @@
-     read_dustmap,                                                               # noqa
-     )
- 
--from .megamaser_data import (                                                   # noqa
--    load_megamaser_spots,                                                       # noqa
--    )
--
- from .mwcepheids import (                                                       # noqa
-     AnchorCepheidData,                                                          # noqa
-     CepheidData,                                                                # noqa
---- a/candel/inference/optimise.py
-+++ b/candel/inference/optimise.py
-@@ -14,8 +14,8 @@
- # 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
- """Shared bound/selection helpers for global parameter searches.
- 
--Pure NumPy/JAX utilities used by the megamaser differential-evolution MAP
--driver (``scripts/megamaser/run_de_map.py``) and the nested sampler.
-+Pure NumPy/JAX utilities used by the differential-evolution MAP driver and
-+the nested sampler.
- """
- import jax.numpy as jnp
- import numpy as np
---- a/candel/model/utils.py
-+++ b/candel/model/utils.py
-@@ -179,7 +179,7 @@
- 
-     Isotropic random orientation gives P(i) ∝ sin(i) for the inclination
-     angle i ∈ [low, high] (in radians internally, but the distribution
--    works in DEGREES to match the maser model convention).
-+    works in DEGREES to match the model convention).
- 
-     PDF:
-         f(i) = sin(i) / (cos(low) - cos(high)),  low <= i <= high
---- a/scripts/runs/main.py
-+++ b/scripts/runs/main.py
-@@ -147,7 +147,7 @@
- 
- 
- def downsample_spots(data, max_spots, seed=42):
--    """Randomly downsample maser spot data to at most `max_spots`."""
-+    """Randomly downsample spot data to at most `max_spots`."""
-     n = data["n_spots"]
-     if max_spots >= n:
-         return data
-@@ -170,7 +170,7 @@
-     parser.add_argument("--config", type=str, required=True,
-                         help="Path to the configuration file.")
-     parser.add_argument("--max-spots", type=int, default=None,
--                        help="Randomly downsample maser spots to this many.")
-+                        help="Randomly downsample spots to this many.")
-     # Re-expose the pre-parsed options so they show up in --help
-     parser.add_argument("--host-devices", type=int,
-                         help="NumPyro host device count (handled pre-import).")
---- a/.gitignore
-+++ b/.gitignore
-@@ -33,7 +33,6 @@
- scripts/runs/logs
- scripts/runs/generated_configs/
- scripts/mocks/logs/
--scripts/megamaser/logs/
- scripts/H0_convergence/outputs/
- 
- modules_arc.sh
-@@ -41,7 +40,8 @@
- bash.sh
- *.out
- GEMINI.md
--local_config.toml
-+local_config*.toml
-+!example_local_config.toml
- 
- *.png
- *.pdf
-@@ -56,8 +56,6 @@
- **/*plot*/**/*.csv
- **/*plot*/**/*.txt
- background_info/
--# Private Reid fit_disk source/build artifacts are not public.
--background_info/fit_disk_Reid/
- docs/plans/
- remote_logs/
- notebooks/paper_S8/sr_interp_cache/
-@@ -66,5 +64,4 @@
- notebooks/paper_VFO/output/
- notebooks/manticore_velocity_field/
- notebooks/manticore_velocity_field_cache.npz
--scripts/megamaser/check_reid/reidlik_build/
- for_mark_reid/
---- a/scripts/H0_convergence/posterior_selection_integral_subsample.py
-+++ b/scripts/H0_convergence/posterior_selection_integral_subsample.py
-@@ -34,7 +34,7 @@
- 
- 
- def ensure_gpu_ld_library_path() -> None:
--    """Mirror megamaser GPU scripts: expose CUDA libs before importing JAX."""
-+    """Mirror the GPU scripts: expose CUDA libs before importing JAX."""
-     local_config = ROOT / "local_config.toml"
-     if not local_config.exists():
-         return

@@ -50,7 +50,7 @@ H0 models
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: candel.model.model_H0_2MTF
+.. automodule:: candel.model.dev.model_H0_2MTF
    :members:
    :undoc-members:
    :show-inheritance:
@@ -63,10 +63,10 @@ LOS interpolation
    :undoc-members:
    :show-inheritance:
 
-Simpson integration
--------------------
+Integration
+-----------
 
-.. automodule:: candel.model.simpson
+.. automodule:: candel.model.integration
    :members:
    :undoc-members:
    :show-inheritance:

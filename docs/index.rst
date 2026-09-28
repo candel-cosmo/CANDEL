@@ -23,7 +23,7 @@ Tutorials
 ---------
 
 For practical examples, please refer to the Jupyter notebooks in the
-`notebooks/ <https://github.com/Richard-Sti/CANDEL/tree/main/notebooks>`_
+`notebooks/ <https://github.com/Richard-Sti/CANDEL/tree/master/notebooks>`_
 directory. These notebooks demonstrate specific workflows, such as:
 
 - **example.ipynb**: A general overview of the package.
