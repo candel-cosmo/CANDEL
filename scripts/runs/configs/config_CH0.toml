@@ -174,6 +174,12 @@ cepheid_host_cz_cmb_max = 3300
 # Leave-one-out Cepheid host observation. Set to a zero-based active host
 # index; "none" disables the drop.
 drop_observation = "none"
+# Keep only these SN hosts (short names, e.g. "N3982"); anchors always kept.
+keep_hosts = "all"
+# Multiply Cepheid magnitude errors of `cepheid_error_scale_hosts` by this
+# factor (C -> D C D). Hosts: "all" (incl. N4258, LMC, M31) or a name list.
+cepheid_error_scale = 1.0
+cepheid_error_scale_hosts = "all"
 reconstruction = "Carrick2015"
 # reconstruction = "manticore_2MPP_MULTIBIN_N256_DES_V2"
 

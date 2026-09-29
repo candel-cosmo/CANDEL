@@ -1294,9 +1294,16 @@ class H0ModelBase(ModelBase):
 
     def _compute_volume_log_S_cz(self, bias_params, H0, sigma_v, beta,
                                  Vext, Vext_mono, cz_lim, cz_width,
-                                 nu_cz=None):
-        """3D selection integral for a redshift-limited sample."""
+                                 nu_cz=None, cz_low=None):
+        """3D selection integral for a redshift-limited sample.
+
+        With `cz_low`, the selection is the window `cz_low < cz < cz_lim`,
+        each edge smoothed with width `cz_width`.
+        """
         if not self.use_reconstruction:
+            if cz_low is not None:
+                raise NotImplementedError(
+                    "Redshift-window selection requires a reconstruction.")
             return self._compute_no_recon_log_S_cz(
                 H0, sigma_v, Vext, Vext_mono, cz_lim, cz_width,
                 nu_cz=nu_cz)
@@ -1310,8 +1317,12 @@ class H0ModelBase(ModelBase):
             log_n = self._vol_sel_galaxy_bias(density_3d, bias_params)
             Vpec = beta * vrad_3d + Vext_rad_3d
             cz_pred = predict_cz(self.zcosmo_3d, Vpec)
-            log_P_sel = log_prob_integrand_sel(
-                cz_pred, sigma_v_3d, cz_lim, cz_width, nu_cz=nu_cz)
+            if cz_low is None:
+                log_P_sel = log_prob_integrand_sel(
+                    cz_pred, sigma_v_3d, cz_lim, cz_width, nu_cz=nu_cz)
+            else:
+                log_P_sel = log_prob_integrand_window_sel(
+                    cz_pred, sigma_v_3d, cz_low, cz_lim, cz_width)
             return logsumexp(log_P_sel + log_n + log_cell_weight)
 
         return lax.map(

@@ -25,8 +25,8 @@ from ..util import fprint, get_nested, replace_prior_with_delta
 from .base_model import LOG_4PI, H0ModelBase
 from .integration import simpson_log_weights
 from .pv_utils import rsample, sample_galaxy_bias
-from .utils import (logmeanexp, mvn_logpdf_cholesky, normal_logpdf_var,
-                    predict_cz)
+from .utils import (log_prob_integrand_window_sel, logmeanexp,
+                    mvn_logpdf_cholesky, normal_logpdf_var, predict_cz)
 
 ###############################################################################
 #                          Base CH0 model                                     #
@@ -136,6 +136,26 @@ class CH0Model(H0ModelBase):
         self.config.setdefault("io", {}).setdefault("load_rand_los", False)
         super()._load_data(data)
         self._setup_cepheid_host_index()
+        self._setup_cz_windows(data)
+
+    def _setup_cz_windows(self, data):
+        """Per-host redshift windows for samples with known cz limits.
+
+        Optional data keys `cz_sel_low_host` and `cz_sel_high_host` give each
+        host's (known) selection window. Hosts sharing a window share one
+        selection integral. Without them the global `cz_lim_selection` is
+        used for every host.
+        """
+        self.has_cz_windows = "cz_sel_low_host" in data
+        if not self.has_cz_windows:
+            return
+        windows = np.stack([np.asarray(data["cz_sel_low_host"], float),
+                            np.asarray(data["cz_sel_high_host"], float)], 1)
+        self._cz_windows, index = np.unique(
+            windows, axis=0, return_inverse=True)
+        self._cz_window_index = jnp.asarray(index.ravel())
+        fprint(f"using {len(self._cz_windows)} per-host redshift window(s): "
+               f"{self._cz_windows.tolist()} km/s.")
 
     def _set_data_arrays(self, data):
         if data.get("host_names") is not None:
@@ -425,7 +445,7 @@ class CH0Model(H0ModelBase):
     def sigma_v_from_density(self, delta, sigma_v_low, sigma_v_high,
                              log_rho_t, k):
         """Map overdensity to sigma_v through a sigmoid in log density."""
-        rho = jnp.clip(1.0 + delta, a_min=1e-6)
+        rho = jnp.maximum(1.0 + delta, 1e-6)
         log_rho = jnp.log(rho)
         return sigma_v_low + (sigma_v_high - sigma_v_low) / (
             1.0 + jnp.exp(-k * (log_rho - log_rho_t)))
@@ -639,7 +659,8 @@ class CH0Model(H0ModelBase):
         ll_total += ll_anchor
 
         # Distance moduli for Cepheids, with per-Cepheid dZP correction.
-        dZP = sample("dZP", Normal(0, self.sigma_grnd))
+        dZP = (sample("dZP", Normal(0, self.sigma_grnd))
+               if self.idx_dZP.size else 0.0)
         mu_host_cepheid = jnp.concatenate(
             [mu_host,
              jnp.array([mu_N4258, mu_LMC, mu_M31])]
@@ -702,6 +723,23 @@ class CH0Model(H0ModelBase):
                     bias_params, M_B,
                     self._sn_selection_mag_error(),
                     H0, mag_lim, mag_width)
+            elif self.which_selection == "redshift" and self.has_cz_windows:
+                cz_width = self._resolve_threshold(
+                    "cz_lim_selection_width")
+                ll_sel_cz = log_prob_integrand_window_sel(
+                    self.czcmb_cepheid_host, 0.0, self.cz_sel_low_host,
+                    self.cz_sel_high_host, cz_width)
+                ll_observed_selection_host = ll_sel_cz
+                ll_sel_object = jnp.sum(ll_sel_cz)
+                factor("ll_sel_per_object", ll_sel_object)
+                ll_total += ll_sel_object
+                log_S_window = jnp.stack([
+                    self._compute_volume_log_S_cz(
+                        bias_params, H0, selection_sigma_v(), beta,
+                        Vext, Vext_mono, float(hi), cz_width,
+                        nu_cz=nu_cz, cz_low=float(lo))
+                    for lo, hi in self._cz_windows], axis=-1)
+                log_S = log_S_window[:, self._cz_window_index]
             elif self.which_selection == "redshift":
                 cz_lim = self._resolve_threshold("cz_lim_selection")
                 cz_width = self._resolve_threshold(

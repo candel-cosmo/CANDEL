@@ -69,3 +69,5 @@ notebooks/manticore_velocity_field_cache.npz
 scripts/megamaser/check_reid/reidlik_build/
 for_mark_reid/
 texput.log
+scripts/CH0_JWST_mock/logs/
+scripts/runs/generated_batch_scripts/

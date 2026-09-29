@@ -116,7 +116,7 @@ class PantheonPlusModel(BasePVModel):
 
         # Pointwise volume-normalized empirical prior along each source LOS:
         # log n(r,θ_s) + log f(r) + 2 log r - log N_field.
-        r_safe = jnp.clip(r, a_min=1e-12)
+        r_safe = jnp.maximum(r, 1e-12)
         log_f = -jnp.exp(
             kwargs_dist["q"] * (jnp.log(r_safe) - jnp.log(kwargs_dist["R"])))
         lp_dist = (log_f + 2.0 * jnp.log(r_safe))[None, :]

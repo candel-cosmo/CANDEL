@@ -536,6 +536,85 @@ def _ch0_manticore_swift_cola_cic_uniform_bias_datasets():
     return swift_datasets + cola_datasets
 
 
+# SN hosts proposed for JWST Cepheid re-observation (Riess, 2026-09).
+CH0_JWST_HOSTS = [
+    "N3982", "N3254", "N5917", "N3021", "N7541", "N1309", "N4680", "N2608",
+    "N1015", "N3583", "N0691", "U9391", "M1337", "N5728", "N7678", "N7329"]
+# The 35 SN hosts with cz_cmb < 3300 km/s (anchors excluded).
+CH0_SN_HOSTS = [
+    "M101", "M1337", "N0691", "N1015", "N1309", "N1365", "N1448", "N1559",
+    "N2442", "N2525", "N2608", "N3021", "N3147", "N3254", "N3370", "N3447",
+    "N3583", "N3972", "N3982", "N4038", "N4424", "N4536", "N4639", "N4680",
+    "N5468", "N5584", "N5643", "N5728", "N5861", "N5917", "N7250", "N7329",
+    "N7541", "N7678", "U9391"]
+CH0_JWST_ERROR_SCALE = 0.5
+
+
+def _ch0_jwst_forecast_datasets(distances_only=False):
+    """Paper Table 3 grid with Cepheid errors rescaled as for JWST."""
+    # Host lists are wrapped in a one-element list so the generator treats
+    # them as a single value rather than a sweep axis.
+    scale = {"io/SH0ES/cepheid_error_scale": CH0_JWST_ERROR_SCALE}
+    not_jwst = [h for h in CH0_SN_HOSTS if h not in CH0_JWST_HOSTS]
+    variants = [
+        {},
+        {**scale, "io/SH0ES/cepheid_error_scale_hosts": [CH0_SN_HOSTS]},
+        {**scale, "io/SH0ES/cepheid_error_scale_hosts": "all"},
+        {**scale, "io/SH0ES/cepheid_error_scale_hosts": [not_jwst]},
+        {"io/SH0ES/keep_hosts": [CH0_JWST_HOSTS]},
+        {"io/SH0ES/keep_hosts": [CH0_JWST_HOSTS], **scale,
+         "io/SH0ES/cepheid_error_scale_hosts": [CH0_JWST_HOSTS]},
+    ]
+    if distances_only:
+        # Cepheid-only distance covariance for the error-budget toy.
+        base = _ch0_distance_only_datasets()[0]
+        root = _with_root(f"{CH0_PAPER_ROOT}/jwst_forecast/distances")
+        return [{**base, **v, **root} for v in variants[1:]]
+    table = [d for d in _ch0_main_datasets()
+             if d["model/which_selection"] != "none"]
+    return [{**d, **v} for v in variants for d in table]
+
+
+def _ch0_jwst_far_hosts_datasets():
+    """Add the two SH0ES hosts beyond 3300 km/s (NGC 976, NGC 105)."""
+    table = [d for d in _ch0_main_datasets()
+             if d["model/which_selection"] == "SN_magnitude"]
+    fiducial, no_pv = table[5], table[0]
+    far = {"io/SH0ES/cepheid_host_cz_cmb_max": 5500}
+    halved = {"io/SH0ES/cepheid_error_scale": CH0_JWST_ERROR_SCALE,
+              "io/SH0ES/cepheid_error_scale_hosts": [["N0976", "N0105"]]}
+    return [{**no_pv, **far}, {**fiducial, **far}, {**fiducial, **far, **halved}]
+
+
+def _ch0_jwst_sigv150_datasets():
+    """Carrick and fiducial Manticore forecast runs, sigma_v = 150 km/s."""
+    fixed = {"model/priors/sigma_v": _delta(150.0)}
+
+    def keep(d):
+        recon = d.get("io/SH0ES/reconstruction")
+        if not d.get("model/use_reconstruction"):
+            return False
+        if recon == "Carrick2015":
+            return True
+        return (recon == CH0_MANTICORE_COLA_LOS
+                and not d.get("model/use_density_dependent_sigma_v")
+                and "model/priors/beta" not in d)
+
+    # Scenario 3 halves NGC 4258 but not the LMC or M31 Cepheids, whose
+    # errors are already at the intrinsic period-luminosity width.
+    hosts_n4258 = {"io/SH0ES/cepheid_error_scale_hosts":
+                   [CH0_SN_HOSTS + ["N4258"]]}
+    root = _with_root(f"{CH0_PAPER_ROOT}/jwst_forecast/sigv150")
+    out = []
+    for d in _ch0_jwst_forecast_datasets():
+        if not keep(d):
+            continue
+        if d.get("io/SH0ES/cepheid_error_scale_hosts") == "all":
+            d = {**d, **hosts_n4258}
+        out.append({**d, **fixed, **root})
+    return out
+
+
 def _ch0_leaveoneout_datasets():
     return [{
         "model/which_selection": "SN_magnitude",
@@ -1381,6 +1460,68 @@ TASK_SPECS = {
         },
         "datasets": _ch0_main_datasets() + _ch0_distance_only_datasets(),
         "expected_tasks": 27,
+    },
+    "CH0_JWST_forecast": {
+        "description": (
+            "CH0 Table 3 grid with SH0ES Cepheid errors rescaled to "
+            "forecast JWST re-observation of the SN hosts."),
+        "config_path": "configs/config_CH0.toml",
+        "tag": "jwst",
+        "common": {
+            **CH0_PAPER_COMMON,
+            "inference/num_chains": 1,
+            "inference/num_warmup": 1000,
+            "inference/num_samples": 5000,
+            **_with_root(f"{CH0_PAPER_ROOT}/jwst_forecast"),
+        },
+        "datasets": _ch0_jwst_forecast_datasets(),
+        "expected_tasks": 96,
+    },
+    "CH0_JWST_forecast_distances": {
+        "description": (
+            "Redshift-free CH0 Cepheid distances with JWST-rescaled Cepheid "
+            "errors, for the error-budget toy."),
+        "config_path": "configs/config_CH0.toml",
+        "tag": "jwst",
+        "common": {
+            **CH0_PAPER_COMMON,
+            "inference/num_chains": 1,
+            "inference/num_warmup": 1000,
+            "inference/num_samples": 5000,
+        },
+        "datasets": _ch0_jwst_forecast_datasets(distances_only=True),
+        "expected_tasks": 5,
+    },
+    "CH0_JWST_forecast_far_hosts": {
+        "description": (
+            "CH0 with the two SH0ES hosts beyond 3300 km/s added, to test "
+            "the error-budget forecast for new distant hosts."),
+        "config_path": "configs/config_CH0.toml",
+        "tag": "jwst",
+        "common": {
+            **CH0_PAPER_COMMON,
+            "inference/num_chains": 1,
+            "inference/num_warmup": 1000,
+            "inference/num_samples": 5000,
+            **_with_root(f"{CH0_PAPER_ROOT}/jwst_forecast/far_hosts"),
+        },
+        "datasets": _ch0_jwst_far_hosts_datasets(),
+        "expected_tasks": 3,
+    },
+    "CH0_JWST_forecast_sigv150": {
+        "description": (
+            "CH0 JWST forecast with Carrick2015 and Manticore-Local, "
+            "residual velocity scatter fixed at 150 km/s."),
+        "config_path": "configs/config_CH0.toml",
+        "tag": "jwst",
+        "common": {
+            **CH0_PAPER_COMMON,
+            "inference/num_chains": 1,
+            "inference/num_warmup": 1000,
+            "inference/num_samples": 5000,
+        },
+        "datasets": _ch0_jwst_sigv150_datasets(),
+        "expected_tasks": 24,
     },
     "CH0_mixed_selection": {
         "description": "CH0 paper mixed SN-magnitude/redshift split.",

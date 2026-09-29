@@ -514,7 +514,7 @@ class TRGBModel(H0ModelBase):
     def sigma_v_from_density(self, delta, sigma_v_low, sigma_v_high,
                              log_rho_t, k):
         """Map overdensity to sigma_v through a sigmoid in log density."""
-        rho = jnp.clip(1.0 + delta, a_min=1e-6)
+        rho = jnp.maximum(1.0 + delta, 1e-6)
         log_rho = jnp.log(rho)
         return sigma_v_low + (sigma_v_high - sigma_v_low) / (
             1.0 + jnp.exp(-k * (log_rho - log_rho_t)))

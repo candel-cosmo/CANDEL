@@ -366,6 +366,21 @@ def generate_dynamic_tag(config, base_tag="default"):
                     "host index for CH0 generated tasks.")
             parts.append(f"drop{drop_observation:02d}")
 
+        cz_max = get_nested(config, "io/SH0ES/cepheid_host_cz_cmb_max", 3300)
+        if cz_max != 3300:
+            parts.append(f"czmax{_tag_number(cz_max)}")
+
+        keep_hosts = get_nested(config, "io/SH0ES/keep_hosts", "all")
+        if keep_hosts != "all":
+            parts.append(f"keep{len(keep_hosts)}hosts")
+
+        cep_scale = get_nested(config, "io/SH0ES/cepheid_error_scale", 1.0)
+        if float(cep_scale) != 1.0:
+            cep_hosts = get_nested(
+                config, "io/SH0ES/cepheid_error_scale_hosts", "all")
+            n_scaled = "all" if cep_hosts == "all" else len(cep_hosts)
+            parts.append(f"ceperr{_tag_number(cep_scale)}-{n_scaled}")
+
         r_prior = get_nested(config, "model/which_distance_prior", "volume")
         if r_prior != "volume":
             parts.append(r_prior)

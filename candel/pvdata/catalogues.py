@@ -562,10 +562,59 @@ def _drop_sh0es_observation(data, drop_observation):
     return data
 
 
+def _sh0es_host_short_names(data):
+    """Short names of `L_Cepheid_host_dist` columns: hosts, then anchors."""
+    return np.array([h.removeprefix("mu_") for h in data["host_names"]]
+                    + ["N4258", "LMC", "M31"])
+
+
+def _check_sh0es_host_names(names, known, key):
+    unknown = sorted(set(names) - set(known))
+    if unknown:
+        raise ValueError(f"`io.SH0ES.{key}` has unknown hosts {unknown}; "
+                         f"known: {list(known)}.")
+
+
+def _keep_sh0es_hosts(data, keep_hosts):
+    """Keep only the listed Cepheid hosts (anchors are always kept)."""
+    if keep_hosts is None or keep_hosts == "all":
+        return data
+    _check_sh0es_host_names(
+        keep_hosts, _sh0es_host_short_names(data)[:-3], "keep_hosts")
+    while True:
+        names = _sh0es_host_short_names(data)[:-3]
+        drop = np.flatnonzero(~np.isin(names, keep_hosts))
+        if len(drop) == 0:
+            return data
+        data = _drop_sh0es_observation(data, int(drop[0]))
+
+
+def _scale_sh0es_cepheid_errors(data, scale, hosts):
+    """
+    Multiply the Cepheid magnitude errors of the listed hosts by `scale`,
+    i.e. `C -> D C D` with `D` the per-Cepheid factor, so that covariances
+    between a scaled and an unscaled Cepheid scale by `scale` only.
+    """
+    if scale is None or float(scale) == 1.0:
+        return data
+    names = _sh0es_host_short_names(data)
+    hosts = names if hosts is None or hosts == "all" else np.asarray(hosts)
+    _check_sh0es_host_names(hosts, names, "cepheid_error_scale_hosts")
+    f_host = np.where(np.isin(names, hosts), float(scale), 1.0)
+    f = data["L_Cepheid_host_dist"] @ f_host
+    fprint(f"Scaling Cepheid errors by {scale} for {np.sum(f_host != 1)} "
+           f"hosts ({int(np.sum(f != 1))} Cepheids).")
+    data["C_Cepheid"] = data["C_Cepheid"] * np.outer(f, f)
+    data["L_Cepheid"] = cholesky(data["C_Cepheid"], lower=True)
+    return data
+
+
 def load_SH0ES_separated(root, cepheid_host_cz_cmb_max=None,
                          los_data_path=None, rand_los_data_path=None,
                          volume_data=None, field_indices=None,
-                         drop_observation=None):
+                         drop_observation=None, keep_hosts=None,
+                         cepheid_error_scale=None,
+                         cepheid_error_scale_hosts=None):
     """
     Load the separated SH0ES data, separating the Cepheid and supernovae and
     covariance matrices.
@@ -810,6 +859,9 @@ def load_SH0ES_separated(root, cepheid_host_cz_cmb_max=None,
         data["mask_host"] = mask_host
 
     data = _drop_sh0es_observation(data, drop_observation)
+    data = _keep_sh0es_hosts(data, keep_hosts)
+    data = _scale_sh0es_cepheid_errors(
+        data, cepheid_error_scale, cepheid_error_scale_hosts)
 
     data["Neff_C_SN_unique_Cepheid_host"] = effective_rank_entropy(data["C_SN_unique_Cepheid_host"])  # noqa
     data["Neff_PV_covmat_cepheid_host"] = effective_rank_entropy(data["PV_covmat_cepheid_host"])     # noqa
@@ -864,7 +916,10 @@ def load_SH0ES_from_config(config_path):
     data = load_SH0ES_separated(
         root, cepheid_host_cz_cmb_max,
         los_data_path=los_data_path, rand_los_data_path=rand_los_data_path,
-        field_indices=field_indices, drop_observation=drop_observation)
+        field_indices=field_indices, drop_observation=drop_observation,
+        keep_hosts=d.get("keep_hosts", None),
+        cepheid_error_scale=d.get("cepheid_error_scale", None),
+        cepheid_error_scale_hosts=d.get("cepheid_error_scale_hosts", None))
     if los_data_path is None:
         scatter = angular_position_scatter_from_config(config)
         if scatter is not None:
