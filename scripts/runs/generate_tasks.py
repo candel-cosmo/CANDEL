@@ -62,7 +62,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from itertools import product
 from os import makedirs
-from os.path import join
+from os.path import join, relpath
 from pathlib import Path
 
 try:
@@ -654,11 +654,8 @@ def write_generated_tasks(tasks_index, spec, generated, clean=False):
 
 
 def _display_path(path):
-    """Path relative to the repository root when it lies inside it."""
-    try:
-        return str(Path(path).resolve().relative_to(CANDEL_ROOT))
-    except ValueError:
-        return str(path)
+    """Path relative to the CANDEL checkout (`../candel-*` for probes)."""
+    return relpath(Path(path).resolve(), CANDEL_ROOT)
 
 
 def list_specs():
