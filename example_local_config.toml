@@ -4,11 +4,11 @@
 # Core CANDEL paths
 # =============================================================================
 
-root_main = "/path/to/candel-cosmo/CANDEL/"
+root_main = "/path/to/candel-cosmo/candel/"
 # Folders holding data/ and results/; both default to the parent of root_main.
 root_data = "/path/to/candel-cosmo/"
 root_results = "/path/to/candel-cosmo/"
-python_exec = "/path/to/candel-cosmo/CANDEL/venv_candel/bin/python"
+python_exec = "/path/to/candel-cosmo/candel/venv_candel/bin/python"
 machine = "local"
 
 # =============================================================================
@@ -37,7 +37,7 @@ borg_forward = "/path/to/borg_forward"
 cosmotool_sph = "/path/to/simple3DFilter"
 
 # Python environment used for CANDEL plotting/validation helpers.
-plot_python = "/path/to/CANDEL/venv_candel/bin/python"
+plot_python = "/path/to/candel/venv_candel/bin/python"
 
 # srun executable for cluster submission; use "srun" if it is on PATH.
 srun = "srun"

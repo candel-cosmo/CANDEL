@@ -7,7 +7,7 @@ DEST_BASE="$HOME/Projects/candel-cosmo"
 # ---- glamdring source ----
 SRC_USER="rstiskalek"
 SRC_HOST="glamdring.physics.ox.ac.uk"
-SRC_PATH="/mnt/users/rstiskalek/CANDEL"
+SRC_PATH="/mnt/users/rstiskalek/candel-cosmo/candel"
 SSH_KEY="$HOME/.ssh/glamdring"
 
 usage() {

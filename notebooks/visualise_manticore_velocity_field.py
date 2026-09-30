@@ -28,7 +28,7 @@ from scipy.interpolate import RegularGridInterpolator
 import candel
 from candel.field.loader import ManticoreLocalSWIFT_FieldLoader
 
-ROOT = Path("/mnt/users/rstiskalek/CANDEL")
+ROOT = Path("/mnt/users/rstiskalek/candel-cosmo/candel")
 DEFAULT_FIELD_ROOT = Path(candel.util.data_path(
     "data/MANTICORE/2MPP_MULTIBIN_N256_DES_V2/sph_fields_new_feb/sph_fields"))
 DEFAULT_POSTERIOR = Path(candel.util.results_path(

@@ -1,7 +1,7 @@
 #!/bin/bash -l
 set -euo pipefail
 
-ROOT_DIR="/mnt/users/rstiskalek/CANDEL"
+ROOT_DIR="/mnt/users/rstiskalek/candel-cosmo/candel"
 PYTHON="$ROOT_DIR/venv_candel/bin/python"
 SCRIPT="$ROOT_DIR/scripts/H0_convergence/posterior_selection_integral_subsample.py"
 OUT_DIR="$ROOT_DIR/scripts/H0_convergence/outputs"
@@ -146,7 +146,7 @@ export TF_GPU_ALLOCATOR=cuda_malloc_async
 export JAX_PLATFORMS=cuda
 export CANDEL_ROOT="$ROOT_DIR"
 export CANDEL_PYTHON="$PYTHON"
-# shellcheck source=/mnt/users/rstiskalek/CANDEL/scripts/_cluster_glamdring.sh
+# shellcheck source=/mnt/users/rstiskalek/candel-cosmo/candel/scripts/_cluster_glamdring.sh
 source "$ROOT_DIR/scripts/_cluster_glamdring.sh"
 if $gpu_probe; then
     python_args+=(--gpu-probe)

@@ -50,7 +50,7 @@ def ensure_gpu_ld_library_path() -> None:
         os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
-ROOT = Path("/mnt/users/rstiskalek/CANDEL")
+ROOT = Path("/mnt/users/rstiskalek/candel-cosmo/candel")
 ensure_gpu_ld_library_path()
 
 

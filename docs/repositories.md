@@ -34,7 +34,7 @@ The megamaser package is the exception: it has its own runners (`python -m cande
 
 **There is one shared workspace.**
 The probe repositories are cloned next to the core (`../candel-pv`, ...).
-Input data, results and `local_config.toml` live only in the CANDEL checkout; probe code finds it through `candel.util.CANDEL_ROOT` in Python and `$CANDEL_ROOT`, defaulting to `../CANDEL`, in shell scripts.
+Input data, results and `local_config.toml` live only in the CANDEL checkout; probe code finds it through `candel.util.CANDEL_ROOT` in Python and `$CANDEL_ROOT`, defaulting to `../candel`, in shell scripts.
 
 **Every probe repository has the same layout.**
 
@@ -48,7 +48,7 @@ Input data, results and `local_config.toml` live only in the CANDEL checkout; pr
 
 ```
 candel-cosmo/            any parent directory; the name is free
-├── CANDEL/              core; data/, results/, local_config.toml
+├── candel/              core; data/, results/, local_config.toml
 ├── candel-pv/           ─┐
 ├── candel-ch0/           │ probe packages,
 ├── candel-trgb/          │ each `pip install -e`'d

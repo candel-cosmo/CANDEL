@@ -187,7 +187,7 @@ of them. The resulting layout is
 
 ```
 candel-cosmo/
-  CANDEL/  candel-pv/  candel-ch0/  ...   git checkouts
+  candel/  candel-pv/  candel-ch0/  ...   git checkouts
   data/                                   inputs (catalogues, fields, field caches)
   results/                                run outputs
   plots/  remote_logs/                    local figures, pulled cluster logs
@@ -212,7 +212,7 @@ machine-specific paths and Python interpreters used by the run scripts.
 A minimal `local_config.toml` looks like:
 
 ```toml
-root_main    = "/path/to/candel-cosmo/CANDEL/"  # repo root (required)
+root_main    = "/path/to/candel-cosmo/candel/"  # repo root (required)
 root_data    = "/path/to/candel-cosmo/"  # holds data/; optional, defaults to the parent of root_main
 root_results = "/path/to/candel-cosmo/"  # holds results/; optional, defaults to the parent of root_main
 

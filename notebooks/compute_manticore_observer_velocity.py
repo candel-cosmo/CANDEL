@@ -10,7 +10,7 @@ import numpy as np
 
 import candel
 
-ROOT = Path("/mnt/users/rstiskalek/CANDEL")
+ROOT = Path("/mnt/users/rstiskalek/candel-cosmo/candel")
 DEFAULT_CACHE = ROOT / "notebooks/manticore_velocity_field_cache.npz"
 DEFAULT_POSTERIOR = Path(candel.util.results_path(
     "results/TRGBH0_paper/table/",

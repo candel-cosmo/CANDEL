@@ -8,8 +8,8 @@ DEST_DIR="$HOME/Downloads"
 
 usage() {
     echo "Usage: $0 <remote_path> [local_dest_dir]"
-    echo "  e.g. $0 /mnt/users/rstiskalek/CANDEL/results/CH0/plot.png"
-    echo "  e.g. $0 /mnt/users/rstiskalek/CANDEL/results/CH0/plot.png ~/Desktop"
+    echo "  e.g. $0 /mnt/users/rstiskalek/candel-cosmo/candel/results/CH0/plot.png"
+    echo "  e.g. $0 /mnt/users/rstiskalek/candel-cosmo/candel/results/CH0/plot.png ~/Desktop"
     exit 1
 }
 

@@ -29,7 +29,7 @@ The shared `data/` and `results/` trees sit in `candel-cosmo/` next to the check
 
 ```
 candel-cosmo/
-  CANDEL/  candel-pv/  candel-ch0/  ...   git checkouts
+  candel/  candel-pv/  candel-ch0/  ...   git checkouts
   data/                                   inputs (catalogues, fields, field caches)
   results/                                run outputs
   plots/  remote_logs/                    local figures, pulled cluster logs
@@ -54,7 +54,7 @@ Machine-specific settings live in `local_config.toml` at the root of the CANDEL 
 It is not versioned; start from `example_local_config.toml`:
 
 ```toml
-root_main    = "/path/to/candel-cosmo/CANDEL/"  # repository root (required)
+root_main    = "/path/to/candel-cosmo/candel/"  # repository root (required)
 root_data    = "/path/to/candel-cosmo/"  # holds data/; defaults to the parent of root_main
 root_results = "/path/to/candel-cosmo/"  # holds results/; defaults to the parent of root_main
 
