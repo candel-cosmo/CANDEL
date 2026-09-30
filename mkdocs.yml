@@ -1,0 +1,62 @@
+site_name: CANDEL
+site_description: Hierarchical Bayesian inference for the local distance ladder and peculiar velocities
+site_url: https://candel.readthedocs.io/en/latest/
+repo_url: https://github.com/candel-cosmo/CANDEL
+repo_name: candel-cosmo/CANDEL
+edit_uri: edit/master/docs/
+exclude_docs: |
+  *.rst
+  api/
+  conf.py
+  Makefile
+  make.bat
+  probe-requirements.txt
+
+theme:
+  name: material
+  font: false
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: teal
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: teal
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.footer
+    - navigation.top
+    - search.highlight
+    - search.suggest
+    - content.code.copy
+
+nav:
+  - Overview: README.md
+  - Repositories: repositories.md
+  - Installation: installation.md
+  - Running inference: running.md
+  - Configuration: configuration.md
+  - Probes: probes.md
+  - Development: development.md
+
+markdown_extensions:
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.arithmatex:
+      generic: true
+  - toc:
+      permalink: true
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-mml-chtml.js
+
+validation:
+  links:
+    not_found: warn
+    anchors: warn

@@ -55,3 +55,4 @@ notebooks/manticore_velocity_field_cache.npz
 for_mark_reid/
 texput.log
 scripts/runs/generated_batch_scripts/
+site/

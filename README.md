@@ -203,7 +203,7 @@ python_exec = "/path/to/venv_candel/bin/python"  # used by cluster helpers
 Relative input paths in run-time TOML configs are resolved against `root_data`;
 output paths such as `fname_output` are resolved against `root_results`.
 Absolute paths are left unchanged. Cluster submission helpers may use
-additional machine/module keys; see [`docs/configuration.rst`](docs/configuration.rst)
+additional machine/module keys; see [`docs/configuration.md`](docs/configuration.md)
 for the full configuration schema.
 
 ## Known issues

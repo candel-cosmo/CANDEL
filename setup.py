@@ -16,9 +16,6 @@ setup(
     long_description_content_type="text/markdown",
     url="https://github.com/candel-cosmo/CANDEL",
     packages=find_packages(include=["candel", "candel.*"]),
-    extras_require={
-        "docs": ["sphinx", "sphinx-rtd-theme", "numpydoc"],
-    },
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",
