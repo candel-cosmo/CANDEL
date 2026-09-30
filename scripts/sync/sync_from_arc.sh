@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ---- local destination ----
-DEST_BASE="$HOME/Projects/CANDEL"   # /Users/rstiskalek/Projects/CANDEL
+DEST_BASE="$HOME/Projects/candel-cosmo/CANDEL"   # /Users/rstiskalek/Projects/candel-cosmo/CANDEL
 
 # ---- ARC source ----
 SRC_ALIAS="arc-htc"                  # defined in ~/.ssh/config

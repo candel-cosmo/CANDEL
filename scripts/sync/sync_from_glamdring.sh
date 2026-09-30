@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ---- local destination ----
-DEST_BASE="$HOME/Projects/CANDEL"
+DEST_BASE="$HOME/Projects/candel-cosmo/CANDEL"
 
 # ---- glamdring source ----
 SRC_USER="rstiskalek"

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ---- local source ----
-SRC_BASE="$HOME/Projects/CANDEL"
+SRC_BASE="$HOME/Projects/candel-cosmo/CANDEL"
 
 # ---- ARC destination ----
 DEST_ALIAS="arc-htc"              # alias from ~/.ssh/config
@@ -72,7 +72,7 @@ echo "[INFO] Sync complete."
 # set -euo pipefail
 
 # # ---- local source ----
-# SRC_BASE="$HOME/Projects/CANDEL"
+# SRC_BASE="$HOME/Projects/candel-cosmo/CANDEL"
 
 # # ---- ARC destination ----
 # DEST_ALIAS="arc-htc"              # alias from ~/.ssh/config
