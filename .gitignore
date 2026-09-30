@@ -1,9 +1,3 @@
-.claude/*
-!.claude/skills/
-!.claude/skills/**
-.codex/*
-!.codex/
-!.codex/config.toml
 .vscode/
 venv_candel/
 venv_gpu_candel/
@@ -36,7 +30,6 @@ modules_arc.sh
 python.sh
 bash.sh
 *.out
-GEMINI.md
 local_config.toml
 
 *.png
@@ -62,5 +55,3 @@ notebooks/manticore_velocity_field_cache.npz
 for_mark_reid/
 texput.log
 scripts/runs/generated_batch_scripts/
-findings/CANDIDATES.md
-findings/.organise-stamp
