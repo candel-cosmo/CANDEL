@@ -29,15 +29,11 @@ import candel
 from candel.field.loader import ManticoreLocalSWIFT_FieldLoader
 
 ROOT = Path("/mnt/users/rstiskalek/CANDEL")
-DEFAULT_FIELD_ROOT = (
-    ROOT
-    / "data/MANTICORE/2MPP_MULTIBIN_N256_DES_V2/sph_fields_new_feb/sph_fields"
-)
-DEFAULT_POSTERIOR = (
-    ROOT
-    / "results/TRGBH0_paper/table/"
-    / "EDD_TRGB_rhoSmoothR4_MAS-PCS_sel-TRGB_magnitude_ManticoreLocalCOLA_main.hdf5"  # noqa: E501
-)
+DEFAULT_FIELD_ROOT = Path(candel.util.data_path(
+    "data/MANTICORE/2MPP_MULTIBIN_N256_DES_V2/sph_fields_new_feb/sph_fields"))
+DEFAULT_POSTERIOR = Path(candel.util.results_path(
+    "results/TRGBH0_paper/table/",
+    "EDD_TRGB_rhoSmoothR4_MAS-PCS_sel-TRGB_magnitude_ManticoreLocalCOLA_main.hdf5"))  # noqa: E501
 DEFAULT_CACHE = ROOT / "notebooks/manticore_velocity_field_cache.npz"
 DEFAULT_OUTDIR = ROOT / "notebooks/manticore_velocity_field"
 CACHE_VERSION = 3

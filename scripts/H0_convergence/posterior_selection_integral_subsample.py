@@ -31,6 +31,7 @@ from jax.scipy.special import logsumexp
 from candel.cosmo.cosmography import Distance2Distmod, Distance2Redshift
 from candel.model.pv_utils import galaxy_bias_density_mode
 from candel.model.utils import log_prob_integrand_sel, predict_cz
+from candel.util import data_path, results_path
 
 
 def ensure_gpu_ld_library_path() -> None:
@@ -57,18 +58,16 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 DEFAULT_POSTERIORS = {
-    "SN_magnitude": ROOT /
-    "results/CH0/CH0_sel-SN_magnitude_manticore_2MPP_MULTIBIN_N256_DES_V2.hdf5",  # noqa: E501
-    "redshift": ROOT /
-    "results/CH0/CH0_sel-redshift_manticore_2MPP_MULTIBIN_N256_DES_V2.hdf5", }
-DEFAULT_DENSITY_CACHE = (
-    ROOT / "data/field_cache/manticore_2MPP_MULTIBIN_N256_DES_V2/"
-    "cache_sphere__field-0__r-100__ds-1__density.npz"
-)
-DEFAULT_VELOCITY_CACHE = (
-    ROOT / "data/field_cache/manticore_2MPP_MULTIBIN_N256_DES_V2/"
-    "cache_sphere__field-0__r-100__ds-1__vel.npz"
-)
+    "SN_magnitude": Path(results_path(
+        "results/CH0/CH0_sel-SN_magnitude_manticore_2MPP_MULTIBIN_N256_DES_V2.hdf5")),  # noqa: E501
+    "redshift": Path(results_path(
+        "results/CH0/CH0_sel-redshift_manticore_2MPP_MULTIBIN_N256_DES_V2.hdf5")), }  # noqa: E501
+DEFAULT_DENSITY_CACHE = Path(data_path(
+    "data/field_cache/manticore_2MPP_MULTIBIN_N256_DES_V2/"
+    "cache_sphere__field-0__r-100__ds-1__density.npz"))
+DEFAULT_VELOCITY_CACHE = Path(data_path(
+    "data/field_cache/manticore_2MPP_MULTIBIN_N256_DES_V2/"
+    "cache_sphere__field-0__r-100__ds-1__vel.npz"))
 POSTERIOR_SUBSAMPLE_SIZE = 1000
 H0_REWEIGHT_PLOT_FRACTIONS = 3
 

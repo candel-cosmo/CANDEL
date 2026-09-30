@@ -8,6 +8,7 @@ Use Python 3.10 or newer.
 Clone the core and any probe packages side by side, then install the core first and the probes on top of it:
 
 ```bash
+mkdir candel-cosmo && cd candel-cosmo
 git clone https://github.com/candel-cosmo/CANDEL.git
 for pkg in candel-pv candel-ch0 candel-trgb candel-mwcepheids candel-maser; do
     git clone "https://github.com/candel-cosmo/$pkg.git"
@@ -23,6 +24,16 @@ for pkg in ../candel-*/; do python -m pip install --no-deps -e "$pkg"; done
 
 The core runs without any probe package, so clone and install only the ones you need.
 `--no-deps` stops pip from reinstalling `candel` from its git URL over the editable checkout.
+
+The shared `data/` and `results/` trees sit in `candel-cosmo/` next to the checkouts, not inside any of them:
+
+```
+candel-cosmo/
+  CANDEL/  candel-pv/  candel-ch0/  ...   git checkouts
+  data/                                   inputs (catalogues, fields, field caches)
+  results/                                run outputs
+  plots/  remote_logs/                    local figures, pulled cluster logs
+```
 
 For learned harmonic-mean evidence estimates, also install [harmonic](https://github.com/astro-informatics/harmonic).
 
@@ -43,9 +54,9 @@ Machine-specific settings live in `local_config.toml` at the root of the CANDEL 
 It is not versioned; start from `example_local_config.toml`:
 
 ```toml
-root_main    = "/path/to/CANDEL/"   # repository root (required)
-root_data    = "/path/to/data/"     # optional, defaults to <root_main>/data
-root_results = "/path/to/results/"  # optional, defaults to <root_main>/results
+root_main    = "/path/to/candel-cosmo/CANDEL/"  # repository root (required)
+root_data    = "/path/to/candel-cosmo/"  # holds data/; defaults to the parent of root_main
+root_results = "/path/to/candel-cosmo/"  # holds results/; defaults to the parent of root_main
 
 python_exec = "/path/to/venv_candel/bin/python"  # used by the submission scripts
 machine     = "local"                            # local, arc or glamdring
@@ -53,3 +64,4 @@ machine     = "local"                            # local, arc or glamdring
 
 The submission scripts also read `use_frozen`, module lists and GPU library paths from it; the example file lists them.
 Probe repositories do not have their own `local_config.toml`: they read the core's.
+On a cluster where data and results live on another filesystem, set `root_data` and `root_results` to the folders holding `data/` and `results/`.

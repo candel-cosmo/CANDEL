@@ -10,7 +10,7 @@ except ModuleNotFoundError:
     import tomli as tomllib
 
 from datetime import datetime
-from os.path import abspath, exists, isabs, join
+from os.path import abspath, dirname, exists, isabs, join, normpath
 from pathlib import Path
 
 import astropy.units as u
@@ -96,13 +96,15 @@ def replace_prior_with_delta(config, param, value, verbose=True):
 
 
 def get_root_data(config):
-    """Resolve the data root, defaulting to ``<root_main>/data``."""
-    return config.get("root_data", join(config["root_main"], "data"))
+    """Resolve the folder holding ``data/``, defaulting to the parent of
+    ``root_main`` (the candel-cosmo folder beside the checkouts)."""
+    return config.get("root_data", dirname(normpath(config["root_main"])))
 
 
 def get_root_results(config):
-    """Resolve the results root, defaulting to ``<root_main>/results``."""
-    return config.get("root_results", join(config["root_main"], "results"))
+    """Resolve the folder holding ``results/``, defaulting to the parent of
+    ``root_main`` (the candel-cosmo folder beside the checkouts)."""
+    return config.get("root_results", dirname(normpath(config["root_main"])))
 
 
 _LOCAL_CONFIG_CACHE = None

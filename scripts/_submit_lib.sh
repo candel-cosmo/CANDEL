@@ -32,6 +32,8 @@
 #   CANDEL_USE_FROZEN   1 if use_frozen=true in local_config.toml, else 0
 #                       (default 0 when absent)
 #   CANDEL_WATCHER_DIR  shared directory for detached watcher logs
+#   CANDEL_ROOT_DATA    root_data from local_config.toml (holds data/)
+#   CANDEL_ROOT_RESULTS root_results from local_config.toml (holds results/)
 
 _submit_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CANDEL_ROOT="$(cd "$_submit_lib_dir/.." && pwd)"
@@ -95,8 +97,14 @@ if [[ -z "$CANDEL_WATCHER_DIR" ]]; then
 elif [[ "$CANDEL_WATCHER_DIR" != /* ]]; then
     CANDEL_WATCHER_DIR="$CANDEL_ROOT/$CANDEL_WATCHER_DIR"
 fi
+CANDEL_ROOT_DATA="$(_toml_get root_data "$_local_config")"
+CANDEL_ROOT_DATA="${CANDEL_ROOT_DATA:-$(dirname "$CANDEL_ROOT")}"
+CANDEL_ROOT_DATA="${CANDEL_ROOT_DATA%/}"
+CANDEL_ROOT_RESULTS="$(_toml_get root_results "$_local_config")"
+CANDEL_ROOT_RESULTS="${CANDEL_ROOT_RESULTS:-$(dirname "$CANDEL_ROOT")}"
+CANDEL_ROOT_RESULTS="${CANDEL_ROOT_RESULTS%/}"
 export CANDEL_CLUSTER CANDEL_PYTHON CANDEL_MODULES CANDEL_MODULES_GPU \
-       CANDEL_USE_FROZEN CANDEL_WATCHER_DIR
+       CANDEL_USE_FROZEN CANDEL_WATCHER_DIR CANDEL_ROOT_DATA CANDEL_ROOT_RESULTS
 
 if [[ -z "$CANDEL_CLUSTER" ]]; then
     echo "[submit_lib] 'machine' not set in $_local_config" >&2

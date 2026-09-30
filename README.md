@@ -54,7 +54,7 @@ repository plus one **probe package** per analysis.
 
 | Repository | Contents | `model.which_run` |
 |---|---|---|
-| [CANDEL](https://github.com/candel-cosmo/CANDEL) | core library, run scripts, docs, `data/`, `results/`, `local_config.toml` | — |
+| [CANDEL](https://github.com/candel-cosmo/CANDEL) | core library, run scripts, docs, `local_config.toml` | — |
 | [candel-pv](https://github.com/candel-cosmo/candel-pv) | peculiar-velocity models (TFR, SN, FP, Pantheon+), S8, redshift2real | `PV` (or unset) |
 | [candel-ch0](https://github.com/candel-cosmo/candel-ch0) | Cepheid-calibrated H0 (SH0ES hosts), JWST forecast mocks | `CH0` |
 | [candel-trgb](https://github.com/candel-cosmo/candel-trgb) | EDD TRGB two-rung H0, mocks and posterior predictive checks | `EDD_TRGB` |
@@ -71,10 +71,13 @@ The rules that hold it together:
   `pyproject.toml`. `scripts/runs/main.py` and `generate_tasks.py` read
   `model.which_run` from the config and load the matching probe. Installing a
   package is all it takes to make it available.
-- **One shared workspace.** Clone the probe repositories next to this one
-  (`../candel-pv`, ...). Data, results and `local_config.toml` live only in
-  this checkout; probe code finds it through `candel.util.CANDEL_ROOT` in
-  Python and `$CANDEL_ROOT` (default `../CANDEL`) in shell scripts.
+- **One shared workspace.** All repositories are cloned side by side in one
+  folder (`candel-cosmo/` below), which also holds the single `data/` and
+  `results/` trees shared by every probe. `local_config.toml` lives only in
+  this checkout. Code finds data and results through `root_data` and
+  `root_results` (`candel.util.data_path`/`results_path` in Python,
+  `$CANDEL_ROOT_DATA`/`$CANDEL_ROOT_RESULTS` from `scripts/_submit_lib.sh` in
+  shell), never through the checkout itself.
 - **Same layout everywhere.** Each probe repository has `<module>/`,
   `configs/`, `scripts/`, `papers/` (code behind each paper) and `tests/`.
   Documentation for all probes is built here, on
@@ -165,6 +168,7 @@ CANDEL underpins a series of recent analyses:
 
 ## Installation
 ```
+mkdir candel-cosmo && cd candel-cosmo
 git clone https://github.com/candel-cosmo/CANDEL.git
 for pkg in candel-pv candel-ch0 candel-trgb candel-mwcepheids candel-maser; do
     git clone "https://github.com/candel-cosmo/$pkg.git"
@@ -179,7 +183,19 @@ for pkg in ../candel-*/; do python -m pip install --no-deps -e "$pkg"; done
 ```
 
 Clone and install only the probe packages you need; the core runs without any
-of them.
+of them. The resulting layout is
+
+```
+candel-cosmo/
+  CANDEL/  candel-pv/  candel-ch0/  ...   git checkouts
+  data/                                   inputs (catalogues, fields, field caches)
+  results/                                run outputs
+  plots/  remote_logs/                    local figures, pulled cluster logs
+```
+
+`data/` and `results/` are created by the first sync or run; on a cluster
+where they live on a separate filesystem, point `root_data`/`root_results`
+at the folders holding them (or symlink them into `candel-cosmo/`).
 
 For learned harmonic-mean evidence estimates, also install [harmonic](https://github.com/astro-informatics/harmonic).
 
@@ -193,9 +209,9 @@ machine-specific paths and Python interpreters used by the run scripts.
 A minimal `local_config.toml` looks like:
 
 ```toml
-root_main    = "/path/to/CANDEL/"   # repo root (required)
-root_data    = "/path/to/data/"     # optional, defaults to <root_main>/data
-root_results = "/path/to/results/"  # optional, defaults to <root_main>/results
+root_main    = "/path/to/candel-cosmo/CANDEL/"  # repo root (required)
+root_data    = "/path/to/candel-cosmo/"  # holds data/; optional, defaults to the parent of root_main
+root_results = "/path/to/candel-cosmo/"  # holds results/; optional, defaults to the parent of root_main
 
 python_exec = "/path/to/venv_candel/bin/python"  # used by cluster helpers
 ```
@@ -209,10 +225,11 @@ for the full configuration schema.
 ## Known issues
 
 - **TODO:** some scripts and notebooks still hard-code machine-specific paths
-  (e.g. `/mnt/users/...`, `/Users/...`) instead of resolving them through
-  `local_config.toml`: `scripts/H0_convergence/posterior_selection_integral_subsample.{py,sh}`,
-  `candel-pv/scripts/load_zcosmo_posterior.py`, and many of the paper
-  notebooks under each probe repository's `papers/`. Adjust these paths before running them.
+  (e.g. `/mnt/users/...`, `/Users/...`) for code, plot or paper-figure
+  folders: `scripts/H0_convergence/posterior_selection_integral_subsample.{py,sh}`,
+  the `notebooks/` scripts, and paper scripts under each probe repository's
+  `papers/`. Data and results paths all go through `local_config.toml`.
+  Adjust the remaining paths before running them.
 
 ## Citation
 

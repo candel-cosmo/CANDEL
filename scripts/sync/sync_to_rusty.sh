@@ -2,7 +2,7 @@
 
 set -e  # Exit on error
 
-SRC_BASE="/Users/rstiskalek/Projects/candel-cosmo/CANDEL"
+SRC_BASE="/Users/rstiskalek/Projects/candel-cosmo"
 DEST_USER="rstiskalek"
 DEST_HOST="gateway.flatironinstitute.org"
 DEST_PORT=61022

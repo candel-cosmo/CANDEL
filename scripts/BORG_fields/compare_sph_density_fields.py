@@ -10,11 +10,12 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import Pk_library as PKL  # noqa: E402
-from borg_field_config import configured_chain_path  # noqa: E402
+from borg_field_config import (  # noqa: E402
+    REPO_ROOT, configured_chain_path, read_local_config)
 
-DEFAULT_OUTDIR = (
-    Path(__file__).resolve().parents[2] / "results" / "BORG_field_checks"
-)
+# Not candel.util: the BORG python environment may lack the candel package.
+DEFAULT_OUTDIR = (Path(read_local_config().get("root_results", REPO_ROOT))
+                  / "results" / "BORG_field_checks")
 BOXSIZE = 681.0  # Mpc / h
 
 
