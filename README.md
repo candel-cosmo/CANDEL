@@ -46,14 +46,41 @@ These models work in units of $h^{-1}\,\mathrm{Mpc}$ (i.e. assume $h = 1$). Mult
 - **TRGB-calibrated $H_0$:** Tip of the Red Giant Branch distances from EDD
 - **Megamaser disk $H_0$:** spot-level warped disk fits for NGC 5765b, NGC 6264, NGC 6323, UGC 3789, CGCG 074-064, and NGC 4258 using the BlackJAX explicit MCMC sampler.
 
-## Repository structure
+## How the repositories fit together
 
-This repository is the core library. Each probe is its own package in its own
-repository under [candel-cosmo](https://github.com/candel-cosmo). The core never
-imports a probe package: each package registers a `candel.Probe` under the
-`candel.probes` entry-point group, and the core scripts (`main.py`,
-`generate_tasks.py`, field preparation) look the probe up from the config's
-`model.which_run`.
+CANDEL is split across several repositories in the
+[candel-cosmo](https://github.com/candel-cosmo) organisation: this **core**
+repository plus one **probe package** per analysis.
+
+| Repository | Contents | `model.which_run` |
+|---|---|---|
+| [CANDEL](https://github.com/candel-cosmo/CANDEL) | core library, run scripts, docs, `data/`, `results/`, `local_config.toml` | — |
+| [candel-pv](https://github.com/candel-cosmo/candel-pv) | peculiar-velocity models (TFR, SN, FP, Pantheon+), S8, redshift2real | unset (peculiar-velocity runs) |
+| [candel-ch0](https://github.com/candel-cosmo/candel-ch0) | Cepheid-calibrated H0 (SH0ES hosts), JWST forecast mocks | `CH0` |
+| [candel-trgb](https://github.com/candel-cosmo/candel-trgb) | EDD TRGB two-rung H0, mocks and posterior predictive checks | `EDD_TRGB` |
+| [candel-mwcepheids](https://github.com/candel-cosmo/candel-mwcepheids) | Milky Way Cepheid calibration | `MWCepheids` |
+| [candel-maser](https://github.com/candel-cosmo/candel-maser) | megamaser disk model and two-stage megamaser H0 pipeline | own runners (`candel_maser.run_maser`) |
+
+The rules that hold it together:
+
+- **Dependencies point one way.** Probe packages import `candel`; the core
+  never imports a probe.
+- **Discovery by entry point.** Each probe package defines a `candel.Probe`
+  subclass (`load_data`, `build_model`, and `task_specs` for batch runs) and
+  registers it under the `candel.probes` entry-point group in its
+  `pyproject.toml`. `scripts/runs/main.py` and `generate_tasks.py` read
+  `model.which_run` from the config and load the matching probe. Installing a
+  package is all it takes to make it available.
+- **One shared workspace.** Clone the probe repositories next to this one
+  (`../candel-pv`, ...). Data, results and `local_config.toml` live only in
+  this checkout; probe code finds it through `candel.util.CANDEL_ROOT` in
+  Python and `$CANDEL_ROOT` (default `../CANDEL`) in shell scripts.
+- **Same layout everywhere.** Each probe repository has `<module>/`,
+  `configs/`, `scripts/`, `papers/` (code behind each paper) and `tests/`.
+  Documentation for all probes is built here, on
+  [Read the Docs](https://candel.readthedocs.io/en/latest/).
+
+Core layout:
 
 ```
 candel/                    core library
@@ -68,21 +95,8 @@ scripts/
   runs/                    main.py, generate_tasks.py, submit.sh
   preprocess/              LOS and 3D field-cache preparation
   BORG_fields/, H0_convergence/, sync/
+docs/                      Sphinx documentation (core and probe APIs)
 ```
-
-Probe packages (each with `<module>/`, `configs/`, `scripts/`, `papers/`, `tests/`):
-
-| Repository | Probe |
-|---|---|
-| [candel-pv](https://github.com/candel-cosmo/candel-pv) | peculiar-velocity models (TFR, SN, FP, Pantheon+), S8, redshift2real |
-| [candel-ch0](https://github.com/candel-cosmo/candel-ch0) | Cepheid-calibrated H0 (SH0ES hosts), JWST forecast mocks |
-| [candel-trgb](https://github.com/candel-cosmo/candel-trgb) | EDD TRGB two-rung H0, mocks and posterior predictive checks |
-| [candel-mwcepheids](https://github.com/candel-cosmo/candel-mwcepheids) | Milky Way Cepheid calibration |
-| [candel-maser](https://github.com/candel-cosmo/candel-maser) | megamaser disk model and the two-stage megamaser H0 pipeline |
-
-Clone them next to this checkout (`../candel-pv`, ...). They read `data/`,
-`results/` and `local_config.toml` from here, through `candel.util.CANDEL_ROOT`
-in Python and `$CANDEL_ROOT` (default `../CANDEL`) in shell scripts.
 
 ## Running inference
 
