@@ -21,12 +21,13 @@ matplotlib.use("Agg")
 import scienceplots  # noqa: E402,F401
 
 ROOT = Path("/mnt/users/rstiskalek/CANDEL")
+PACKAGE_ROOT = Path(__file__).resolve().parents[2]
 RESULTS = ROOT / "results" / "CH0_paper"
 TABLE = RESULTS / "table"
 DIST = RESULTS / "distances"
 MIXED = RESULTS / "mixed_selection"
 FIGURES = Path("/mnt/users/rstiskalek/Papers/CH0/Figures")
-CONFIG = ROOT / "packages" / "candel-ch0" / "configs" / "config_CH0.toml"
+CONFIG = PACKAGE_ROOT / "configs" / "config_CH0.toml"
 DATA = ROOT / "data"
 
 COLS = ["#87193d", "#1e42b9", "#d42a29", "#05dd6b", "#ee35d5"]

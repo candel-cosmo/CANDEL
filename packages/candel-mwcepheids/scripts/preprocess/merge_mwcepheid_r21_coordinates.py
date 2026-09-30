@@ -5,7 +5,7 @@ import csv
 import re
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+from candel.util import CANDEL_ROOT as REPO_ROOT  # noqa: E402
 DATA_DIR = REPO_ROOT / "data" / "MWCepheids"
 
 

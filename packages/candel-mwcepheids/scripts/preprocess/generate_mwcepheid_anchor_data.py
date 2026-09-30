@@ -29,7 +29,8 @@ B_W_FID = -3.285
 
 
 def _default_repo_root():
-    return Path(__file__).resolve().parents[3]
+    from candel.util import CANDEL_ROOT
+    return CANDEL_ROOT
 
 
 def _load_deltaq(path):

@@ -18,4 +18,5 @@ CH0 = "candel_ch0.probe:CH0Probe"
 include = ["candel_ch0*"]
 
 [project.urls]
-Repository = "https://github.com/candel-cosmo/CANDEL"
+Repository = "https://github.com/candel-cosmo/candel-ch0"
+Core = "https://github.com/candel-cosmo/CANDEL"

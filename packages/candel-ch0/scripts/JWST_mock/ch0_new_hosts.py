@@ -12,22 +12,22 @@ the posterior widths are forecasts. The added hosts are selected in a
 separate redshift window at 3300--5500 km/s.
 
 Steps (run from the repository root):
-    python packages/candel-ch0/scripts/JWST_mock/ch0_new_hosts.py prep
-    python packages/candel-ch0/scripts/JWST_mock/ch0_new_hosts.py run --scenario HST_plus5
-    python packages/candel-ch0/scripts/JWST_mock/ch0_new_hosts.py collect
+    python scripts/JWST_mock/ch0_new_hosts.py prep
+    python scripts/JWST_mock/ch0_new_hosts.py run --scenario HST_plus5
+    python scripts/JWST_mock/ch0_new_hosts.py collect
 """
 import argparse
 import inspect
 import os
 import tempfile
 from os.path import exists, join
-from pathlib import Path
 
 import numpy as np
 import tomli_w
 from scipy.linalg import block_diag, cholesky
 
 import candel
+from candel.util import CANDEL_ROOT
 import candel_ch0
 from candel.cosmo.cosmography import Distance2Distmod, Distance2Redshift
 from candel.field import interpolate_los_density_velocity, name2field_loader
@@ -300,7 +300,7 @@ def cmd_collect(args):
 
 def main():
     # Paths are relative to the repository root.
-    os.chdir(Path(__file__).resolve().parents[4])
+    os.chdir(CANDEL_ROOT)
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("prep")

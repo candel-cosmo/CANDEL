@@ -63,13 +63,13 @@ It is partly cancelled by a worse raw total likelihood, so it does not become th
 
 Analysis script:
 
-`/mnt/users/rstiskalek/CANDEL/packages/candel-ch0/papers/CH0/plot_manticore_evidence_drivers.py`
+`/mnt/users/rstiskalek/CANDEL/papers/CH0/plot_manticore_evidence_drivers.py`
 
 Run:
 
 ```bash
 /mnt/users/rstiskalek/CANDEL/venv_candel/bin/python \
-  /mnt/users/rstiskalek/CANDEL/packages/candel-ch0/papers/CH0/plot_manticore_evidence_drivers.py
+  /mnt/users/rstiskalek/CANDEL/papers/CH0/plot_manticore_evidence_drivers.py
 ```
 
 Main outputs:

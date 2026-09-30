@@ -21,7 +21,7 @@ from candel.field.volume_density import _load_volume_data_for_H0  # noqa: E402
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
-ROOT = Path(__file__).resolve().parents[4]
+from candel.util import CANDEL_ROOT as ROOT  # noqa: E402
 INTEGRAL_DIR = (
     Path(__file__).resolve().parent
     / "ch0_single_selection_integral_plots")

@@ -17,7 +17,7 @@ import numpy as np  # noqa: E402
 import scienceplots  # noqa: F401,E402
 from matplotlib.colors import LinearSegmentedColormap, Normalize  # noqa: E402
 
-ROOT = Path(__file__).resolve().parents[4]
+from candel.util import CANDEL_ROOT as ROOT  # noqa: E402
 TASK_FILE = ROOT / "scripts" / "runs" / "tasks_CH0_single.txt"
 PLOT_ROOT = ROOT / "results" / "CH0_paper" / "single_fields" / "plots"
 FIGURE_DPI = 500

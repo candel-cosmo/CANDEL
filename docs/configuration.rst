@@ -35,7 +35,7 @@ A typical configuration file is organized into several sections:
 Base paths are resolved relative to the TOML file, falling back to the shared
 fragments in ``candel/configs`` (``config_paths.toml``, ``config_priors.toml``).
 This compact form therefore assumes the run config lives in
-``packages/candel-pv/configs`` next to the PV ``config.toml``.
+``configs/`` of the ``candel-pv`` repository, next to its ``config.toml``.
 
 The untracked ``local_config.toml`` at the repository root holds
 machine-local settings (roots, field paths, reconstruction options). Values

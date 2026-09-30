@@ -6,21 +6,21 @@ fixed 150 km/s scatter, and known redshift-window selections. The same
 realisation is used to analyse every mock.
 
 Steps (run from the repository root):
-    python packages/candel-ch0/scripts/JWST_mock/mock_CH0.py pool
-    python packages/candel-ch0/scripts/JWST_mock/mock_CH0.py run --scenario M0 --seeds 0-9
-    python packages/candel-ch0/scripts/JWST_mock/mock_CH0.py collect
+    python scripts/JWST_mock/mock_CH0.py pool
+    python scripts/JWST_mock/mock_CH0.py run --scenario M0 --seeds 0-9
+    python scripts/JWST_mock/mock_CH0.py collect
 """
 import argparse
 import inspect
 import os
 import tempfile
 from os.path import exists, join
-from pathlib import Path
 
 import numpy as np
 import tomli_w
 
 import candel
+from candel.util import CANDEL_ROOT
 import candel_ch0
 from candel.field import name2field_loader
 from candel_ch0.mock import (CZ_NO_LOWER_LIMIT, build_CH0_host_pool,
@@ -167,7 +167,7 @@ def cmd_collect(args):
 
 def main():
     # Paths are relative to the repository root.
-    os.chdir(Path(__file__).resolve().parents[4])
+    os.chdir(CANDEL_ROOT)
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("pool")

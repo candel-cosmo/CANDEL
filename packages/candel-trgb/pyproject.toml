@@ -18,4 +18,5 @@ EDD_TRGB = "candel_trgb.probe:TRGBProbe"
 include = ["candel_trgb*"]
 
 [project.urls]
-Repository = "https://github.com/candel-cosmo/CANDEL"
+Repository = "https://github.com/candel-cosmo/candel-trgb"
+Core = "https://github.com/candel-cosmo/CANDEL"

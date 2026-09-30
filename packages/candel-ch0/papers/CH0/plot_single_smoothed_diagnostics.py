@@ -20,7 +20,7 @@ from matplotlib.colors import LinearSegmentedColormap, Normalize  # noqa: E402
 from matplotlib.ticker import MaxNLocator  # noqa: E402
 from scipy.stats import gaussian_kde, pearsonr, spearmanr  # noqa: E402
 
-ROOT = Path(__file__).resolve().parents[4]
+from candel.util import CANDEL_ROOT as ROOT  # noqa: E402
 TASK_FILE = ROOT / "scripts" / "runs" / "tasks_CH0_single_smoothed.txt"
 BASELINE_TASK_FILE = ROOT / "scripts" / "runs" / "tasks_CH0_single.txt"
 DEFAULT_OUTDIR = Path(__file__).resolve().parent / "ch0_single_smoothed_plots"

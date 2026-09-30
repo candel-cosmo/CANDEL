@@ -6,7 +6,12 @@
 # usage: ch0_new_hosts.sh [-q QUEUE] [--time H] [--dry]
 set -euo pipefail
 
-ROOT="${CANDEL_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)}"
+PKG_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# Core CANDEL checkout (data/, results/, local_config.toml); defaults
+# to a sibling clone of candel-cosmo/CANDEL.
+ROOT="${CANDEL_ROOT:-$(cd "$PKG_ROOT/../CANDEL" 2>/dev/null && pwd)}"
+[[ -f "$ROOT/scripts/_submit_lib.sh" ]] || {
+    echo "[ERROR] Set CANDEL_ROOT to the CANDEL core checkout." >&2; exit 1; }
 # shellcheck source=../../../../scripts/_submit_lib.sh
 source "$ROOT/scripts/_submit_lib.sh"
 
@@ -49,17 +54,17 @@ for k in "${fields[@]}"; do
 done
 
 cd "$ROOT"
-mkdir -p "$ROOT/packages/candel-ch0/scripts/JWST_mock/logs"
+mkdir -p "$PKG_ROOT/scripts/JWST_mock/logs"
 for j in "${jobs[@]}"; do
     cmd=""
     IFS=';' read -ra runs <<< "$j"
     for r in "${runs[@]}"; do
         [[ -z "$r" ]] && continue
-        cmd+="$CANDEL_PYTHON -u $ROOT/packages/candel-ch0/scripts/JWST_mock/ch0_new_hosts.py run $r; "
+        cmd+="$CANDEL_PYTHON -u $PKG_ROOT/scripts/JWST_mock/ch0_new_hosts.py run $r; "
     done
     name="ch0_newhosts_$(echo "$j" | tr -cd '[:alnum:]_.' | cut -c1-40)"
     echo "[ch0_new_hosts] $j (queue $queue)"
     submit_job --queue "$queue" --mem 16 --gpu --name "$name" \
-        "${time_flag[@]}" --logdir "$ROOT/packages/candel-ch0/scripts/JWST_mock/logs" "${dry_flag[@]}" -- \
+        "${time_flag[@]}" --logdir "$PKG_ROOT/scripts/JWST_mock/logs" "${dry_flag[@]}" -- \
         /usr/bin/env PYTHONPATH="$ROOT" bash -c "$cmd"
 done

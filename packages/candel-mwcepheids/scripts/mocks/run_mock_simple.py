@@ -5,7 +5,7 @@ Runs all campaign/likelihood combinations and prints a summary table.
 Rank 0 is the master that distributes seeds; ranks 1..N are workers.
 
 Usage:
-    mpirun -np 28 python packages/candel-mwcepheids/scripts/mocks/run_mock_simple.py \
+    mpirun -np 28 python scripts/mocks/run_mock_simple.py \
         --n-mocks 1000 \
         --campaign C22 --likelihood gaussian
 """
@@ -17,7 +17,6 @@ import sys
 import time
 import traceback
 from datetime import datetime
-from pathlib import Path
 
 import mock_utils
 import numpy as np
@@ -26,7 +25,7 @@ from mock_utils import (DEFAULT_CONFIGS, SIMPLE_TASKS, TRUE_VALS,
                         run_one_mock)
 from mpi4py import MPI
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
+from candel.util import CANDEL_ROOT as REPO_ROOT  # noqa: E402
 DEFAULT_OUTDIR = REPO_ROOT / "results" / "MWCepheids" / "mocks"
 
 TAG_WORK = 1

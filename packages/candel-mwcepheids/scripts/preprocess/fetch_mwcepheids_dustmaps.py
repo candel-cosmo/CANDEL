@@ -7,9 +7,9 @@ Supported maps:
               inner Galaxy (|ell| < 100, |b| < 10)
 
 Usage:
-    python packages/candel-mwcepheids/scripts/preprocess/fetch_mwcepheids_dustmaps.py bayestar19  # noqa: E501
-    python packages/candel-mwcepheids/scripts/preprocess/fetch_mwcepheids_dustmaps.py marshall
-    python packages/candel-mwcepheids/scripts/preprocess/fetch_mwcepheids_dustmaps.py --list
+    python scripts/preprocess/fetch_mwcepheids_dustmaps.py bayestar19  # noqa: E501
+    python scripts/preprocess/fetch_mwcepheids_dustmaps.py marshall
+    python scripts/preprocess/fetch_mwcepheids_dustmaps.py --list
 """
 import argparse
 import sys
@@ -20,7 +20,7 @@ try:
 except ModuleNotFoundError:
     import tomli as tomllib
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+from candel.util import CANDEL_ROOT as REPO_ROOT  # noqa: E402
 
 SUPPORTED_MAPS = {
     "bayestar19": {

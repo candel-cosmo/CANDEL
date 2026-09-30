@@ -3,7 +3,12 @@
 # picked up from `machine` in local_config.toml via _submit_lib.sh.
 set -euo pipefail
 
-ROOT="${CANDEL_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
+PKG_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Core CANDEL checkout (data/, results/, local_config.toml); defaults
+# to a sibling clone of candel-cosmo/CANDEL.
+ROOT="${CANDEL_ROOT:-$(cd "$PKG_ROOT/../CANDEL" 2>/dev/null && pwd)}"
+[[ -f "$ROOT/scripts/_submit_lib.sh" ]] || {
+    echo "[ERROR] Set CANDEL_ROOT to the CANDEL core checkout." >&2; exit 1; }
 # shellcheck source=../../../scripts/_submit_lib.sh
 source "$ROOT/scripts/_submit_lib.sh"
 
@@ -28,7 +33,7 @@ field_smoothing_scale=""
 default_manticore=false
 fix_selection=true
 fix_Vext=false
-config="$ROOT/packages/candel-trgb/configs/config_EDD_TRGB.toml"
+config="$PKG_ROOT/configs/config_EDD_TRGB.toml"
 outdir="$ROOT/results/mocks_TRGB"
 extra_args=""
 local_mode=false
@@ -130,7 +135,7 @@ detect_gpu_queue_slots() {
 
 print_injected_parameters() {
     local py="${CANDEL_PYTHON:-python3}"
-    "$py" - "$ROOT/packages/candel-trgb/candel_trgb/mock.py" <<'PY' || {
+    "$py" - "$PKG_ROOT/candel_trgb/mock.py" <<'PY' || {
 import ast
 import sys
 
@@ -408,7 +413,7 @@ model_args="--cz-likelihood $cz_likelihood"
 [[ -n "$b_min" ]] && model_args="$model_args --b-min $b_min"
 [[ -n "$field_smoothing_scale" ]] && model_args="$model_args --field-smoothing-scale $field_smoothing_scale"
 
-pycmd="$CANDEL_PYTHON -u $ROOT/packages/candel-trgb/scripts/mock_TRGB.py \
+pycmd="$CANDEL_PYTHON -u $PKG_ROOT/scripts/mock_TRGB.py \
     --n-mocks $n_mocks \
     --master-seed $master_seed \
     --num-warmup $num_warmup \
@@ -467,7 +472,7 @@ if $gpu_mode; then
         shard_dir="$shard_root/shard_$(printf '%03d' "$i")"
         mkdir -p "$shard_dir"
         shard_cmd="/usr/bin/env CANDEL_MOCK_SEQUENTIAL=1 \
-            $CANDEL_PYTHON -u $ROOT/packages/candel-trgb/scripts/mock_TRGB.py \
+            $CANDEL_PYTHON -u $PKG_ROOT/scripts/mock_TRGB.py \
             --n-mocks $shard_mocks \
             --master-seed $shard_seed \
             --num-warmup $num_warmup \
@@ -502,7 +507,7 @@ if $gpu_mode; then
             exit 1
         fi
         deps=$(IFS=:; echo "${job_ids[*]}")
-        merge_cmd="$CANDEL_PYTHON -u $ROOT/packages/candel-trgb/scripts/merge_mock_TRGB_shards.py \
+        merge_cmd="$CANDEL_PYTHON -u $PKG_ROOT/scripts/merge_mock_TRGB_shards.py \
             $shard_root/shard_*/mock_TRGB_biases_*.npz \
             --out $merge_out \
             --delete-inputs"

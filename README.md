@@ -48,7 +48,8 @@ These models work in units of $h^{-1}\,\mathrm{Mpc}$ (i.e. assume $h = 1$). Mult
 
 ## Repository structure
 
-CANDEL is a small core library plus one package per probe. The core library never
+This repository is the core library. Each probe is its own package in its own
+repository under [candel-cosmo](https://github.com/candel-cosmo). The core never
 imports a probe package: each package registers a `candel.Probe` under the
 `candel.probes` entry-point group, and the core scripts (`main.py`,
 `generate_tasks.py`, field preparation) look the probe up from the config's
@@ -63,19 +64,25 @@ candel/                    core library
   configs/                 shared config fragments (data/field paths, common priors)
   probe.py, tasks.py       probe registry and task-spec helpers
 
-packages/
-  candel-pv/               peculiar-velocity models (TFR, SN, FP, Pantheon+), redshift2real
-  candel-ch0/              Cepheid-calibrated H0 (SH0ES hosts), JWST forecast mocks
-  candel-trgb/             EDD TRGB two-rung H0, mocks and posterior predictive checks
-  candel-mwcepheids/       Milky Way Cepheid calibration
-  candel-maser/            megamaser disk model and the two-stage megamaser H0 pipeline
-    each with <module>/, configs/, scripts/, papers/ and tests/
-
 scripts/
   runs/                    main.py, generate_tasks.py, submit.sh
   preprocess/              LOS and 3D field-cache preparation
   BORG_fields/, H0_convergence/, sync/
 ```
+
+Probe packages (each with `<module>/`, `configs/`, `scripts/`, `papers/`, `tests/`):
+
+| Repository | Probe |
+|---|---|
+| [candel-pv](https://github.com/candel-cosmo/candel-pv) | peculiar-velocity models (TFR, SN, FP, Pantheon+), S8, redshift2real |
+| [candel-ch0](https://github.com/candel-cosmo/candel-ch0) | Cepheid-calibrated H0 (SH0ES hosts), JWST forecast mocks |
+| [candel-trgb](https://github.com/candel-cosmo/candel-trgb) | EDD TRGB two-rung H0, mocks and posterior predictive checks |
+| [candel-mwcepheids](https://github.com/candel-cosmo/candel-mwcepheids) | Milky Way Cepheid calibration |
+| [candel-maser](https://github.com/candel-cosmo/candel-maser) | megamaser disk model and the two-stage megamaser H0 pipeline |
+
+Clone them next to this checkout (`../candel-pv`, ...). They read `data/`,
+`results/` and `local_config.toml` from here, through `candel.util.CANDEL_ROOT`
+in Python and `$CANDEL_ROOT` (default `../CANDEL`) in shell scripts.
 
 ## Running inference
 
@@ -98,7 +105,7 @@ bash scripts/runs/submit.sh -q QUEUE --batch 8 --parallel 4 -n 8 test
 **Megamaser disk model:**
 ```bash
 python -m candel_maser.run_maser NGC5765b
-bash packages/candel-maser/scripts/submit.sh -q cmbgpu --galaxy NGC5765b --sampler mcmc
+bash ../candel-maser/scripts/submit.sh -q cmbgpu --galaxy NGC5765b --sampler mcmc
 ```
 
 ### Inference methods
@@ -109,12 +116,12 @@ bash packages/candel-maser/scripts/submit.sh -q cmbgpu --galaxy NGC5765b --sampl
 
 ### Adding a probe
 
-A new analysis (for example an SN Ia distance ladder) is a new package under
-`packages/`: a model and data loader built on the core, a `Probe` subclass
+A new analysis (for example an SN Ia distance ladder) is a new package in its
+own repository: a model and data loader built on the core, a `Probe` subclass
 implementing `load_data` and `build_model` (plus `task_specs` and
 `task_tag_parts` for batch runs), and an entry point
 `[project.entry-points."candel.probes"]` in its `pyproject.toml`. After
-`pip install -e packages/<name>`, `main.py` and `generate_tasks.py` pick it up
+`pip install -e ../<name>`, `main.py` and `generate_tasks.py` pick it up
 without changes to the core.
 
 ## Results
@@ -145,16 +152,20 @@ CANDEL underpins a series of recent analyses:
 ## Installation
 ```
 git clone https://github.com/candel-cosmo/CANDEL.git
+for pkg in candel-pv candel-ch0 candel-trgb candel-mwcepheids candel-maser; do
+    git clone "https://github.com/candel-cosmo/$pkg.git"
+done
 cd CANDEL
 
 python -m venv venv_candel
 source venv_candel/bin/activate
 python -m pip install --upgrade pip setuptools
 python -m pip install -e .
-for pkg in packages/*/; do python -m pip install -e "$pkg"; done
+for pkg in ../candel-*/; do python -m pip install --no-deps -e "$pkg"; done
 ```
 
-Install only the probe packages you need; the core runs without any of them.
+Clone and install only the probe packages you need; the core runs without any
+of them.
 
 For learned harmonic-mean evidence estimates, also install [harmonic](https://github.com/astro-informatics/harmonic).
 
@@ -186,8 +197,8 @@ for the full configuration schema.
 - **TODO:** some scripts and notebooks still hard-code machine-specific paths
   (e.g. `/mnt/users/...`, `/Users/...`) instead of resolving them through
   `local_config.toml`: `scripts/H0_convergence/posterior_selection_integral_subsample.{py,sh}`,
-  `packages/candel-pv/scripts/load_zcosmo_posterior.py`, and many of the paper
-  notebooks under `packages/*/papers/`. Adjust these paths before running them.
+  `candel-pv/scripts/load_zcosmo_posterior.py`, and many of the paper
+  notebooks under each probe repository's `papers/`. Adjust these paths before running them.
 
 ## Citation
 

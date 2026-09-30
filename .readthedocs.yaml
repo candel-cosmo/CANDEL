@@ -14,13 +14,4 @@ python:
       path: .
       extra_requirements:
         - docs
-    - method: pip
-      path: packages/candel-pv
-    - method: pip
-      path: packages/candel-ch0
-    - method: pip
-      path: packages/candel-trgb
-    - method: pip
-      path: packages/candel-mwcepheids
-    - method: pip
-      path: packages/candel-maser
+    - requirements: docs/probe-requirements.txt

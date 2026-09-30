@@ -10,14 +10,13 @@ solution. Parameters are whitened (z = (q - mode) @ L_A, where A = L_A L_A^T
 is the precision matrix) so the posterior is an isotropic unit Gaussian,
 which emcee's stretch move samples efficiently.
 """
-from pathlib import Path
 
 import emcee
 import numpy as np
 from astropy.io import fits
 from scipy.linalg import cho_factor, cho_solve
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+from candel.util import CANDEL_ROOT as REPO_ROOT  # noqa: E402
 DATA_DIR = REPO_ROOT / "data" / "MWCepheids" / "SH0ES_H0"
 N_PARAMS = 47
 

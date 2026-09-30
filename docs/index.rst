@@ -22,9 +22,11 @@ differentiation and JIT compilation throughout.
 Tutorials
 ---------
 
-For practical examples, see ``packages/candel-pv/notebooks/example.ipynb`` and
-the paper directories ``packages/*/papers/``, which hold the scripts and
-notebooks behind each publication, for example ``packages/candel-ch0/papers/CH0``
+For practical examples, see ``notebooks/example.ipynb`` in
+`candel-pv <https://github.com/candel-cosmo/candel-pv>`_ and the ``papers/``
+directory of each probe repository, which holds the scripts and notebooks
+behind each publication, for example ``papers/CH0`` in
+`candel-ch0 <https://github.com/candel-cosmo/candel-ch0>`_
 for `Stiskalek et al. (2025) <https://arxiv.org/abs/2509.09665>`_.
 
 HPC and Batch Processing

@@ -11,7 +11,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 
-ROOT = Path(__file__).resolve().parents[4]
+from candel.util import CANDEL_ROOT as ROOT  # noqa: E402
 SUMMARY_DIR = (
     ROOT / "results" / "CH0_paper" / "imb_geometric"
     / "plots" / "reconstruction_effects")

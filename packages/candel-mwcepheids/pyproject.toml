@@ -18,4 +18,5 @@ MWCepheids = "candel_mwcepheids.probe:MWCepheidsProbe"
 include = ["candel_mwcepheids*"]
 
 [project.urls]
-Repository = "https://github.com/candel-cosmo/CANDEL"
+Repository = "https://github.com/candel-cosmo/candel-mwcepheids"
+Core = "https://github.com/candel-cosmo/CANDEL"

@@ -2,8 +2,13 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="${CANDEL_ROOT:-$(cd "$SCRIPT_DIR/../../../../../.." && pwd)}"
-OUTDIR="$ROOT/packages/candel-trgb/papers/TRGBH0/output/model_checks"
+PKG_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
+# Core CANDEL checkout (data/, results/, local_config.toml); defaults
+# to a sibling clone of candel-cosmo/CANDEL.
+ROOT="${CANDEL_ROOT:-$(cd "$PKG_ROOT/../CANDEL" 2>/dev/null && pwd)}"
+[[ -f "$ROOT/scripts/_submit_lib.sh" ]] || {
+    echo "[ERROR] Set CANDEL_ROOT to the CANDEL core checkout." >&2; exit 1; }
+OUTDIR="$PKG_ROOT/papers/TRGBH0/output/model_checks"
 PYTHON="${CANDEL_PYTHON:-$ROOT/venv_candel/bin/python}"
 # PPC_FACTOR="${CANDEL_PPC_FACTOR:-10}"
 PPC_FACTOR=10

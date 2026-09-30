@@ -11,7 +11,8 @@ import matplotlib
 import numpy as np
 from astropy.coordinates import ICRS, LSRK, SkyCoord
 
-ROOT = Path(__file__).resolve().parents[4]
+from candel.util import CANDEL_ROOT as ROOT  # noqa: E402
+PACKAGE_ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
@@ -219,7 +220,7 @@ def main():
 
     r = radial_grid(args.rmin, args.rmax, args.dr)
     config = candel.load_config(
-        ROOT / "packages" / "candel-pv" / "configs" / "config.toml")
+        PACKAGE_ROOT / "configs" / "config.toml")
     los_base = args.output_dir / args.input.name
     results = {}
     for method in args.methods:

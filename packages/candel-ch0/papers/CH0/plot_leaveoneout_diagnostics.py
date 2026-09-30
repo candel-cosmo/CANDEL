@@ -16,7 +16,7 @@ import numpy as np  # noqa: E402
 import scienceplots  # noqa: F401,E402
 from matplotlib.colors import Normalize  # noqa: E402
 
-ROOT = Path(__file__).resolve().parents[4]
+from candel.util import CANDEL_ROOT as ROOT  # noqa: E402
 TASK_FILE = ROOT / "scripts" / "runs" / "tasks_CH0_leaveoneout.txt"
 RESULTS = ROOT / "results" / "CH0_paper"
 DEFAULT_OUTDIR = RESULTS / "leaveoneout" / "plots"

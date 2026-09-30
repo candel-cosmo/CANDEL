@@ -19,6 +19,9 @@ from astropy.coordinates import CartesianRepresentation, SkyCoord
 from h5py import File
 
 SPEED_OF_LIGHT = 299_792.458  # km / s
+# Core checkout holding local_config.toml, data/ and results/. Probe packages
+# live in their own repositories and locate these through it.
+CANDEL_ROOT = Path(__file__).resolve().parent.parent
 # Config fragments shared by the probe packages (e.g. data and field paths).
 SHARED_CONFIG_DIR = join(Path(__file__).resolve().parent, "configs")
 
@@ -112,7 +115,7 @@ def local_config():
     """
     global _LOCAL_CONFIG_CACHE
     if _LOCAL_CONFIG_CACHE is None:
-        path = Path(__file__).resolve().parent.parent / "local_config.toml"
+        path = CANDEL_ROOT / "local_config.toml"
         with open(path, "rb") as f:
             _LOCAL_CONFIG_CACHE = tomllib.load(f)
     return _LOCAL_CONFIG_CACHE
@@ -284,8 +287,7 @@ def load_config(config_path, replace_none=True, fill_paths=True,
         with open(bp, 'rb') as f:
             merged = _deep_merge(merged, tomllib.load(f))
 
-    project_root = Path(__file__).resolve().parent.parent
-    local_config_path = project_root / "local_config.toml"
+    local_config_path = CANDEL_ROOT / "local_config.toml"
     if local_config_path.exists():
         with open(local_config_path, 'rb') as f:
             merged = _deep_merge(merged, tomllib.load(f))

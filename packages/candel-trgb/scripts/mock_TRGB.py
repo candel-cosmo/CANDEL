@@ -33,13 +33,14 @@ from candel_trgb.mock import DEFAULT_ANCHORS, DEFAULT_TRUE_PARAMS
 from candel.model.pv_utils import GALAXY_BIAS_MODELS
 from candel.field.field_cache import (
     _field_cache_dir_from_config, _field_cache_project_from_config)
-from candel.util import results_path
+from candel.util import CANDEL_ROOT, results_path
 
 matplotlib.use("Agg")
 
 
-REPO_ROOT = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+PACKAGE_ROOT = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), ".."))
+REPO_ROOT = str(CANDEL_ROOT)
 
 TRACKED_PARAMS = ["H0", "M_TRGB", "alpha_c", "c_star", "c_bar", "w_c",
                   "sigma_int", "sigma_v", "nu_cz",
@@ -1163,8 +1164,7 @@ def main():
         "--config",
         type=str,
         default=os.path.join(
-            REPO_ROOT,
-            "packages/candel-trgb/configs/config_EDD_TRGB.toml"),
+            PACKAGE_ROOT, "configs", "config_EDD_TRGB.toml"),
         help="Base config for inference settings")
     parser.add_argument("--outdir",
                         default=results_path("results/mocks_TRGB"),

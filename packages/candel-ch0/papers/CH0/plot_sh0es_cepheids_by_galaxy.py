@@ -19,8 +19,9 @@ except ModuleNotFoundError:  # pragma: no cover
     import tomli as tomllib
 
 
-ROOT = Path(__file__).resolve().parents[4]
-DEFAULT_CONFIG = ROOT / "packages" / "candel-ch0" / "configs" / "config_CH0.toml"
+from candel.util import CANDEL_ROOT as ROOT  # noqa: E402
+PACKAGE_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_CONFIG = PACKAGE_ROOT / "configs" / "config_CH0.toml"
 DEFAULT_OUTDIR = ROOT / "plots" / "paper_CH0"
 
 N_CEPHEIDS = 3130

@@ -4,18 +4,17 @@
 Run this after the individual mock runs have finished.
 
 Usage:
-    python packages/candel-mwcepheids/scripts/mocks/collect_mock_simple.py
+    python scripts/mocks/collect_mock_simple.py
 """
 import argparse
 import os
-from pathlib import Path
 
 import mock_utils
 import numpy as np
 from mock_utils import (SIMPLE_TASKS, TRUE_VALS, likelihood_label,
                         parse_likelihood, print_bias_table)
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
+from candel.util import CANDEL_ROOT as REPO_ROOT  # noqa: E402
 DEFAULT_OUTDIR = REPO_ROOT / "results" / "MWCepheids" / "mocks"
 
 

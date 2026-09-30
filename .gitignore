@@ -30,8 +30,6 @@ scripts/runs/batch_*.sh*
 scripts/runs/generated_configs/
 scripts/runs/logs-*.tsv
 scripts/runs/logs
-packages/candel-trgb/scripts/logs/
-packages/candel-maser/scripts/logs/
 scripts/H0_convergence/outputs/
 
 modules_arc.sh
@@ -59,16 +57,10 @@ background_info/
 background_info/fit_disk_Reid/
 docs/plans/
 remote_logs/
-packages/candel-pv/papers/S8/sr_interp_cache/
-packages/candel-trgb/papers/TRGBH0/TRGBH0_variants_table.tex
-packages/candel-trgb/papers/TRGBH0/output/
-packages/candel-pv/papers/VFO/output/
 notebooks/manticore_velocity_field/
 notebooks/manticore_velocity_field_cache.npz
-packages/candel-maser/candel_maser/reid/reidlik_build/
 for_mark_reid/
 texput.log
-packages/candel-ch0/scripts/JWST_mock/logs/
 scripts/runs/generated_batch_scripts/
 findings/CANDIDATES.md
 findings/.organise-stamp

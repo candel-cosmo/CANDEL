@@ -7,9 +7,9 @@ loads at init time. Run this once (or when config changes) to avoid
 querying the dust map during model setup.
 
 Usage:
-    python packages/candel-mwcepheids/scripts/preprocess/precompute_mwcepheids_extinction.py
-    python packages/candel-mwcepheids/scripts/preprocess/precompute_mwcepheids_extinction.py \
-        --config packages/candel-mwcepheids/configs/config_MWCepheids.toml
+    python scripts/preprocess/precompute_mwcepheids_extinction.py
+    python scripts/preprocess/precompute_mwcepheids_extinction.py \
+        --config configs/config_MWCepheids.toml
 """
 import argparse
 import os

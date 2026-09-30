@@ -14,7 +14,7 @@ if str(PLOT_DIR) not in sys.path:
 
 import matplotlib  # noqa: E402
 import tomli_w  # noqa: E402
-from trgbh0_plot_style import (OUTPUT_DIR, ROOT,  # noqa: E402
+from trgbh0_plot_style import (OUTPUT_DIR, PACKAGE_ROOT, ROOT,  # noqa: E402
                                TRGBH0_TABLE_RESULTS)
 
 import candel  # noqa: E402
@@ -26,7 +26,7 @@ from candel_trgb import (generate_trgb_ppc, plot_trgb_ppc,  # noqa: E402
 matplotlib.use("Agg")
 
 
-CONFIG = ROOT / "packages/candel-trgb/configs/config_EDD_TRGB.toml"
+CONFIG = PACKAGE_ROOT / "configs/config_EDD_TRGB.toml"
 SINGLE_FIELD_RESULTS = TRGBH0_TABLE_RESULTS.parent / "single_fields"
 DEFAULT_MANTICORE_ROOT = (
     ROOT / "data/MANTICORE/2MPP_MULTIBIN_N256_DES_V2/"

@@ -7,22 +7,24 @@ using CANDEL.
 1. Installation
 ---------------
 
-First, clone the repository and install the package:
+First, clone the core and the peculiar-velocity package side by side and
+install both:
 
 .. code-block:: bash
 
    git clone https://github.com/candel-cosmo/CANDEL.git
+   git clone https://github.com/candel-cosmo/candel-pv.git
    cd CANDEL
    python -m venv venv_candel
    source venv_candel/bin/activate
    pip install -e .
-   pip install -e packages/candel-pv
+   pip install --no-deps -e ../candel-pv
 
 2. Prepare a configuration
 --------------------------
 
 Create a TOML file defining your experiment. For a small Tully--Fisher run,
-place the following in ``packages/candel-pv/configs/quickstart.toml`` so it can
+place the following in ``../candel-pv/configs/quickstart.toml`` so it can
 inherit the maintained default configuration:
 
 .. code-block:: toml
@@ -56,7 +58,7 @@ Use the provided script to launch the sampler:
 
 .. code-block:: bash
 
-   python scripts/runs/main.py --config packages/candel-pv/configs/quickstart.toml
+   python scripts/runs/main.py --config ../candel-pv/configs/quickstart.toml
 
 CANDEL will automatically detect available GPUs and use one per chain if
 possible.

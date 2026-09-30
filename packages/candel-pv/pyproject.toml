@@ -18,4 +18,5 @@ PV = "candel_pv.probe:PVProbe"
 include = ["candel_pv*"]
 
 [project.urls]
-Repository = "https://github.com/candel-cosmo/CANDEL"
+Repository = "https://github.com/candel-cosmo/candel-pv"
+Core = "https://github.com/candel-cosmo/CANDEL"

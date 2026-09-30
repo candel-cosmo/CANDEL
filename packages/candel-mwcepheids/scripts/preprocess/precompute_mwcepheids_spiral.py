@@ -12,9 +12,9 @@ Otherwise, random sightlines are generated with the same seed and bounds
 as the model would use.
 
 Usage:
-    python packages/candel-mwcepheids/scripts/preprocess/precompute_mwcepheids_spiral.py
-    python packages/candel-mwcepheids/scripts/preprocess/precompute_mwcepheids_spiral.py \
-        --config packages/candel-mwcepheids/configs/config_MWCepheids.toml
+    python scripts/preprocess/precompute_mwcepheids_spiral.py
+    python scripts/preprocess/precompute_mwcepheids_spiral.py \
+        --config configs/config_MWCepheids.toml
 """
 import argparse
 import os

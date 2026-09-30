@@ -1,0 +1,7 @@
+# Probe packages documented under docs/api/probes.rst, installed after the
+# core so that their `candel` dependency is already satisfied.
+candel-pv @ git+https://github.com/candel-cosmo/candel-pv.git
+candel-ch0 @ git+https://github.com/candel-cosmo/candel-ch0.git
+candel-trgb @ git+https://github.com/candel-cosmo/candel-trgb.git
+candel-mwcepheids @ git+https://github.com/candel-cosmo/candel-mwcepheids.git
+candel-maser @ git+https://github.com/candel-cosmo/candel-maser.git

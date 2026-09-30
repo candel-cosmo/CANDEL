@@ -82,7 +82,7 @@ def get_probe(which_run):
         raise ValueError(
             f"No installed CANDEL package handles which_run={which_run!r}; "
             f"installed: {sorted(map(str, probes()))}. Install the package "
-            "providing it (e.g. `pip install -e packages/<name>`).") from None
+            "providing it (e.g. `pip install -e ../candel-<name>`).") from None
 
 
 def task_specs():

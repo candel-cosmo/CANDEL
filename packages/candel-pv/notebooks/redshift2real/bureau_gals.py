@@ -12,7 +12,8 @@ import numpy as np
 from h5py import File, string_dtype
 from scipy.stats import binned_statistic
 
-ROOT = Path(__file__).resolve().parents[4]
+from candel.util import CANDEL_ROOT as ROOT  # noqa: E402
+PACKAGE_ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
@@ -502,7 +503,7 @@ def main():
         catalogue["e_zhelio"])
     r = radial_grid(args.rmin, args.rmax, args.dr)
     config = candel.load_config(
-        ROOT / "packages" / "candel-pv" / "configs" / "config.toml")
+        PACKAGE_ROOT / "configs" / "config.toml")
 
     results = {}
     for method in args.methods:
