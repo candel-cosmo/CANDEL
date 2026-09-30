@@ -32,8 +32,15 @@ A typical configuration file is organized into several sections:
    [model]
    which_selection = "none"
 
-Base paths are resolved relative to the TOML file, so this compact form assumes
-the run config lives in ``scripts/runs/configs`` next to ``config.toml``.
+Base paths are resolved relative to the TOML file, falling back to the shared
+fragments in ``candel/configs`` (``config_paths.toml``, ``config_priors.toml``).
+This compact form therefore assumes the run config lives in
+``packages/candel-pv/configs`` next to the PV ``config.toml``.
+
+The untracked ``local_config.toml`` at the repository root holds
+machine-local settings (roots, field paths, reconstruction options). Values
+are merged with increasing precedence: ``base`` fragments, then
+``local_config.toml``, then the config file itself.
 
 Path handling
 -------------
@@ -66,9 +73,9 @@ The ``[model]`` section contains settings specific to the distance indicator
 and the physical model:
 
 - ``name``: The name of the PV model class (e.g., ``"TFR"``, ``"SN"``, ``"PantheonPlus"``, ``"FP"``).
-- ``which_run``: For non-PV runners, specifies the pipeline to run
-  (``"CH0"``, ``"CCHP"``, ``"EDD_TRGB"``, ``"EDD_TRGB_grouped"``,
-  ``"CCHP_CSP"``, or ``"MWCepheids"``).
+- ``which_run``: For non-PV runs, the probe to run (``"CH0"``,
+  ``"EDD_TRGB"`` or ``"MWCepheids"``; any installed probe package may add
+  more). Leave it unset for peculiar-velocity runs.
 - ``Om``: Matter density parameter :math:`\Omega_m`.
 - ``use_reconstruction``: Boolean, whether to use a reconstructed density/velocity field.
 - ``which_selection``: Type of selection function to apply (e.g., ``"TRGB_magnitude"``, ``"redshift"``, or ``"none"``).
@@ -109,13 +116,14 @@ configuration generator:
    python scripts/runs/generate_tasks.py build test
 
 This script reads a template TOML and applies a named grid of overrides defined
-in ``scripts/runs/specs_tasks.py``. It generates:
+in the ``specs.py`` module of each installed probe package. It generates:
 
 1. A directory of ``.toml`` files, one for each combination of parameters.
 2. A ``tasks_[index].txt`` file containing the paths to all generated configs.
 
-The task list can be used to launch parallel jobs on a cluster, for example
-using a SLURM array.
+Submit the task list with ``scripts/runs/submit.sh``. ``--batch N`` places N
+tasks in one scheduler job and ``--parallel P`` runs P of them concurrently on a
+CPU job, splitting its cores between them.
 
 Inference settings
 ------------------

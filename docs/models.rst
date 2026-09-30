@@ -28,38 +28,38 @@ Peculiar-velocity models
 ------------------------
 
 These models work in units of :math:`h^{-1}\,\mathrm{Mpc}` and can be analysed
-jointly via :class:`~candel.model.base_pv.JointPVModel` with user-specified
+jointly via :class:`~candel_pv.base_pv.JointPVModel` with user-specified
 shared parameters.
 
-- **Tully--Fisher relation** (:class:`~candel.model.model_PV_TFR.TFRModel`):
+- **Tully--Fisher relation** (:class:`~candel_pv.model_PV_TFR.TFRModel`):
   2MTF, SFI++, CF4-TFR
-- **Type Ia supernovae (SALT2)** (:class:`~candel.model.model_PV_SN.SNModel`):
+- **Type Ia supernovae (SALT2)** (:class:`~candel_pv.model_PV_SN.SNModel`):
   LOSS, Foundation
-- **Pantheon+** (:class:`~candel.model.model_PV_PantheonPlus.PantheonPlusModel`):
+- **Pantheon+** (:class:`~candel_pv.model_PV_PantheonPlus.PantheonPlusModel`):
   Pantheon+ with full covariance matrix
-- **Fundamental Plane** (:class:`~candel.model.model_PV_FP.FPModel`):
+- **Fundamental Plane** (:class:`~candel_pv.model_PV_FP.FPModel`):
   6dFGS-FP, SDSS-FP
 
 :math:`H_0` inference
 ---------------------
 
 - **Cepheid-calibrated** :math:`H_0`
-  (:class:`~candel.model.model_H0_CH0.CH0Model`):
+  (:class:`~candel_ch0.model.CH0Model`):
   35 Cepheid host galaxies from SH0ES
 - **TRGB-calibrated** :math:`H_0`
-  (:class:`~candel.model.model_H0_TRGB.TRGBModel`):
-  Tip of the Red Giant Branch (TRGB) distances from CCHP and EDD
-- **2MTF-calibrated** :math:`H_0`
-  (:class:`~candel.model.model_H0_2MTF.EDD2MTFModel`):
-  Tully--Fisher distances from the EDD-2MTF sample
+  (:class:`~candel_trgb.model.TRGBModel`):
+  Tip of the Red Giant Branch (TRGB) distances from EDD
+- **Milky Way Cepheid calibration**
+  (:class:`~candel_mwcepheids.model.MWCepheidModel`)
+- **Megamaser disk** :math:`H_0`
+  (:class:`~candel_maser.model_H0_maser.MaserDiskModel`):
+  spot-level warped disk fits, run with ``python -m candel_maser.run_maser``
 
 Package structure
 -----------------
 
-- :doc:`candel <api/candel>` -- cosmography, inference, evidence, utilities
-- :doc:`candel.model <api/candel.model>` -- forward models for each distance indicator
-- :doc:`candel.pvdata <api/candel.pvdata>` -- data loaders for all supported catalogues
-- :doc:`candel.cosmo <api/candel.cosmo>` -- growth rate, PV covariance matrices
-- :doc:`candel.field <api/candel.field>` -- 3D density/velocity field loading and LOS interpolation
-- :doc:`candel.redshift2real <api/candel.redshift2real>` -- observed to cosmological redshift mapping
-- :doc:`candel.mock <api/candel.mock>` -- synthetic catalogue generation
+- :doc:`candel <api/candel>` -- probe registry, inference, evidence, utilities
+- :doc:`candel.model <api/candel.model>` -- base models, priors, quadrature, LOS and bias utilities
+- :doc:`candel.cosmo <api/candel.cosmo>` -- cosmography
+- :doc:`candel.field <api/candel.field>` -- field loading, LOS interpolation, field caches and 3D volume grids
+- :doc:`Probe packages <api/probes>` -- the PV, CH0, TRGB, MW Cepheid and megamaser packages

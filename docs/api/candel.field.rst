@@ -16,3 +16,19 @@ Field loaders
    :members:
    :undoc-members:
    :show-inheritance:
+
+Line-of-sight products
+----------------------
+
+.. automodule:: candel.field.los
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+3D volume grids
+---------------
+
+.. automodule:: candel.field.volume_density
+   :members:
+   :undoc-members:
+   :show-inheritance:

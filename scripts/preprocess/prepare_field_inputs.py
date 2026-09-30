@@ -29,12 +29,12 @@ if str(ROOT) not in sys.path:
 
 import candel  # noqa: E402
 from candel import get_nested  # noqa: E402
-from candel.pvdata.field_products import (  # noqa: E402
+from candel.field.field_products import (  # noqa: E402
     field_smoothing_scale_from_config, los_field_cache_paths,
     los_radial_grid_payload_from_array,
     velocity_field_smoothing_scale_from_config)
 from scripts.preprocess import field_input_cache as cache_mod  # noqa: E402
-from scripts.preprocess import field_input_los as los_mod  # noqa: E402
+from candel.field import los_prep as los_mod  # noqa: E402
 
 
 def _split_values(values):
@@ -97,23 +97,10 @@ def _config_variants(config_paths):
 
 
 def _infer_h0_los_job(config):
-    which_run = get_nested(config, "model/which_run", None)
-    if which_run == "CH0":
-        return (
-            "SH0ES",
-            get_nested(config, "io/SH0ES/reconstruction", None),
-        )
-    if which_run in ("CCHP", "CCHP_CSP"):
-        return (
-            "CCHP",
-            get_nested(config, "io/CCHP/reconstruction", None),
-        )
-    if which_run in ("EDD_TRGB", "EDD_TRGB_grouped"):
-        return (
-            which_run,
-            get_nested(config, f"io/PV_main/{which_run}/reconstruction", None),
-        )
-    return None
+    probe = candel.get_probe(get_nested(config, "model/which_run", None))
+    if probe.los_catalogue is None:
+        return None
+    return probe.los_catalogue, get_nested(config, probe.reconstruction_key)
 
 
 def _infer_los_jobs(config, catalogue=None, reconstruction=None):
@@ -156,15 +143,8 @@ def _infer_los_jobs(config, catalogue=None, reconstruction=None):
 
 def _plan_los_metadata(config, catalogue):
     """Return LOS template and count using config-only information."""
-    if "random_" in catalogue:
-        return config["io"]["los_file_random"], int(
-            catalogue.replace("random_", ""))
-
-    if catalogue == "CCHP":
-        los_template = get_nested(config, "io/CCHP/los_file", None)
-    else:
-        los_template = get_nested(
-            config, f"io/PV_main/{catalogue}/los_file", None)
+    los_template = get_nested(
+        config, f"io/PV_main/{catalogue}/los_file", None)
 
     if los_template is None:
         raise ValueError(
@@ -244,8 +224,7 @@ def _prepare_los(variants, args):
                     ]
                 else:
                     RA, dec, los_template = los_mod.load_los(
-                        job["catalogue"], variant["config"],
-                        config_path=str(variant["config_path"]))
+                        job["catalogue"], variant["config"])
                     results = []
                     for nsim, path in zip(
                             planned["field_indices"], planned["paths"]):

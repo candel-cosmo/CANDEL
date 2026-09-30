@@ -1,17 +1,5 @@
 # Copyright (C) 2026 Richard Stiskalek
-# This program is free software; you can redistribute it and/or modify it
-# under the terms of the GNU General Public License as published by the
-# Free Software Foundation; either version 3 of the License, or (at your
-# option) any later version.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
-# Public License for more details.
-#
-# You should have received a copy of the GNU General Public License along
-# with this program; if not, write to the Free Software Foundation, Inc.,
-# 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+# Licensed under the MIT License; see LICENSE in the repository root.
 """
 Routines copied from:
     `https://github.com/adrn/jax-ext/blob/main/jax_ext/integrate/simpson.py`
@@ -129,25 +117,6 @@ def trapz_log_weights(x):
 
 
 @partial(jax.jit, static_argnums=2)
-def ln_trapz_precomputed(ln_y, log_w, axis=-1):
-    """Log-space trapezoidal integration using pre-computed log weights.
-
-    Computes log(sum_i w_i * y_i) numerically stably via logsumexp.
-    The implementation is identical to ``ln_simpson_precomputed`` —
-    the distinction is semantic (which weights are passed).
-
-    Parameters
-    ----------
-    ln_y : array_like
-        Log function values. The integration axis must match `log_w`.
-    log_w : array_like
-        Pre-computed log trapezoidal weights from ``trapz_log_weights``.
-    axis : int
-        Axis along which to integrate.
-    """
-    return logsumexp(ln_y + log_w, axis=axis)
-
-
 @partial(jax.jit, static_argnums=2)
 def ln_simpson_precomputed(ln_y, log_w, axis=-1):
     """Log-space Simpson integration using pre-computed log weights.

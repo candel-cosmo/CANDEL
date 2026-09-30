@@ -1,10 +1,10 @@
 candel
 ======
 
-Cosmography
------------
+Probe registry
+--------------
 
-.. automodule:: candel.cosmo.cosmography
+.. automodule:: candel.probe
    :members:
    :undoc-members:
    :show-inheritance:
@@ -25,10 +25,10 @@ Evidence
    :undoc-members:
    :show-inheritance:
 
-Posterior predictive checks
----------------------------
+Task-spec helpers
+-----------------
 
-.. automodule:: candel.mock.ppc_trgb
+.. automodule:: candel.tasks
    :members:
    :undoc-members:
    :show-inheritance:

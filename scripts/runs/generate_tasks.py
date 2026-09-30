@@ -1,17 +1,5 @@
 # Copyright (C) 2025 Richard Stiskalek
-# This program is free software; you can redistribute it and/or modify it
-# under the terms of the GNU General Public License as published by the
-# Free Software Foundation; either version 3 of the License, or (at your
-# option) any later version.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
-# Public License for more details.
-#
-# You should have received a copy of the GNU General Public License along
-# with this program; if not, write to the Free Software Foundation, Inc.,
-# 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+# Licensed under the MIT License; see LICENSE in the repository root.
 """
 Generate configuration files and task lists for batch parameter inference runs.
 
@@ -51,7 +39,7 @@ Note:
 
 Usage:
 ------
-1. Add or edit a named sweep in ``specs_tasks.py``.
+1. Add or edit a named sweep in the probe package's ``specs.py``.
 2. Run the script:
        $ python generate_tasks.py build test
    or, for backward compatibility:
@@ -82,52 +70,28 @@ try:
 except ModuleNotFoundError:
     import tomli as tomllib
 
-from specs_tasks import TASK_SPECS
+import tomli_w
+
+from candel import (fprint, get_nested, get_probe, load_config, probes,
+                    replace_prior_with_delta)
+from candel.probe import reconstruction_keys, task_specs
+from candel.tasks import (is_active, is_delta_prior, is_manticore_los,
+                          tag_number)
+from candel.util import selected_reconstruction_names
 
 RUN_DIR = Path(__file__).resolve().parent
 CANDEL_ROOT = RUN_DIR.parent.parent
 TASK_INDEX_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 VERBOSE = True
-DEFAULT_TRGBH0_EDD_MAG_MIN = 22.1
-
-fprint = None
-get_nested = None
-load_config = None
-replace_prior_with_delta = None
-tomli_w = None
 
 
-def load_toml_writer():
-    """Import TOML writing support only for commands that need it."""
-    global tomli_w
-    if tomli_w is None:
-        import tomli_w as _tomli_w
-        tomli_w = _tomli_w
-
-
-def load_candel_helpers():
-    """Import heavier CANDEL helpers only for build/dry-run commands."""
-    global fprint, get_nested, load_config, replace_prior_with_delta
-    if load_config is None:
-        from candel import fprint as _fprint  # noqa
-        from candel import get_nested as _get_nested
-        from candel import load_config as _load_config
-        from candel import \
-            replace_prior_with_delta as _replace_prior_with_delta
-        fprint = _fprint
-        get_nested = _get_nested
-        load_config = _load_config
-        replace_prior_with_delta = _replace_prior_with_delta
+TASK_SPECS = task_specs()
 
 
 def log(message):
     """Emit generator diagnostics when verbose output is enabled."""
     if VERBOSE and fprint is not None:
         fprint(message)
-
-
-def _is_manticore_box_los(value):
-    return isinstance(value, str) and "manticore" in value.lower()
 
 
 # Keys that must come from local_config.toml at job runtime, not baked into
@@ -208,23 +172,6 @@ def overwrite_subtree(config, key_path, subtree):
     return new_config
 
 
-def _is_active(value):
-    """Check if value is active (not None or 'none')."""
-    if value is None:
-        return False
-    return str(value).lower() != "none"
-
-
-def _is_delta_prior(prior):
-    """Check if prior is a delta distribution."""
-    return isinstance(prior, dict) and prior.get("dist") == "delta"
-
-
-def _tag_number(value):
-    """Compact number formatting for generated filename tags."""
-    return f"{float(value):g}".replace("-", "m").replace(".", "p")
-
-
 def _tag_string(value):
     """Return a compact filesystem-friendly tag component."""
     return str(value).replace("-", "m").replace(".", "p").replace("_", "-")
@@ -235,9 +182,7 @@ def generate_dynamic_tag(config, base_tag="default"):
     parts = []
     which_run = get_nested(config, "model/which_run", None)
 
-    if which_run in (
-            "CH0", "CCHP", "CCHP_CSP", "EDD_TRGB",
-            "EDD_TRGB_grouped", "MWCepheids"):
+    if which_run is not None:
         model_name = which_run
         catalogue = which_run
         parts.append(which_run)
@@ -255,13 +200,13 @@ def generate_dynamic_tag(config, base_tag="default"):
 
     field_smoothing = get_nested(
         config, "model/field_3d_smoothing_scale", None)
-    if _is_active(field_smoothing) and float(field_smoothing) != 0.0:
-        parts.append(f"rhoSmoothR{_tag_number(field_smoothing)}")
+    if is_active(field_smoothing) and float(field_smoothing) != 0.0:
+        parts.append(f"rhoSmoothR{tag_number(field_smoothing)}")
 
     velocity_smoothing = get_nested(
         config, "model/velocity_3d_smoothing_scale", None)
-    if _is_active(velocity_smoothing) and float(velocity_smoothing) != 0.0:
-        parts.append(f"velSmoothR{_tag_number(velocity_smoothing)}")
+    if is_active(velocity_smoothing) and float(velocity_smoothing) != 0.0:
+        parts.append(f"velSmoothR{tag_number(velocity_smoothing)}")
 
     if model_name and "TFR" in model_name:
         if not get_nested(config, "model/marginalize_eta", True):
@@ -273,10 +218,10 @@ def generate_dynamic_tag(config, base_tag="default"):
     if isinstance(zeropoint_dip_prior, dict):
         if zeropoint_dip_prior.get("dist") == "vector_components_uniform":
             parts.append("zeropoint_dipole_UnifComponents")
-        elif not _is_delta_prior(zeropoint_dip_prior):
+        elif not is_delta_prior(zeropoint_dip_prior):
             parts.append("zeropoint_dipole")
 
-    if _is_delta_prior(get_nested(config, "model/priors/Vext", None)):
+    if is_delta_prior(get_nested(config, "model/priors/Vext", None)):
         parts.append("noVext")
 
     _mono = get_nested(config, "model/which_Vext_monopole", "none")
@@ -307,17 +252,10 @@ def generate_dynamic_tag(config, base_tag="default"):
     if which_dist_prior != "empirical":
         parts.append(f"rprior-{which_dist_prior}")
 
-    if get_nested(config, "pv_model/use_Mmiss", False):
-        rmiss_prior = get_nested(config, "model/priors/Mmiss_distance", None)
-        if isinstance(rmiss_prior, dict):
-            rmiss_high = rmiss_prior.get("high", None)
-            if rmiss_high is not None:
-                parts.append(f"Mmiss_rmax{_tag_number(rmiss_high)}")
-
     angular_scatter = get_nested(
         config, "io/angular_position_scatter_deg", 0.0)
     if angular_scatter is not None and float(angular_scatter) > 0.0:
-        parts.append(f"angscatter{_tag_number(angular_scatter)}deg")
+        parts.append(f"angscatter{tag_number(angular_scatter)}deg")
         scatter_seed = get_nested(
             config, "io/angular_position_scatter_seed", None)
         if scatter_seed is not None:
@@ -327,237 +265,29 @@ def generate_dynamic_tag(config, base_tag="default"):
         which_MAS = get_nested(
             config, f"io/reconstruction_main/{reconstruction}/which_MAS",
             None)
-        if _is_active(which_MAS):
+        if is_active(which_MAS):
             parts.append(f"MAS-{_tag_string(which_MAS)}")
 
     # Only include beta/b1 info if using precomputed LOS (reconstruction)
     pv_kind = get_nested(config, "pv_model/kind", "")
     if pv_kind.startswith("precomputed_los"):
         beta_prior = get_nested(config, "model/priors/beta", None)
-        if _is_delta_prior(beta_prior) and beta_prior.get("value") != 0.:
+        if is_delta_prior(beta_prior) and beta_prior.get("value") != 0.:
             parts.append(f"beta_{beta_prior.get('value')}")
 
         b1_prior = get_nested(config, "model/priors/b1", None)
-        if _is_delta_prior(b1_prior):
+        if is_delta_prior(b1_prior):
             parts.append(f"b1_{b1_prior.get('value')}")
 
     dust_model = get_nested(config, f"io/{catalogue}/dust_model", None)
-    if _is_active(dust_model):
+    if is_active(dust_model):
         parts.append(f"dust-{dust_model}")
 
     # Run-specific tags
-    if which_run == "CH0":
-        which_sel = get_nested(config, "model/which_selection", None)
-        if _is_active(which_sel):
-            parts.append(f"sel-{which_sel}")
-            if which_sel == "SN_magnitude_or_redshift_Nmag":
-                parts.append(
-                    f"Nmag{get_nested(config, 'model/num_hosts_selection_mag', None)}")  # noqa
-
-        if get_nested(config, "model/use_uniform_mu_host_priors", False):
-            parts.append("uniform_mu_host")
-
-        drop_observation = get_nested(
-            config, "io/SH0ES/drop_observation", None)
-        if _is_active(drop_observation):
-            if type(drop_observation) is not int:
-                raise TypeError(
-                    "`io/SH0ES/drop_observation` must be an integer active "
-                    "host index for CH0 generated tasks.")
-            parts.append(f"drop{drop_observation:02d}")
-
-        cz_max = get_nested(config, "io/SH0ES/cepheid_host_cz_cmb_max", 3300)
-        if cz_max != 3300:
-            parts.append(f"czmax{_tag_number(cz_max)}")
-
-        keep_hosts = get_nested(config, "io/SH0ES/keep_hosts", "all")
-        if keep_hosts != "all":
-            parts.append(f"keep{len(keep_hosts)}hosts")
-
-        cep_scale = get_nested(config, "io/SH0ES/cepheid_error_scale", 1.0)
-        if float(cep_scale) != 1.0:
-            cep_hosts = get_nested(
-                config, "io/SH0ES/cepheid_error_scale_hosts", "all")
-            n_scaled = "all" if cep_hosts == "all" else len(cep_hosts)
-            parts.append(f"ceperr{_tag_number(cep_scale)}-{n_scaled}")
-
-        r_prior = get_nested(config, "model/which_distance_prior", "volume")
-        if r_prior != "volume":
-            parts.append(r_prior)
-
-        if not get_nested(config, "model/use_Cepheid_host_redshift", True):
-            parts.append("no_Cepheid_redshift")
-
-        use_reconstruction = get_nested(
-            config, "model/use_reconstruction", False)
-        use_pv_covmat = get_nested(
-            config, "model/use_fiducial_Cepheid_host_PV_covariance", False)
-        Vext_prior = get_nested(config, "model/priors/Vext", None)
-        if not use_reconstruction and not use_pv_covmat \
-                and not _is_delta_prior(Vext_prior):
-            parts.append("Vext")
-
-        if use_reconstruction:
-            reconstruction = get_nested(
-                config, "io/SH0ES/reconstruction", None)
-            parts.append(reconstruction)
-            which_bias = get_nested(config, "model/which_bias", None)
-            if which_bias == "uniform":
-                parts.append(which_bias)
-            beta_prior = get_nested(config, "model/priors/beta", None)
-            if _is_manticore_box_los(reconstruction):
-                if not _is_delta_prior(beta_prior):
-                    parts.append("beta_free")
-            if get_nested(config, "model/use_density_dependent_sigma_v", False):  # noqa
-                parts.append("sigv_rho")
-
-        if use_pv_covmat:
-            parts.append("PV_covmat")
-
-        if get_nested(config, "model/use_PV_covmat_scaling", False):
-            parts.append("PV_covmat_scaling")
-
-        if get_nested(config, "model/weight_selection_by_covmat_Neff", False):
-            parts.append("weight_by_Neff")
-
-    elif which_run in ("CCHP", "CCHP_CSP"):
-        which_sel = get_nested(config, "model/which_selection", None)
-        if _is_active(which_sel):
-            parts.append(f"sel-{which_sel}")
-        if get_nested(config, "model/infer_sel", False):
-            parts.append("infer_sel")
-        if get_nested(config, "model/use_reconstruction", False):
-            parts.append(get_nested(config, "io/CCHP/reconstruction", None))
-        redshift_kind = get_nested(
-            config, "io/CCHP_redshift_source/kind", "cz_cmb")
-        if redshift_kind != "cz_cmb":
-            parts.append(redshift_kind)
-
-    elif which_run in ("EDD_TRGB", "EDD_TRGB_grouped"):
-        which_sel = get_nested(config, "model/which_selection", None)
-        if _is_active(which_sel):
-            parts.append(f"sel-{which_sel}")
-        b_min = get_nested(config, f"io/PV_main/{which_run}/b_min", None)
-        if _is_active(b_min):
-            parts.append(f"bmin{_tag_number(b_min)}")
-        mag_min = get_nested(config, "model/mag_min_TRGB", None)
-        if (_is_active(mag_min)
-                and float(mag_min) != DEFAULT_TRGBH0_EDD_MAG_MIN):
-            parts.append(f"magmin{_tag_number(mag_min)}")
-        sky_exposure = get_nested(config, "model/TRGB_sky_exposure", {})
-        if (isinstance(sky_exposure, dict)
-                and sky_exposure.get("enabled", False)):
-            if "n_pix" in sky_exposure:
-                raise ValueError(
-                    "`model/TRGB_sky_exposure/n_pix` is no longer "
-                    "supported; use `model/TRGB_sky_exposure/nside`.")
-            if sky_exposure.get("nside", None) is None:
-                raise ValueError(
-                    "Enabled TRGB sky exposure requires "
-                    "`model/TRGB_sky_exposure/nside`.")
-            nside = int(sky_exposure["nside"])
-            if nside <= 0 or nside & (nside - 1):
-                raise ValueError(
-                    "`model/TRGB_sky_exposure/nside` must be a positive "
-                    "power of two.")
-            kappa = sky_exposure.get("kappa", 48.0)
-            parts.append(
-                f"skyhp_nside{nside}_k{_tag_number(kappa)}")
-        if not get_nested(config, "model/use_TRGB_host_redshift", True):
-            parts.append("no_TRGB_redshift")
-        use_reconstruction = get_nested(
-            config, "model/use_reconstruction", False)
-        Vext_prior = get_nested(config, "model/priors/Vext", None)
-        if not use_reconstruction and not _is_delta_prior(Vext_prior):
-            parts.append("Vext")
-        if use_reconstruction:
-            reconstruction = get_nested(
-                config, f"io/PV_main/{which_run}/reconstruction", None)
-            parts.append(reconstruction)
-            which_bias = get_nested(config, "model/which_bias", "linear")
-            if reconstruction == "Carrick2015" and which_bias != "linear":
-                parts.append(which_bias)
-            if get_nested(config, "model/use_density_dependent_sigma_v", False):  # noqa
-                parts.append("sigv_rho")
-            beta_prior = get_nested(config, "model/priors/beta", None)
-            if (reconstruction == "Carrick2015"
-                    and _is_delta_prior(beta_prior)):
-                parts.append(f"beta_{_tag_number(beta_prior.get('value'))}")
-            elif (isinstance(beta_prior, dict)
-                    and not _is_delta_prior(beta_prior)):
-                beta_loc = beta_prior.get("loc", beta_prior.get("mean"))
-                beta_scale = beta_prior.get("scale", beta_prior.get("std"))
-                if not (beta_prior.get("dist") == "normal"
-                        and beta_loc == 0.461 and beta_scale == 0.013):
-                    parts.append("beta_free")
-
-    elif which_run == "MWCepheids":
-        model_type = get_nested(config, "model/model_type", "forward")
-        parts.append(model_type)
-        if model_type == "R21" and get_nested(config, "model/use_Q", False):
-            parts.append("Q")
-        if model_type == "forward":
-            if get_nested(config, "model/marginalise_distance", False):
-                parts.append("margd")
-            else:
-                parts.append("sampled")
-
-            distance_prior = get_nested(
-                config, "model/distance_prior", "disk")
-            if distance_prior != "disk":
-                parts.append(distance_prior)
-
-            if not get_nested(config, "model/shared_scatter", True):
-                parts.append("split_scatter")
-
-            if get_nested(config, "model/use_Q", False):
-                parts.append("Q")
-
-            anchors = get_nested(config, "model/anchors", [])
-            if not anchors:
-                parts.append("no_anchors")
-            elif tuple(anchors) != ("NGC4258", "LMC"):
-                parts.append("anchors-" + "+".join(anchors))
-
-            if _is_active(get_nested(
-                    config, "model/anchor_scatter_correction", None)):
-                parts.append("anchor_scatter")
-
-            if get_nested(config, "model/spiral_arms/apply", False):
-                parts.append("spiral")
-
-            c22 = []
-            for key, label in (
-                    ("apply_mW", "mW"), ("apply_AH", "AH"),
-                    ("apply_pi", "pi"), ("apply_logP", "logP")):
-                if get_nested(config, f"model/C22/selection/{key}", False):
-                    c22.append(label)
-            if c22:
-                parts.append("C22-" + "+".join(c22))
-                if get_nested(
-                        config, "model/C22/selection/mW_width", None) \
-                        == "infer":
-                    parts.append("C22_mW_width_infer")
-                if get_nested(
-                        config, "model/C22/selection/logP_width", None) \
-                        == "infer":
-                    parts.append("C22_logP_width_infer")
-                if not get_nested(
-                        config, "model/C22/selection/pi_smooth", True):
-                    parts.append("C22_pi_hard")
-
-            c27 = []
-            for key, label in (("apply_pi", "pi"), ("apply_mW", "mW")):
-                if get_nested(config, f"model/C27/selection/{key}", False):
-                    c27.append(label)
-            if c27:
-                parts.append("C27-" + "+".join(c27))
-                if not get_nested(
-                        config, "model/C27/selection/pi_smooth", True):
-                    parts.append("C27_pi_hard")
+    parts.extend(get_probe(which_run).task_tag_parts(config))
 
     shared = get_nested(config, "inference/shared_params", None)
-    if _is_active(shared):
+    if is_active(shared):
         if isinstance(shared, list):
             shared_str = "+".join(shared)
         else:
@@ -577,7 +307,7 @@ def generate_dynamic_tag(config, base_tag="default"):
     # Opt-in label to separate otherwise-identical configs (e.g. repeat runs
     # of one config under different inference seeds).
     run_label = get_nested(config, "io/run_label", None)
-    if _is_active(run_label):
+    if is_active(run_label):
         parts.append(_tag_string(run_label))
 
     if base_tag != "default":
@@ -750,16 +480,9 @@ def apply_overrides(config, override_set):
 
 def apply_los_runtime_rules(config, override_set):
     """Apply LOS-field rules that should be enforced for generated configs."""
-    reconstruction_keys = [
-        "io/PV_main/EDD_TRGB/reconstruction",
-        "io/PV_main/EDD_TRGB_grouped/reconstruction",
-        "io/PV_main/EDD_2MTF/reconstruction",
-        "io/SH0ES/reconstruction",
-        "io/CCHP/reconstruction",
-    ]
-    for key in reconstruction_keys:
+    for key in reconstruction_keys():
         reconstruction = get_nested(config, key, None)
-        if not _is_manticore_box_los(reconstruction):
+        if not is_manticore_los(reconstruction):
             continue
 
         if get_nested(config, "model/run_ppc", False):
@@ -768,7 +491,7 @@ def apply_los_runtime_rules(config, override_set):
 
         beta_prior = get_nested(config, "model/priors/beta", None)
         if "model/priors/beta" not in override_set:
-            if not _is_delta_prior(beta_prior):
+            if not is_delta_prior(beta_prior):
                 log("defaulting beta=delta(1) for Manticore.")
                 config = overwrite_subtree(
                     config, "model/priors/beta",
@@ -781,24 +504,16 @@ def apply_los_runtime_rules(config, override_set):
 def validate_generated_config(config):
     """Validate generated config values that commonly fail late at runtime."""
     which_run = get_nested(config, "model/which_run", None)
-    valid_runs = (None, "CH0", "CCHP", "CCHP_CSP", "EDD_TRGB",
-                  "EDD_TRGB_grouped", "MWCepheids")
-    if which_run not in valid_runs:
+    if which_run not in probes():
         raise ValueError(
-            f"Invalid which_run='{which_run}'. Must be one of {valid_runs}.")
+            f"Invalid which_run='{which_run}'. Installed probes handle "
+            f"{sorted(map(str, probes()))}.")
 
     bad_prefixes = ("/mnt/extraspace/", "/mnt/users/rstiskalek/")
-    reconstruction_keys = (
-        "io/PV_main/EDD_TRGB/reconstruction",
-        "io/PV_main/EDD_TRGB_grouped/reconstruction",
-        "io/PV_main/EDD_2MTF/reconstruction",
-        "io/SH0ES/reconstruction",
-        "io/CCHP/reconstruction",
-    )
     selected_reconstructions = {
         reconstruction
         for reconstruction in (
-            get_nested(config, key, None) for key in reconstruction_keys)
+            get_nested(config, key, None) for key in reconstruction_keys())
         if isinstance(reconstruction, str) and reconstruction.lower() != "none"
     }
     recon_main = get_nested(config, "io/reconstruction_main", {})
@@ -819,38 +534,12 @@ def validate_generated_config(config):
                 )
 
 
-def selected_reconstruction_names(config):
-    """Return reconstruction names actively selected by the generated config."""  # noqa: E501
-    reconstruction_keys = (
-        "io/PV_main/EDD_TRGB/reconstruction",
-        "io/PV_main/EDD_TRGB_grouped/reconstruction",
-        "io/PV_main/EDD_2MTF/reconstruction",
-        "io/SH0ES/reconstruction",
-        "io/CCHP/reconstruction",
-    )
-    selected = {
-        reconstruction
-        for reconstruction in (
-            get_nested(config, key, None) for key in reconstruction_keys)
-        if isinstance(reconstruction, str) and reconstruction.lower() != "none"
-    }
-    kind = get_nested(config, "pv_model/kind", None)
-    prefix = "precomputed_los_"
-    if isinstance(kind, str) and kind.startswith(prefix):
-        selected.add(kind.removeprefix(prefix))
-
-    return selected
-
-
 def prune_inactive_reconstruction_sections(config):
     """Drop unused reconstruction subsections from a generated config."""
     active = selected_reconstruction_names(config)
 
-    for key in ("reconstruction_main", "reconstruction_rand_los"):
-        recon_cfg = get_nested(config, f"io/{key}", {})
-        if not isinstance(recon_cfg, dict):
-            continue
-
+    recon_cfg = get_nested(config, "io/reconstruction_main", {})
+    if isinstance(recon_cfg, dict):
         for name, section in list(recon_cfg.items()):
             if isinstance(section, dict) and name not in active:
                 recon_cfg.pop(name)
@@ -931,7 +620,6 @@ def prepare_generated_tasks(spec, base_config, override_combinations):
 
 def write_generated_tasks(tasks_index, spec, generated, clean=False):
     """Write generated TOML configs and the matching tasks_<index>.txt file."""
-    load_toml_writer()
     gen_dir = RUN_DIR / "generated_configs" / tasks_index
     makedirs(gen_dir, exist_ok=True)
 
@@ -965,6 +653,14 @@ def write_generated_tasks(tasks_index, spec, generated, clean=False):
     log(f"wrote task list to `{task_file}`")
 
 
+def _display_path(path):
+    """Path relative to the repository root when it lies inside it."""
+    try:
+        return str(Path(path).resolve().relative_to(CANDEL_ROOT))
+    except ValueError:
+        return str(path)
+
+
 def list_specs():
     """Print available task specs for agentic discovery."""
     names = sorted(TASK_SPECS)
@@ -978,10 +674,9 @@ def list_specs():
         *(len(str(TASK_SPECS[name].get("expected_tasks", "?")))
           for name in names),
     )
-    config_width = max(
-        len("config"),
-        *(len(TASK_SPECS[name].get("config_path", "")) for name in names),
-    )
+    configs = {name: _display_path(TASK_SPECS[name].get("config_path", ""))
+               for name in names}
+    config_width = max(len("config"), *(len(c) for c in configs.values()))
 
     print(f"Registered task specs ({len(names)})")
     print()
@@ -998,7 +693,7 @@ def list_specs():
     for name in names:
         spec = TASK_SPECS[name]
         expected_tasks = spec.get("expected_tasks", "?")
-        config_path = spec.get("config_path", "")
+        config_path = configs[name]
         print(
             f"{name:<{name_width}}  "
             f"{expected_tasks:>{task_width}}  "
@@ -1012,7 +707,6 @@ def list_specs():
 
 def show_spec(tasks_index):
     """Print one task spec as TOML-like data."""
-    load_toml_writer()
     spec = get_sweep_spec(tasks_index)
     raw = deepcopy(TASK_SPECS[tasks_index])
     raw["config_path"] = str(spec.config_path)
@@ -1033,7 +727,7 @@ def parse_args():
             "  python generate_tasks.py build test --dry-run\n"
             "  python generate_tasks.py build test --clean\n"
             "  python generate_tasks.py test\n\n"
-            "Task specs live in scripts/runs/specs_tasks.py. Use --dry-run "
+            "Task specs live in each probe package's specs.py. Use --dry-run "
             "before writing configs for a new or edited spec."
         ),
         formatter_class=RawDescriptionHelpFormatter,
@@ -1086,7 +780,6 @@ def main():
     local_cfg = load_local_config()
     spec = get_sweep_spec(tasks_index)
     override_combinations = build_override_combinations(spec, local_cfg)
-    load_candel_helpers()
     VERBOSE = not args.dry_run
     base_config = load_config(
         spec.config_path, replace_none=False, replace_los_prior=False,

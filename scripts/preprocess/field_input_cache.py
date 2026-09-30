@@ -1,12 +1,13 @@
 """
 Helpers for warming field-derived cache files without running inference.
 
-Loading the model-ready data is enough to trigger cache writers in
-``candel.pvdata``. These helpers reuse the same config loaders as production
-runs, so generated cache keys match inference.
+Loading the model-ready data is enough to trigger the cache writers in
+``candel.field``. These helpers reuse the probes' production data loaders, so
+generated cache keys match inference.
 """
 import json
 import os
+import sys
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -28,13 +29,10 @@ from h5py import File  # noqa: E402
 import candel  # noqa: E402
 from candel import get_nested  # noqa: E402
 from candel.field.loader import name2field_loader  # noqa: E402
-from candel.pvdata import catalogues as catalogues_mod  # noqa: E402
-from candel.pvdata import field_cache as field_cache_mod  # noqa: E402
-from candel.pvdata import field_products as field_products_mod  # noqa: E402
-from candel.pvdata import frame as frame_mod  # noqa: E402
-from candel.pvdata import los as los_mod  # noqa: E402
-from candel.pvdata import volume_density as volume_density_mod  # noqa: E402
-from candel.pvdata.field_cache import (  # noqa: E402
+from candel.field import field_cache as field_cache_mod  # noqa: E402
+from candel.field import field_products as field_products_mod  # noqa: E402
+from candel.field import volume_density as volume_density_mod  # noqa: E402
+from candel.field.field_cache import (  # noqa: E402
     _field_cache_dir_from_config, _field_cache_project_from_config)
 from candel.util import SPEED_OF_LIGHT  # noqa: E402
 
@@ -78,7 +76,6 @@ ROOT = Path(__file__).resolve().parents[2]
 _RANK = 0
 _SIZE = 1
 _COMM = None
-_SH0ES_NUM_HOSTS_CACHE = {}
 
 
 def _init_mpi_info():
@@ -125,10 +122,12 @@ def _cache_fprint(*args, verbose=True, **kwargs):
 
 def _install_quiet_reader_logs():
     """Silence catalogue-reader chatter while preserving cache messages."""
-    for module in (
-            catalogues_mod, field_cache_mod, frame_mod, los_mod,
-            volume_density_mod):
-        module.fprint = _cache_fprint
+    candel.probes()  # import every probe's loaders before patching them
+    for name, module in list(sys.modules.items()):
+        if (name.split(".")[0].startswith("candel")
+                and name not in ("candel", "candel.util")
+                and getattr(module, "fprint", None) is candel.util.fprint):
+            module.fprint = _cache_fprint
 
 
 def _resolve_cli_path(path):
@@ -218,35 +217,26 @@ def _json_key(value):
         pvdata_mod._jsonable(value), sort_keys=True, separators=(",", ":"))
 
 
+def _probe(config):
+    return candel.get_probe(get_nested(config, "model/which_run", None))
+
+
+def _is_h0_run(config):
+    """Whether the run normalises with the H0 3D selection volume."""
+    return _probe(config).uses_h0_volume
+
+
 def _h0_los_config(config):
-    which_run = get_nested(config, "model/which_run", None)
-    if which_run == "CH0":
-        return (
-            get_nested(config, "io/SH0ES/reconstruction", None),
-            get_nested(config, "io/PV_main/SH0ES/los_file", None),
-        )
-    if which_run in ("CCHP", "CCHP_CSP"):
-        return (
-            get_nested(config, "io/CCHP/reconstruction", None),
-            get_nested(config, "io/CCHP/los_file", None),
-        )
-    if which_run in ("EDD_TRGB", "EDD_TRGB_grouped"):
-        return (
-            get_nested(config, f"io/PV_main/{which_run}/reconstruction", None),
-            get_nested(config, f"io/PV_main/{which_run}/los_file", None),
-        )
-    return None, None
+    probe = _probe(config)
+    if probe.reconstruction_key is None:
+        return None, None
+    return (get_nested(config, probe.reconstruction_key, None),
+            get_nested(config, probe.los_file_key, None))
 
 
 def _h0_los_catalogue(config):
     """Return the LOS-prep catalogue name for the configured H0 run."""
-    which_run = get_nested(config, "model/which_run", None)
-    if which_run == "CH0":
-        return "SH0ES"
-    if which_run in ("CCHP", "CCHP_CSP", "EDD_TRGB",
-                     "EDD_TRGB_grouped"):
-        return which_run.replace("_CSP", "")
-    return None
+    return _probe(config).los_catalogue
 
 
 def _resolve_repo_path(path):
@@ -274,53 +264,15 @@ def _configured_or_available_field_indices(config, reconstruction):
             configured = configured[None]
         return configured
     try:
-        from scripts.preprocess import field_input_los as prep_los_mod
+        from candel.field import los_prep as prep_los_mod
         return prep_los_mod.reconstruction_field_indices(
             config, reconstruction)
     except Exception:
         return None
 
 
-def _sh0es_num_hosts(config):
-    root = get_nested(config, "io/SH0ES/root", None)
-    if root is None:
-        return None
-    cz_max = get_nested(config, "io/SH0ES/cepheid_host_cz_cmb_max", None)
-    key = (root, cz_max)
-    if key in _SH0ES_NUM_HOSTS_CACHE:
-        return _SH0ES_NUM_HOSTS_CACHE[key]
-
-    redshift_path = _resolve_repo_path(root) / "processed" / (
-        "Cepheid_anchors_redshifts.npy")
-    try:
-        redshifts = pvdata_mod.np.load(redshift_path)
-        czcmb = redshifts["zCMB"] * pvdata_mod.SPEED_OF_LIGHT
-        if cz_max is not None:
-            n_hosts = int(pvdata_mod.np.sum(czcmb < cz_max))
-        else:
-            n_hosts = int(len(czcmb))
-    except Exception:
-        n_hosts = None
-
-    _SH0ES_NUM_HOSTS_CACHE[key] = n_hosts
-    return n_hosts
-
-
 def _h0_velocity_key(config):
-    which_run = get_nested(config, "model/which_run", None)
-    which_sel = get_nested(config, "model/which_selection", None)
-    if which_sel == "TRGB_magnitude_redshift":
-        return "velocity"
-    if (which_sel in ("redshift", "SN_magnitude_redshift")
-            and which_run not in ("EDD_TRGB", "EDD_TRGB_grouped")):
-        return "velocity"
-    if which_run == "CH0" and which_sel == "SN_magnitude_or_redshift_Nmag":
-        n_mag = get_nested(config, "model/num_hosts_selection_mag", None)
-        n_hosts = _sh0es_num_hosts(config)
-        if type(n_mag) is int and n_hosts is not None:
-            return "velocity" if n_mag < n_hosts else "density"
-        return f"mixed_Nmag={n_mag}"
-    return "density"
+    return _probe(config).h0_volume_field_key(config)
 
 
 def _field_indices_label(field_indices):
@@ -372,9 +324,7 @@ def _selection_label(selection):
 
 
 def _cache_group_key(config):
-    which_run = get_nested(config, "model/which_run", None)
-    if which_run not in ("CH0", "CCHP", "CCHP_CSP", "EDD_TRGB",
-                         "EDD_TRGB_grouped"):
+    if not _is_h0_run(config):
         entries, _ = _pv_volume_cache_entries(config)
         if not entries:
             return None
@@ -459,7 +409,6 @@ def _pv_volume_cache_entries(config):
         config, "pv_model/density_3d_subsample_fraction", 1.0)
     voxel_subsample_seed = get_nested(
         config, "pv_model/density_3d_subsample_seed", 42)
-    store_rhat_3d = bool(get_nested(config, "pv_model/use_Mmiss", False))
     field_smoothing = pvdata_mod.field_smoothing_cache_payload(
         pvdata_mod.field_smoothing_scale_from_config(config))
 
@@ -507,7 +456,7 @@ def _pv_volume_cache_entries(config):
                 "pad_subcube_boundary": bool(pad_boundary),
                 "voxel_subsample_fraction": float(voxel_subsample_fraction),
                 "voxel_subsample_seed": int(voxel_subsample_seed),
-                "store_rhat_3d": store_rhat_3d,
+                "store_rhat_3d": False,
                 **field_smoothing,
                 "sources": [source_meta[i]],
             }
@@ -529,22 +478,14 @@ def _h0_field_indices_for_plan(config, reconstruction, los_data_path):
 
 def _variant_action(config):
     """Describe what the warmer will ask the normal data loader to do."""
-    which_run = get_nested(config, "model/which_run", None)
-    h0_runs = ("CH0", "CCHP", "CCHP_CSP", "EDD_TRGB", "EDD_TRGB_grouped")
-    if which_run not in h0_runs:
+    if not _is_h0_run(config):
         return (
             "check/cache"
             if pvdata_mod._field_cache_enabled_from_config(config)
             else "cache off")
 
-    which_sel = get_nested(config, "model/which_selection", None)
     if not get_nested(config, "model/use_reconstruction", False):
         return "skip recon"
-    needs_no_selection_volume = (
-        which_sel in (None, "none")
-        and which_run in ("CH0", "EDD_TRGB", "EDD_TRGB_grouped"))
-    if which_sel in (None, "none") and not needs_no_selection_volume:
-        return "skip 3D"
     if not pvdata_mod._field_cache_enabled_from_config(config):
         return "cache off"
     return "check/cache"
@@ -552,10 +493,7 @@ def _variant_action(config):
 
 def _h0_supersampling_description(config):
     """Human-readable H0 volume supersampling settings."""
-    which_run = get_nested(config, "model/which_run", None)
-    h0_runs = ("CH0", "CCHP", "CCHP_CSP", "EDD_TRGB",
-               "EDD_TRGB_grouped")
-    if which_run not in h0_runs:
+    if not _is_h0_run(config):
         return ""
     _, radius, target_dx = pvdata_mod._h0_volume_supersampling_from_config(
         config)
@@ -782,10 +720,22 @@ def _h0_cache_file_status(config):
     if ((geometry == "sphere" and grid_radius is not None)
             or supersampling):
         density_required.append("log_volume_weight_3d")
+    # Same rule as `load_h0_volume_data_from_config`: sky masks need rhat.
+    store_rhat = (
+        volume_density_mod._h0_volume_b_min_from_config(
+            config, _h0_los_catalogue(config))
+        is not None
+        or bool(get_nested(config, "model/TRGB_sky_exposure/enabled", False)))
+    if store_rhat and not load_velocity:
+        density_required.extend((
+            "rhat_x_3d", "rhat_y_3d", "rhat_z_3d",
+            "galactic_ell_3d", "galactic_b_3d"))
     velocity_required = [
         "vrad_3d_fields", "r_3d", "log_dV_3d",
         "rhat_x_3d", "rhat_y_3d", "rhat_z_3d",
         *supersampling_required]
+    if store_rhat:
+        velocity_required.extend(("galactic_ell_3d", "galactic_b_3d"))
 
     missing_files = 0
     for density_cache_path in density_cache_paths:
@@ -900,9 +850,7 @@ def _pv_cache_file_status(config):
 
 
 def _cache_product_description(config):
-    which_run = get_nested(config, "model/which_run", None)
-    h0_runs = ("CH0", "CCHP", "CCHP_CSP", "EDD_TRGB", "EDD_TRGB_grouped")
-    if which_run in h0_runs:
+    if _is_h0_run(config):
         reconstruction, los_file = _h0_los_config(config)
         los_data_path = (
             None if reconstruction is None or los_file is None
@@ -993,8 +941,7 @@ def _set_cache_status(info, config_path, selection):
     config = candel.load_config(config_path, replace_los_prior=False)
     if selection is not None:
         config.setdefault("model", {})["which_selection"] = selection
-    if get_nested(config, "model/which_run", None) in (
-            "CH0", "CCHP", "CCHP_CSP", "EDD_TRGB", "EDD_TRGB_grouped"):
+    if _is_h0_run(config):
         status, note = _h0_cache_file_status(config)
     else:
         status, note = _pv_cache_file_status(config)
@@ -1199,15 +1146,13 @@ def _summarise_loaded(obj):
 
 def _load_for_cache(config_path):
     config = candel.load_config(config_path, replace_los_prior=False)
-    which_run = get_nested(config, "model/which_run", None)
     cache_dir = _field_cache_dir_from_config(config)
     cache_project = _field_cache_project_from_config(config)
     _log(f"field cache directory: `{cache_dir}/{cache_project}`.")
 
     run_config_path = config_path
     tmp_config_path = None
-    h0_runs = ("CH0", "CCHP", "CCHP_CSP", "EDD_TRGB", "EDD_TRGB_grouped")
-    if which_run in h0_runs and "field_indices" in config.get("io", {}):
+    if _is_h0_run(config) and "field_indices" in config.get("io", {}):
         config["io"].pop("field_indices", None)
         tmp = tempfile.NamedTemporaryFile(
             mode="wb", prefix="field_input_cache_", suffix=".toml",
@@ -1220,17 +1165,7 @@ def _load_for_cache(config_path):
     old_warmup = os.environ.get("CANDEL_FIELD_CACHE_WARMUP", None)
     os.environ["CANDEL_FIELD_CACHE_WARMUP"] = "1"
     try:
-        if which_run == "CH0":
-            loaded = candel.pvdata.load_SH0ES_from_config(run_config_path)
-        elif which_run in ("CCHP", "CCHP_CSP"):
-            loaded = candel.pvdata.load_CCHP_from_config(run_config_path)
-        elif which_run == "EDD_TRGB":
-            loaded = candel.pvdata.load_EDD_TRGB_from_config(run_config_path)
-        elif which_run == "EDD_TRGB_grouped":
-            loaded = candel.pvdata.load_EDD_TRGB_grouped_from_config(
-                run_config_path)
-        else:
-            loaded = candel.pvdata.load_PV_dataframes(run_config_path)
+        loaded = _probe(config).load_data(run_config_path)
     finally:
         if old_warmup is None:
             os.environ.pop("CANDEL_FIELD_CACHE_WARMUP", None)

@@ -1,56 +1,10 @@
 candel.model
 ============
 
-Base classes
-------------
+Base models
+-----------
 
 .. automodule:: candel.model.base_model
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. automodule:: candel.model.base_pv
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-PV models
----------
-
-.. automodule:: candel.model.model_PV_TFR
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. automodule:: candel.model.model_PV_SN
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. automodule:: candel.model.model_PV_PantheonPlus
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. automodule:: candel.model.model_PV_FP
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-H0 models
----------
-
-.. automodule:: candel.model.model_H0_CH0
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. automodule:: candel.model.model_H0_TRGB
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. automodule:: candel.model.dev.model_H0_2MTF
    :members:
    :undoc-members:
    :show-inheritance:
@@ -63,21 +17,24 @@ LOS interpolation
    :undoc-members:
    :show-inheritance:
 
-Integration
------------
+Quadrature
+----------
 
 .. automodule:: candel.model.integration
    :members:
    :undoc-members:
    :show-inheritance:
 
-Utilities
----------
+Priors and likelihood utilities
+-------------------------------
 
 .. automodule:: candel.model.utils
    :members:
    :undoc-members:
    :show-inheritance:
+
+Velocity and bias utilities
+---------------------------
 
 .. automodule:: candel.model.pv_utils
    :members:

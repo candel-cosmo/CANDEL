@@ -1,17 +1,5 @@
 # Copyright (C) 2025 Richard Stiskalek
-# This program is free software; you can redistribute it and/or modify it
-# under the terms of the GNU General Public License as published by the
-# Free Software Foundation; either version 3 of the License, or (at your
-# option) any later version.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
-# Public License for more details.
-#
-# You should have received a copy of the GNU General Public License along
-# with this program; if not, write to the Free Software Foundation, Inc.,
-# 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+# Licensed under the MIT License; see LICENSE in the repository root.
 """
 General utility functions for PV and H0 forward models: configuration,
 physics, priors, and SH0ES helpers.
@@ -487,5 +475,6 @@ def log_prob_integrand_sel(x, e_x, lim, lim_width, nu_cz=None):
 
 def logmeanexp(x, axis=None, denom=None):
     """Stable log(mean(exp(x))) with optional explicit denominator."""
-    denom = x.shape[axis] if denom is None else denom
+    if denom is None:
+        denom = x.size if axis is None else x.shape[axis]
     return logsumexp(x, axis=axis) - jnp.log(denom)

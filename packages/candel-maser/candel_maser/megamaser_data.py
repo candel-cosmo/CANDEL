@@ -1,0 +1,806 @@
+# Copyright (C) 2025 Richard Stiskalek
+# Licensed under the MIT License; see LICENSE in the repository root.
+"""Megamaser spot data loading from AAS machine-readable tables."""
+import csv
+import re
+from os.path import basename, dirname, isfile, join, normpath
+
+import numpy as np
+from scipy.cluster.vq import kmeans2
+
+from candel.util import SPEED_OF_LIGHT, data_path, fprint
+
+# Spot-table datasets. See packages/candel-maser/docs/megamaser_p20_clipping_audit.md for
+# provenance and the exact construction of the "unpruned" union.
+MASER_DATASETS = ("original_published", "fiducial", "unpruned", "clipped")
+DEFAULT_MASER_DATASET = "fiducial"
+
+# Galaxies whose fiducial table is a Pesce+2020 erratum "p20" file; the other
+# two galaxies' tables are identical between datasets.
+_P20_GALAXIES = ("NGC5765b", "NGC6264", "NGC6323", "UGC3789")
+
+_MRT_FILES = {
+    "CGCG074-064": "CGCG074-064_Pesce2020_mrt.txt",
+}
+
+
+def maser_data_root(dataset):
+    """Directory holding `dataset`'s spot tables.
+
+    The only place a dataset name is joined onto a path; `load_megamaser_spots`
+    takes the resulting directory and does no joining of its own.
+    """
+    if dataset not in MASER_DATASETS:
+        raise ValueError(
+            f"Unknown megamaser dataset '{dataset}'. "
+            f"Available: {list(MASER_DATASETS)}.")
+    return data_path("data", "Megamaser", dataset)
+
+
+def maser_dataset_of_root(root):
+    """Dataset name implied by a spot-table directory."""
+    dataset = basename(normpath(root))
+    if dataset not in MASER_DATASETS:
+        raise ValueError(
+            f"Spot-table directory '{root}' is not dataset-qualified: its "
+            f"last component '{dataset}' is not one of "
+            f"{list(MASER_DATASETS)}. Resolve it with "
+            f"maser_data_root(dataset).")
+    return dataset
+
+
+def clipped_mask_path(root, galaxy, use_ecc=False,
+                      use_quadratic_warp=False):
+    """Path for one disc-model variant's stabilised clipping mask."""
+    parts = []
+    if use_ecc:
+        parts.append("ecc")
+    if use_quadratic_warp:
+        parts.append("qw")
+    suffix = "_" + "_".join(parts) if parts else ""
+    return join(root, f"{galaxy}_clipped_spots{suffix}.csv")
+
+
+def _apply_clipped_mask(data, path):
+    """Apply one stabilised unpruned-row mask to loaded spot data."""
+    with open(path, newline="") as f:
+        rows = list(csv.DictReader(f))
+    if len(rows) != data["n_spots"]:
+        raise ValueError(
+            f"{path} has {len(rows)} rows but the unpruned table has "
+            f"{data['n_spots']}.")
+    indices = np.array([int(row["unpruned_spot_index"]) - 1 for row in rows])
+    velocity = np.array([float(row["velocity_km_s"]) for row in rows])
+    if (not np.array_equal(indices, np.arange(data["n_spots"]))
+            or not np.allclose(velocity, data["velocity"], atol=1e-8,
+                               rtol=0.0)):
+        raise ValueError(f"{path} does not match the current unpruned table.")
+    for key in ("clip", "pending_clip", "stabilised"):
+        if any(row.get(key) not in ("True", "False") for row in rows):
+            raise ValueError(f"{path} has invalid {key} values.")
+    if any(row["stabilised"] != "True" or
+           row["pending_clip"] == "True" for row in rows):
+        raise ValueError(f"{path} is not a stabilised clipping mask.")
+    keep = np.array([row["clip"] != "True" for row in rows])
+    if not np.any(keep):
+        raise ValueError(f"{path} clips every spot.")
+    n_spots = data["n_spots"]
+    clipped = {
+        key: (value[keep] if isinstance(value, np.ndarray)
+              and value.shape[:1] == (n_spots,) else value)
+        for key, value in data.items()
+    }
+    clipped["n_spots"] = int(keep.sum())
+    clipped["unpruned_spot_index"] = np.flatnonzero(keep)
+    clipped["dataset"] = "clipped"
+    return clipped
+
+
+# Velocity reference frame of the spot data for each galaxy.
+# "lsr"         — LSR frame, optical convention (cz)
+# "barycentric" — barycentric (heliocentric) frame, optical convention
+# "unknown"     — not stated in the source paper
+_GALAXY_VELOCITY_FRAME = {
+    "NGC6264":     "lsr",         # Kuo+2013, footnote a
+    "NGC6323":     "lsr",         # Kuo+2015, footnote a
+    "UGC3789":     "lsr",         # Reid+2009/2013, column header
+    "CGCG074-064": "barycentric",  # Pesce+2020 MRT header
+    "NGC5765b":    "lsr",         # Gao+2016: optical LSR throughout
+    "NGC4258":     "lsr",         # Argon+2007
+}
+
+# Solar motion w.r.t. LSR (Schönrich+2010, km/s, Galactic Cartesian U,V,W)
+_SOLAR_LSR_UVW = (11.1, 12.24, 7.25)
+
+# CMB dipole (Planck 2018): direction in Galactic coords, amplitude in km/s
+_CMB_DIPOLE_L = 264.021   # deg
+_CMB_DIPOLE_B = 48.253    # deg
+_CMB_DIPOLE_V = 369.82    # km/s
+
+
+def radio_to_optical_velocity(v_radio):
+    """Convert radio-convention velocity to optical convention as Reid does."""
+    return v_radio / (1.0 - v_radio / SPEED_OF_LIGHT)
+
+
+def v_sys_to_cmb(v_sys_km_s, frame, ra_deg, dec_deg):
+    """Convert a systemic velocity to the CMB rest frame.
+
+    Parameters
+    ----------
+    v_sys_km_s : float
+        Systemic velocity in km/s in the original `frame`.
+    frame : str
+        One of "lsr", "barycentric", or "unknown".
+    ra_deg, dec_deg : float
+        Galaxy sky position (ICRS, degrees).
+
+    Returns
+    -------
+    float or None
+        CMB-frame velocity in km/s, or None if frame is "unknown".
+    """
+    if frame == "unknown":
+        return None
+
+    import astropy.units as u
+    from astropy.coordinates import SkyCoord
+
+    target = SkyCoord(ra=ra_deg * u.deg, dec=dec_deg * u.deg, frame="icrs")
+    lon = float(target.galactic.l.rad)
+    b = float(target.galactic.b.rad)
+
+    # LSR → heliocentric: subtract solar motion projected onto LOS
+    if frame == "lsr":
+        U, V, W = _SOLAR_LSR_UVW
+        v_helio = (v_sys_km_s
+                   - (U * np.cos(b) * np.cos(lon)
+                      + V * np.cos(b) * np.sin(lon)
+                      + W * np.sin(b)))
+    else:  # barycentric ≈ heliocentric (sub-km/s difference)
+        v_helio = v_sys_km_s
+
+    # Heliocentric → CMB: add CMB dipole projected onto LOS
+    l_cmb = np.deg2rad(_CMB_DIPOLE_L)
+    b_cmb = np.deg2rad(_CMB_DIPOLE_B)
+    cos_theta = (np.sin(b) * np.sin(b_cmb)
+                 + np.cos(b) * np.cos(b_cmb) * np.cos(lon - l_cmb))
+    return v_helio + _CMB_DIPOLE_V * cos_theta
+
+
+def v_sys_from_cmb(v_cmb_km_s, frame, ra_deg, dec_deg):
+    """Convert a CMB-frame systemic velocity back to the original frame."""
+    zero_point = v_sys_to_cmb(0.0, frame, ra_deg, dec_deg)
+    if zero_point is None:
+        return None
+    return float(v_cmb_km_s) - float(zero_point)
+
+
+def megamaser_velocity_frame(galaxy):
+    """Return the spot-velocity reference frame used by the source table."""
+    frame = _GALAXY_VELOCITY_FRAME.get(galaxy)
+    if frame is None:
+        raise ValueError(
+            f"No velocity frame recorded for galaxy '{galaxy}'. Add it to "
+            f"_GALAXY_VELOCITY_FRAME; a wrong frame silently corrupts every "
+            f"CMB conversion downstream.")
+    return frame
+
+
+# Column byte ranges (1-indexed, inclusive) from the MRT header.
+_MRT_COLUMNS = {
+    "spot_type":      (1, 1),
+    "velocity":       (3, 9),
+    "flux":           (11, 17),
+    "e_flux":         (19, 25),
+    "x":              (27, 35),
+    "sigma_x":        (37, 44),
+    "y":              (46, 54),
+    "sigma_y":        (56, 63),
+    "a":              (65, 70),
+    "sigma_a":        (72, 76),
+    "accel_measured":  (78, 78),
+}
+
+
+def _parse_mrt_line(line):
+    """Parse a single data line from the MRT file using fixed-width columns."""
+    row = {}
+    for key, (b0, b1) in _MRT_COLUMNS.items():
+        raw = line[b0 - 1:b1].strip()
+        if key == "spot_type":
+            row[key] = raw
+        elif key == "accel_measured":
+            row[key] = int(raw)
+        else:
+            row[key] = float(raw)
+    return row
+
+
+def load_NGC5765b_spots(root, v_sys_obs=None):
+    """Load maser spot data for NGC 5765b from Gao+2016 Table 6.
+
+    The table provides velocity, position (x, y), and acceleration columns for
+    all 212 published maser spots. Placeholder and undetected accelerations
+    are retained as rows but masked from the acceleration likelihood.
+
+    Parameters
+    ----------
+    root : str
+        Directory containing ``NGC5765b_Gao2016_table6.dat``.
+    v_sys_obs : float
+        Fixed velocity reference used to centre residual arithmetic, km/s.
+        The fitted native-frame systemic velocity is ``v_sys_obs + dv_sys``.
+
+    Returns
+    -------
+    dict with the same keys as ``load_megamaser_spots``.
+    """
+    fname = "NGC5765b_Gao2016_table6.dat"
+    fpath = join(root, fname)
+    fprint(f"loading maser spots from '{fpath}'.")
+
+    cols = ["velocity", "x", "sigma_x", "y", "sigma_y", "a", "sigma_a"]
+    rows = []
+    with open(fpath) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split()
+            rows.append({k: float(v) for k, v in zip(cols, parts)})
+
+    n = len(rows)
+    velocity = np.array([r["velocity"] for r in rows])
+    x = np.array([r["x"] for r in rows])
+    sigma_x = np.array([r["sigma_x"] for r in rows])
+    y = np.array([r["y"] for r in rows])
+    sigma_y = np.array([r["sigma_y"] for r in rows])
+    a = np.array([r["a"] for r in rows])
+    sigma_a = np.array([r["sigma_a"] for r in rows])
+
+    # Flag placeholder accelerations:
+    # A=1.0, sigma_a=1.0 (sentinel) and A=0.0, sigma_a=0.2 (undetected)
+    accel_measured = ~(
+        ((a == 1.0) & (sigma_a == 1.0))
+        | ((a == 0.0) & (np.abs(sigma_a - 0.2) < 0.01))
+    )
+
+    if v_sys_obs is None:
+        raise ValueError("v_sys_obs must be provided for NGC5765b.")
+
+    data = {
+        "velocity": velocity,
+        "x": x,
+        "sigma_x": sigma_x,
+        "y": y,
+        "sigma_y": sigma_y,
+        "a": a,
+        "sigma_a": sigma_a,
+        "accel_measured": accel_measured,
+        "n_spots": n,
+        "galaxy_name": "NGC5765b",
+        "v_sys_obs": float(v_sys_obs),
+    }
+    # Convert positions from mas to μas for float32 precision
+    for key in ("x", "y", "sigma_x", "sigma_y"):
+        if key in data:
+            data[key] = data[key] * 1000.0
+
+    n_accel = int(accel_measured.sum())
+    fprint(f"loaded {n} maser spots for NGC5765b "
+           f"({n_accel} with measured acceleration).")
+    return data
+
+
+def _is_missing(s):
+    """Check if a table field represents a missing value."""
+    s = s.strip()
+    return s in ("...", "sdotsdotsdot", "")
+
+
+def _load_kuo_table2(root, fname, galaxy_label, v_sys_obs=None):
+    """Load maser spots from a Kuo+ Table 2 file with inline accelerations.
+
+    The table is tab-delimited with columns: V_op, Theta_x, sigma_x,
+    Theta_y, sigma_y, A, sigma_A. Missing accelerations are marked with
+    ``...`` or ``sdotsdotsdot``.
+
+    Parameters
+    ----------
+    root : str
+        Directory containing the data file.
+    fname : str
+        Filename (e.g. ``"NGC6264_Kuo2013_table2.txt"``).
+    galaxy_label : str
+        Short label used in output messages.
+    v_sys_obs : float or None
+        Fixed velocity reference used to centre residual arithmetic, km/s.
+        The fitted native-frame systemic velocity is ``v_sys_obs + dv_sys``.
+
+    Returns
+    -------
+    dict with the same keys as ``load_megamaser_spots``.
+    """
+    fpath = join(root, fname)
+    fprint(f"loading maser spots from '{fpath}'.")
+
+    with open(fpath) as f:
+        lines = f.readlines()
+
+    # Skip header lines (everything before the first numeric data line).
+    data_start = 0
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("Table") or \
+                stripped.startswith("(") or stripped.startswith("Notes") or \
+                any(c.isalpha() for c in stripped.split("\t")[0].strip()):
+            data_start = i + 1
+        else:
+            break
+
+    velocities, xs, sigma_xs, ys, sigma_ys = [], [], [], [], []
+    accels, sigma_accels, has_accel = [], [], []
+
+    for line in lines[data_start:]:
+        line = line.rstrip("\n")
+        if not line or line.startswith("Notes"):
+            break
+        fields = line.split("\t")
+        if len(fields) < 5:
+            continue
+
+        velocities.append(float(fields[0].strip()))
+        xs.append(float(fields[1].strip()))
+        sigma_xs.append(float(fields[2].strip()))
+        ys.append(float(fields[3].strip()))
+        sigma_ys.append(float(fields[4].strip()))
+
+        if len(fields) >= 7 and not _is_missing(fields[5]) and \
+                not _is_missing(fields[6]):
+            accels.append(float(fields[5].strip()))
+            sigma_accels.append(float(fields[6].strip()))
+            has_accel.append(True)
+        else:
+            # A or σ_a missing: flag has_accel=False. σ_a = 1e4 is a
+            # large placeholder so the model's var_a stays positive;
+            # the has_accel mask zeroes the contribution.
+            accels.append(0.0)
+            sigma_accels.append(1e4)
+            has_accel.append(False)
+
+    n = len(velocities)
+    if n == 0:
+        raise ValueError(f"No spots found in {fpath}.")
+
+    velocity = np.array(velocities)
+    x = np.array(xs)
+    sigma_x = np.array(sigma_xs)
+    y = np.array(ys)
+    sigma_y = np.array(sigma_ys)
+    a = np.array(accels)
+    sigma_a = np.array(sigma_accels)
+    accel_measured = np.array(has_accel, dtype=bool)
+
+    if v_sys_obs is None:
+        raise ValueError(f"v_sys_obs must be provided for {galaxy_label}.")
+
+    data = {
+        "velocity": velocity,
+        "x": x,
+        "sigma_x": sigma_x,
+        "y": y,
+        "sigma_y": sigma_y,
+        "a": a,
+        "sigma_a": sigma_a,
+        "accel_measured": accel_measured,
+        "n_spots": n,
+        "galaxy_name": galaxy_label,
+        "v_sys_obs": float(v_sys_obs),
+    }
+
+    # Convert positions from mas to μas for float32 precision
+    for key in ("x", "y", "sigma_x", "sigma_y"):
+        if key in data:
+            data[key] = data[key] * 1000.0
+
+    n_accel = int(accel_measured.sum())
+    fprint(f"loaded {n} maser spots for {galaxy_label} "
+           f"({n_accel} with measured acceleration).")
+    return data
+
+
+def load_NGC6264_spots(root, v_sys_obs=None):
+    """Load maser spot data for NGC 6264 from Kuo+2013 Table 2."""
+    return _load_kuo_table2(
+        root, "NGC6264_Kuo2013_table2.txt", "NGC6264",
+        v_sys_obs=v_sys_obs)
+
+
+def load_NGC6323_spots(root, v_sys_obs=None):
+    """Load maser spot data for NGC 6323 from Kuo+2015 Table 2."""
+    return _load_kuo_table2(
+        root, "NGC6323_Kuo2015_table2.txt", "NGC6323",
+        v_sys_obs=v_sys_obs)
+
+
+def load_UGC3789_spots(root, v_sys_obs=None):
+    """Load maser spot data for UGC 3789 from Reid+2013 Table 1."""
+    return _load_kuo_table2(
+        root, "UGC3789_Reid2013_table1.txt", "UGC3789",
+        v_sys_obs=v_sys_obs)
+
+
+def load_NGC4258_spots(root, v_sys_obs=472.0):
+    """Load maser spot data for NGC 4258 from Reid (private comm.).
+
+    Reads ``N4258_disk_data_MarkReid.final``. Comment lines start with ``!``.
+    Columns: ID, Vlsr, e_Vlsr, dX, e_dX, dY, e_dY, Acc, e_Acc.
+    The Mark Reid file marks velocities as radio convention; central
+    velocities and errors are converted to optical convention using Reid's
+    formula.
+    Missing accelerations are flagged by negative e_Acc.
+
+    Spot classification by Vlsr: <300 → blue HV, 300–700 → systemic, >700 →
+    red HV.
+
+    Returns raw measurement errors (no floors applied).
+
+    Parameters
+    ----------
+    root : str
+        Directory containing ``N4258_disk_data_MarkReid.final``.
+    v_sys_obs : float
+        Fixed velocity reference used to centre residual arithmetic, km/s.
+        The fitted native-frame systemic velocity is ``v_sys_obs + dv_sys``.
+
+    Returns
+    -------
+    dict with the same keys as ``load_megamaser_spots``.
+    """
+    fpath = join(root, "N4258_disk_data_MarkReid.final")
+    fprint(f"loading maser spots from '{fpath}'.")
+
+    velocity, sigma_v, x, sigma_x, y, sigma_y = [], [], [], [], [], []
+    a_vals, sigma_a_vals, has_accel, spot_type = [], [], [], []
+
+    with open(fpath) as f:
+        for line in f:
+            if line.startswith("!") or not line.strip():
+                continue
+            parts = line.split()
+            vlsr_radio = float(parts[1])
+            conv = 1.0 - vlsr_radio / SPEED_OF_LIGHT
+            vlsr = radio_to_optical_velocity(vlsr_radio)
+            e_vlsr = float(parts[2]) / conv**2
+            dx = float(parts[3])
+            e_dx = float(parts[4])
+            dy = float(parts[5])
+            e_dy = float(parts[6])
+            acc = float(parts[7])
+            e_acc = float(parts[8])
+
+            # Classification
+            if vlsr < 300:
+                st = "b"
+            elif vlsr > 700:
+                st = "r"
+            else:
+                st = "s"
+
+            velocity.append(vlsr)
+            sigma_v.append(e_vlsr)
+            x.append(dx)
+            sigma_x.append(e_dx)
+            y.append(dy)
+            sigma_y.append(e_dy)
+            spot_type.append(st)
+
+            if e_acc > 0:
+                a_vals.append(acc)
+                sigma_a_vals.append(e_acc)
+                has_accel.append(True)
+            else:
+                # No measurement: σ_a = 1e4 placeholder (kept positive
+                # so the model's var_a is finite); has_accel masks
+                # the contribution.
+                a_vals.append(0.0)
+                sigma_a_vals.append(1e4)
+                has_accel.append(False)
+
+    n = len(velocity)
+    n_r = spot_type.count("r")
+    n_b = spot_type.count("b")
+    n_s = spot_type.count("s")
+    n_accel = sum(has_accel)
+    fprint(f"loaded {n} maser spots for NGC4258 "
+           f"({n_r} red, {n_b} blue, {n_s} systemic; "
+           f"{n_accel} with measured acceleration).")
+
+    data = {
+        "velocity":        np.array(velocity),
+        "sigma_v":         np.array(sigma_v),
+        "x":               np.array(x),
+        "sigma_x":         np.array(sigma_x),
+        "y":               np.array(y),
+        "sigma_y":         np.array(sigma_y),
+        "a":               np.array(a_vals),
+        "sigma_a":         np.array(sigma_a_vals),
+        "accel_measured":  np.array(has_accel, dtype=bool),
+        "spot_type":       spot_type,
+        "n_spots":         n,
+        "galaxy_name":     "NGC4258",
+        "v_sys_obs":       float(v_sys_obs),
+    }
+    # Convert positions from mas to μas for float32 precision
+    for key in ("x", "y", "sigma_x", "sigma_y"):
+        if key in data:
+            data[key] = data[key] * 1000.0
+    return data
+
+
+# Column byte ranges (1-indexed, inclusive) shared by all four "p20" tables.
+_P20_COLUMNS = {
+    "velocity":       (1, 8),
+    "x":              (10, 17),
+    "sigma_x":        (19, 24),
+    "y":              (26, 33),
+    "sigma_y":        (35, 40),
+    "a":              (42, 47),
+    "sigma_a":        (49, 53),
+    "accel_measured": (55, 55),
+}
+
+# Blue/red velocity thresholds stated in the p20 tables' Note (1).
+_P20_CLASS_RE = re.compile(
+    r"classified spots with Vel < (\S+) km/s as blueshifted, "
+    r"Vel > (\S+) km/s as redshifted")
+
+
+def _load_p20_table(root, galaxy, v_sys_obs=None):
+    """Load maser spots from a Pesce+2020 erratum ``<galaxy>_p20_data.txt``.
+
+    These are the tables P20 actually fitted. Unlike the published tables they
+    supersede, they state their own blue/red classification thresholds, so the
+    spots are classified from the header rather than by k-means.
+
+    Parameters
+    ----------
+    root : str
+        Directory containing ``<galaxy>_p20_data.txt``.
+    galaxy : str
+        Galaxy name, used for the filename and output messages.
+    v_sys_obs : float
+        Fixed velocity reference used to centre residual arithmetic, km/s.
+
+    Returns
+    -------
+    dict with the same keys as ``load_megamaser_spots``.
+    """
+    if v_sys_obs is None:
+        raise ValueError(f"v_sys_obs must be provided for {galaxy}.")
+
+    fpath = join(root, f"{galaxy}_p20_data.txt")
+    fprint(f"loading maser spots from '{fpath}'.")
+
+    with open(fpath) as f:
+        lines = f.readlines()
+
+    match = _P20_CLASS_RE.search(" ".join(" ".join(lines).split()))
+    if match is None:
+        raise ValueError(
+            f"'{fpath}' does not state its blue/red classification "
+            f"thresholds in Note (1); refusing to guess them.")
+    blue_max, red_min = float(match.group(1)), float(match.group(2))
+
+    data_start = max(i for i, ln in enumerate(lines)
+                     if ln.startswith("---")) + 1
+
+    rows = []
+    for line in lines[data_start:]:
+        line = line.rstrip("\n")
+        if not line.strip():
+            continue
+        row = {}
+        for key, (b0, b1) in _P20_COLUMNS.items():
+            raw = line[b0 - 1:b1].strip()
+            if key == "accel_measured":
+                row[key] = bool(int(raw))
+            elif raw:
+                row[key] = float(raw)
+            else:
+                # Acc/e_Acc blank when f_Acc = 0. σ_a = 1e4 is a large
+                # placeholder keeping the model's var_a positive; the
+                # accel_measured mask zeroes the contribution.
+                row[key] = 0.0 if key == "a" else 1e4
+        rows.append(row)
+
+    n = len(rows)
+    if n == 0:
+        raise ValueError(f"No spots found in {fpath}.")
+
+    velocity = np.array([r["velocity"] for r in rows])
+    data = {
+        "velocity": velocity,
+        "x": np.array([r["x"] for r in rows]),
+        "sigma_x": np.array([r["sigma_x"] for r in rows]),
+        "y": np.array([r["y"] for r in rows]),
+        "sigma_y": np.array([r["sigma_y"] for r in rows]),
+        "a": np.array([r["a"] for r in rows]),
+        "sigma_a": np.array([r["sigma_a"] for r in rows]),
+        "accel_measured": np.array(
+            [r["accel_measured"] for r in rows], dtype=bool),
+        "spot_type": ["b" if v < blue_max else "r" if v > red_min else "s"
+                      for v in velocity],
+        "n_spots": n,
+        "galaxy_name": galaxy,
+        "v_sys_obs": float(v_sys_obs),
+    }
+
+    # Convert positions from mas to μas for float32 precision
+    for key in ("x", "y", "sigma_x", "sigma_y"):
+        data[key] = data[key] * 1000.0
+
+    n_accel = int(data["accel_measured"].sum())
+    fprint(f"loaded {n} maser spots for {galaxy} "
+           f"({n_accel} with measured acceleration).")
+    return data
+
+
+def load_megamaser_spots(root, galaxy="CGCG074-064", v_sys_obs=None, *,
+                         use_ecc=False, use_quadratic_warp=False):
+    """Load individual maser spot data for a megamaser galaxy.
+
+    Parameters
+    ----------
+    root : str
+        Dataset-qualified directory containing the data file, as returned by
+        :func:`maser_data_root`. No dataset name is joined on here.
+    galaxy : str
+        Galaxy name: ``"CGCG074-064"``, ``"NGC5765b"``, etc.
+    v_sys_obs : float or None
+        Fixed velocity reference used to centre residual arithmetic, km/s.
+        Required except for NGC4258, where a default is supplied.
+    use_ecc, use_quadratic_warp : bool
+        For the ``clipped`` dataset, prefer the matching model-variant mask.
+        If it is absent, use the linear-model mask.
+
+    Returns
+    -------
+    dict with numpy arrays for each spot property, including ``v_sys_obs``
+    and the ``dataset`` the spots came from.
+    """
+    dataset = maser_dataset_of_root(root)
+
+    if dataset == "clipped":
+        data = load_megamaser_spots(
+            join(dirname(normpath(root)), "unpruned"), galaxy,
+            v_sys_obs=v_sys_obs)
+        path = clipped_mask_path(
+            root, galaxy, use_ecc=use_ecc,
+            use_quadratic_warp=use_quadratic_warp)
+        if (use_ecc or use_quadratic_warp) and not isfile(path):
+            fallback = clipped_mask_path(root, galaxy)
+            fprint(f"clipping mask '{path}' not found; falling back to "
+                   f"linear mask '{fallback}'.")
+            path = fallback
+        n_spots = data["n_spots"]
+        data = _apply_clipped_mask(data, path)
+        fprint(f"applied stabilised clipping mask '{path}': "
+               f"kept {data['n_spots']}/{n_spots} spots.")
+        return data
+
+    if dataset == "fiducial" and galaxy in _P20_GALAXIES:
+        data = _load_p20_table(root, galaxy, v_sys_obs=v_sys_obs)
+    elif galaxy == "NGC5765b":
+        data = load_NGC5765b_spots(root, v_sys_obs=v_sys_obs)
+    elif galaxy == "NGC6264":
+        data = load_NGC6264_spots(root, v_sys_obs=v_sys_obs)
+    elif galaxy == "NGC6323":
+        data = load_NGC6323_spots(root, v_sys_obs=v_sys_obs)
+    elif galaxy == "UGC3789":
+        data = load_UGC3789_spots(root, v_sys_obs=v_sys_obs)
+    elif galaxy == "NGC4258":
+        if v_sys_obs is None:
+            data = load_NGC4258_spots(root)
+        else:
+            data = load_NGC4258_spots(root, v_sys_obs=v_sys_obs)
+    else:
+        _all = list(_MRT_FILES) + ["NGC5765b", "NGC6264", "NGC6323",
+                                   "UGC3789", "NGC4258"]
+        if galaxy not in _MRT_FILES:
+            raise ValueError(
+                f"Unknown galaxy '{galaxy}'. Available: {_all}")
+
+        if v_sys_obs is None:
+            raise ValueError(f"v_sys_obs must be provided for {galaxy}.")
+
+        fpath = join(root, _MRT_FILES[galaxy])
+        fprint(f"loading maser spots from '{fpath}'.")
+
+        with open(fpath) as f:
+            lines = f.readlines()
+
+        data_start = 0
+        for i, line in enumerate(lines):
+            if line.startswith("---"):
+                data_start = i + 1
+
+        rows = []
+        for line in lines[data_start:]:
+            line = line.rstrip("\n")
+            if not line or line.startswith("#"):
+                continue
+            rows.append(_parse_mrt_line(line))
+
+        n = len(rows)
+        data = {
+            "velocity": np.array([r["velocity"] for r in rows]),
+            "x": np.array([r["x"] for r in rows]),
+            "sigma_x": np.array([r["sigma_x"] for r in rows]),
+            "y": np.array([r["y"] for r in rows]),
+            "sigma_y": np.array([r["sigma_y"] for r in rows]),
+            "a": np.array([r["a"] for r in rows]),
+            "sigma_a": np.array([r["sigma_a"] for r in rows]),
+            "accel_measured": np.array(
+                [r["accel_measured"] for r in rows], dtype=bool),
+            "n_spots": n,
+            "galaxy_name": galaxy,
+            "v_sys_obs": float(v_sys_obs),
+        }
+
+        n_accel = int(data["accel_measured"].sum())
+        fprint(f"loaded {n} maser spots for {galaxy} "
+               f"({n_accel} with measured acceleration).")
+
+        # Convert positions from mas to μas for float32 precision
+        for key in ("x", "y", "sigma_x", "sigma_y"):
+            if key in data:
+                data[key] = data[key] * 1000.0
+
+    if galaxy == "NGC5765b":
+        data["clump2_floor_mask"] = (
+            (data["velocity"] >= 8290.0) & (data["velocity"] < 8340.0))
+        fprint("classified NGC5765b clump-2 rows; measurement values and "
+               "uncertainties are unchanged.")
+
+    # Classify spots: use spot_type from data if available, else k-means
+    n = data["n_spots"]
+    if "spot_type" in data:
+        st = data["spot_type"]
+        labels = np.array([{"b": 0, "s": 1, "r": 2}[t] for t in st])
+        method = "spot_type"
+    else:
+        centroids, lab = kmeans2(
+            data["velocity"].astype(np.float64), 3, minit="++", seed=42)
+        order = np.argsort(centroids)
+        remap = np.empty(3, dtype=int)
+        remap[order] = np.arange(3)
+        labels = remap[lab]
+        method = "k-means on velocity"
+
+    data["velocity_frame"] = megamaser_velocity_frame(galaxy)
+    data["dataset"] = dataset
+    data["is_highvel"] = labels != 1
+
+    # Per-spot phi bounds
+    phi_lo = np.empty(n)
+    phi_hi = np.empty(n)
+    for k in range(n):
+        if labels[k] == 0:    # blue (approaching)
+            phi_lo[k], phi_hi[k] = np.pi, 2 * np.pi
+        elif labels[k] == 1:  # systemic
+            phi_lo[k], phi_hi[k] = -0.5 * np.pi, 0.5 * np.pi
+        else:                 # red (receding)
+            phi_lo[k], phi_hi[k] = 0.0, np.pi
+    data["phi_lo"] = phi_lo
+    data["phi_hi"] = phi_hi
+    data["is_blue"] = (labels == 0)
+
+    n_sys = int((labels == 1).sum())
+    n_blue = int((labels == 0).sum())
+    n_red = int((labels == 2).sum())
+    fprint(f"classified spots: {n_sys} systemic, {n_blue} blue, "
+           f"{n_red} red ({method}).")
+
+    return data

@@ -1,17 +1,5 @@
 # Copyright (C) 2026 Richard Stiskalek
-# This program is free software; you can redistribute it and/or modify it
-# under the terms of the GNU General Public License as published by the
-# Free Software Foundation; either version 3 of the License, or (at your
-# option) any later version.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
-# Public License for more details.
-#
-# You should have received a copy of the GNU General Public License along
-# with this program; if not, write to the Free Software Foundation, Inc.,
-# 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+# Licensed under the MIT License; see LICENSE in the repository root.
 """Corner and GetDist plotting helpers."""
 
 from os.path import basename
@@ -24,7 +12,7 @@ from corner import corner, overplot_lines, overplot_points
 from getdist import MCSamples, plots
 from h5py import File
 
-from candel.util import fprint
+from ..util import fprint
 
 
 def name2label(name):
@@ -55,10 +43,6 @@ def name2label(name):
         "Vext_mag": r"$V_\mathrm{ext}$",
         "Vext_ell": r"$\ell_\mathrm{ext}$",
         "Vext_b": r"$b_\mathrm{ext}$",
-        "logM_miss": r"$\log_{10} M_{\rm miss}$",
-        "Mmiss_distance": r"$r_{\rm miss}$",
-        "Mmiss_ell": r"$\ell_{\rm miss}$",
-        "Mmiss_b": r"$b_{\rm miss}$",
         "h": r"$h$",
         "a": r"$a$",
         "m1": r"$m_1$",
@@ -178,10 +162,6 @@ def name2labelgetdist(name):
         "Vext_b":   r"{\displaystyle b_\mathrm{ext} \atop \scriptstyle\left[\mathrm{deg}\right]}",
         "Vext_phi": r"\phi_\mathrm{ext}~\left[\mathrm{rad}\right]",
         "Vext_cos_theta": r"\cos\theta_\mathrm{ext}",
-        "logM_miss": r"\log_{10} M_{\rm miss}",
-        "Mmiss_distance": r"r_{\rm miss}~\left[h^{-1}\,\mathrm{Mpc}\right]",
-        "Mmiss_ell": r"\ell_{\rm miss}~\left[\mathrm{deg}\right]",
-        "Mmiss_b": r"b_{\rm miss}~\left[\mathrm{deg}\right]",
         "h": r"h",
         "a": r"a",
         "m1": r"m_1",
@@ -276,8 +256,7 @@ def sort_params(keys):
         "sigma_v_floor_clump2", "sigma_a_floor_clump2",
         "ecc", "e_x", "e_y", "periapsis",
         "periapsis_rad", "dperiapsis_dr", "a_TFR", "b_TFR", "c_TFR",
-        "alpha", "beta", "sigma_int", "sigma_v", "logM_miss",
-        "Mmiss_distance", "Mmiss_ell", "Mmiss_b", "Vext", "Vext_mag",
+        "alpha", "beta", "sigma_int", "sigma_v", "Vext", "Vext_mag",
         "Vext_ell", "Vext_b"
     ]
 

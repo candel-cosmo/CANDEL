@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "candel-pv"
+version = "0.1.0"
+description = "Peculiar-velocity forward models for CANDEL"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "Richard Stiskalek"}]
+dependencies = ["candel"]
+
+[project.entry-points."candel.probes"]
+PV = "candel_pv.probe:PVProbe"
+
+[tool.setuptools.packages.find]
+include = ["candel_pv*"]
+
+[project.urls]
+Repository = "https://github.com/candel-cosmo/CANDEL"

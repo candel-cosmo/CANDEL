@@ -40,7 +40,7 @@ submit options:
 prepare_field_inputs.py args are forwarded unchanged. Common examples:
   scripts/runs/tasks_CH0_main.txt --products all
   scripts/runs/tasks_CH0_main.txt --tasks 12-23 --products cache
-  scripts/runs/configs/config_CH0.toml --products los --overwrite-los
+  packages/candel-ch0/configs/config_CH0.toml --products los --overwrite-los
 EOF
     exit 0
 }

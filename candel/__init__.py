@@ -1,25 +1,10 @@
 # Copyright (C) 2025 Richard Stiskalek
-# This program is free software; you can redistribute it and/or modify it
-# under the terms of the GNU General Public License as published by the
-# Free Software Foundation; either version 3 of the License, or (at your
-# option) any later version.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
-# Public License for more details.
-#
-# You should have received a copy of the GNU General Public License along
-# with this program; if not, write to the Free Software Foundation, Inc.,
-# 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+# Licensed under the MIT License; see LICENSE in the repository root.
 
 from candel import (                                                            # noqa
     cosmo,                                                                      # noqa
     field,                                                                      # noqa
-    mock,                                                                       # noqa
-    pvdata,                                                                     # noqa
     model,                                                                      # noqa
-    redshift2real,                                                              # noqa
     )
 
 from .cosmo.cosmography import (                                                # noqa
@@ -33,7 +18,6 @@ from .cosmo.cosmography import (                                                
     Distance2Distmod_withOm,                                                    # noqa
     Distance2Redshift_withOm,                                                   # noqa
     LogGrad_Distmod2ComovingDistance,                                           # noqa
-    redshift_to_dL_cosmography,                                                 # noqa
     )
 
 from .inference.evidence import (                                               # noqa
@@ -45,14 +29,12 @@ from .inference.evidence import (                                               
 
 from .inference.inference import (                                              # noqa
     find_initial_point,                                                         # noqa
-    run_pv_inference,                                                           # noqa
-    run_H0_inference,                                                           # noqa
-    run_MWCepheids_inference,                                                   # noqa
+    run_inference,                                                              # noqa
     save_mcmc_samples,                                                          # noqa
     get_log_density,                                                            # noqa
     )
 
-from .redshift2real import Redshift2Real  # noqa
+from .probe import Probe, get_probe, probes                                     # noqa
 
 from .util import (                                                             # noqa
     SPEED_OF_LIGHT,                                                             # noqa
@@ -62,7 +44,6 @@ from .util import (                                                             
     radec_cartesian_to_galactic,                                                # noqa
     galactic_to_radec,                                                          # noqa
     galactic_to_radec_cartesian,                                                # noqa
-    supergalactic_to_radec,                                                     # noqa
     radec_to_supergalactic,                                                     # noqa
     heliocentric_to_cmb,                                                        # noqa
     load_config,                                                                # noqa

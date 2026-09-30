@@ -4,16 +4,14 @@ import numpy as np
 from scipy.integrate import simpson
 from scipy.special import ndtr
 
-import candel.pvdata.volume_density as volume_density_mod
+import candel.field.volume_density as volume_density_mod
 from candel.cosmo.cosmography import Distance2Distmod
-from candel.pvdata.field_cache import (_VOLUME_FIELD_CACHE_PREFIX,
-                                       _field_cache_path,
-                                       _volume_field_cache_filename)
-from candel.pvdata.volume_density import (
+from candel.field.field_cache import (_VOLUME_FIELD_CACHE_PREFIX,
+                                      _field_cache_path)
+from candel.field.volume_density import (
     _expected_h0_volume_grid_from_loader, _h0_volume_apply_quadrature,
-    _h0_volume_cache_supersampling_payload, _h0_volume_quadrature_geometry,
-    _h0_volume_resolved_supersample_factor,
-    _h0_volume_supersampling_cache_arrays, _load_volume_data_for_H0,
+    _h0_volume_quadrature_geometry, _h0_volume_supersampling_cache_arrays,
+    _load_volume_data_for_H0,
     _supersample_offsets_3d, _volume_density_geometry)
 
 
@@ -64,39 +62,6 @@ def _volume_mag_selection_integral(
     return np.sum(weights * p_sel)
 
 
-def test_h0_volume_supersampling_is_generic_cache_payload():
-    payload = {
-        "kind": "volume_field_data",
-        "project": "TRGBH0",
-        "product": "h0_volume",
-        "loader_name": "toy_reconstruction",
-        "field_indices": [0],
-        "geometry": "sphere",
-        "subcube_radius": 50.0,
-        "max_radius": 50.0,
-        "downsample": 1,
-        "load_velocity": False,
-    }
-    payload.update(_h0_volume_cache_supersampling_payload(8, 15.0))
-
-    filename = _volume_field_cache_filename(payload)
-
-    assert filename.startswith("cache_sphere__")
-    assert "h0-volume" not in filename
-    assert "v1" not in filename
-    assert "toy_reconstruction" not in filename
-    assert "rmax-50" in filename
-    assert "ss-f8-r15-linear" in filename
-    assert filename.endswith("__density.npz")
-
-
-def test_h0_volume_target_dx_resolves_nearest_integer_factor():
-    assert _h0_volume_resolved_supersample_factor(
-        681.1 / 256.0, 1, 0.325) == 8
-    assert _h0_volume_resolved_supersample_factor(
-        4.0, 1, 0.325) == 12
-
-
 def test_h0_volume_supersampling_trilinearly_interpolates_subcells():
     dx = 1.0
     shape = (9, 9, 9)
@@ -138,133 +103,6 @@ def test_h0_volume_supersampling_trilinearly_interpolates_subcells():
             field.reshape(-1)[quad["sup_flat"]], quad["n_subcells"]))
 
 
-def test_pv_volume_cache_filename_keeps_requested_subsample_fraction():
-    payload = {
-        "kind": "volume_field_data",
-        "product": "pv_volume_density",
-        "loader_name": "ManticoreLocalCOLA",
-        "field_indices": [0],
-        "subcube_radius": 150.0,
-        "max_radius": 150.0,
-        "pad_subcube_boundary": True,
-        "downsample": 1,
-        "voxel_subsample_fraction": 0.5,
-        "voxel_subsample_seed": 42,
-        "store_rhat_3d": False,
-    }
-
-    filename = _volume_field_cache_filename(payload)
-
-    assert "pv-volume-density" in filename
-    assert "ManticoreLocalCOLA" not in filename
-    assert "rmax-150" in filename
-    assert "sub-0p5-seed-42" in filename
-    assert "sub-0p1-seed-42" not in filename
-
-
-def test_volume_cache_filenames_include_field_smoothing():
-    h0_payload = {
-        "kind": "volume_field_data",
-        "product": "h0_volume",
-        "loader_name": "toy_reconstruction",
-        "field_indices": [0],
-        "geometry": "sphere",
-        "subcube_radius": 50.0,
-        "downsample": 1,
-        "density_field_smoothing_scale": 3.0,
-        "velocity_field_smoothing_scale": 5.0,
-        "load_velocity": True,
-    }
-    pv_payload = {
-        "kind": "volume_field_data",
-        "product": "pv_volume_density",
-        "loader_name": "toy_reconstruction",
-        "field_indices": [0],
-        "subcube_radius": 150.0,
-        "pad_subcube_boundary": True,
-        "downsample": 1,
-        "voxel_subsample_fraction": 0.5,
-        "voxel_subsample_seed": 42,
-        "store_rhat_3d": False,
-        "density_field_smoothing_scale": 3.0,
-    }
-
-    assert "density-smooth-R3" in _volume_field_cache_filename(h0_payload)
-    assert "velocity-smooth-R5" in _volume_field_cache_filename(h0_payload)
-    assert "density-smooth-R3" in _volume_field_cache_filename(pv_payload)
-
-
-def test_h0_field_smoothing_applies_to_density_only(monkeypatch):
-    class FakeLoader:
-        def __init__(self, nsim, **kwargs):
-            self.nsim = nsim
-            self.boxsize = 12.0
-            self.ngrid = 4
-            self.coordinate_frame = "icrs"
-            self.observer_pos = np.array([6.0, 6.0, 6.0],
-                                         dtype=np.float32)
-
-        def load_density(self):
-            return np.ones((4, 4, 4), dtype=np.float32)
-
-        def load_velocity_component(self, component):
-            return np.full((4, 4, 4), component + 1, dtype=np.float32)
-
-    calls = []
-
-    def fake_smooth(field, smooth_scale, boxsize, make_copy=False):
-        calls.append((field.shape, smooth_scale, boxsize))
-        return np.array(field, copy=True)
-
-    monkeypatch.setattr(
-        volume_density_mod, "name2field_loader", lambda name: FakeLoader)
-    monkeypatch.setattr(
-        volume_density_mod, "_smooth_field_gaussian", fake_smooth)
-
-    _load_volume_data_for_H0(
-        "fake", {"Om0": 0.3}, [0], "linear", 0.3,
-        load_velocity=True, geometry="cube", cache_enabled=False,
-        return_cache_fields=True, field_smoothing_scale=4.0)
-
-    assert len(calls) == 1
-
-
-def test_h0_velocity_smoothing_requires_explicit_config(monkeypatch):
-    class FakeLoader:
-        def __init__(self, nsim, **kwargs):
-            self.nsim = nsim
-            self.boxsize = 12.0
-            self.ngrid = 4
-            self.coordinate_frame = "icrs"
-            self.observer_pos = np.array([6.0, 6.0, 6.0],
-                                         dtype=np.float32)
-
-        def load_density(self):
-            return np.ones((4, 4, 4), dtype=np.float32)
-
-        def load_velocity_component(self, component):
-            return np.full((4, 4, 4), component + 1, dtype=np.float32)
-
-    calls = []
-
-    def fake_smooth(field, smooth_scale, boxsize, make_copy=False):
-        calls.append((field.shape, smooth_scale, boxsize))
-        return np.array(field, copy=True)
-
-    monkeypatch.setattr(
-        volume_density_mod, "name2field_loader", lambda name: FakeLoader)
-    monkeypatch.setattr(
-        volume_density_mod, "_smooth_field_gaussian", fake_smooth)
-
-    _load_volume_data_for_H0(
-        "fake", {"Om0": 0.3}, [0], "linear", 0.3,
-        load_velocity=True, geometry="cube", cache_enabled=False,
-        return_cache_fields=True, field_smoothing_scale=4.0,
-        velocity_field_smoothing_scale=4.0)
-
-    assert len(calls) == 4
-
-
 def test_h0_volume_supersampling_matches_homogeneous_radial_integral():
     radius = 50.0
     dx = 5.0
@@ -303,103 +141,6 @@ def test_h0_volume_supersampling_handles_bright_homogeneous_limit():
 
     assert coarse_relerr > 0.99
     assert supersampled_relerr < 2e-3
-
-
-def test_h0_volume_component_loader_cache_is_cleared():
-    class FakeLoader:
-        clear_calls = 0
-
-        def __init__(self, nsim, **kwargs):
-            self.nsim = nsim
-            self.boxsize = 3.0
-            self.coordinate_frame = "icrs"
-            self.observer_pos = np.array([1.5, 1.5, 1.5],
-                                         dtype=np.float32)
-
-        def load_density(self):
-            return np.ones((3, 3, 3), dtype=np.float32)
-
-        def load_velocity_component(self, component):
-            return np.full((3, 3, 3), component + 1, dtype=np.float32)
-
-        def clear_velocity_cache(self):
-            type(self).clear_calls += 1
-
-    original = volume_density_mod.name2field_loader
-    try:
-        volume_density_mod.name2field_loader = lambda name: FakeLoader
-        _load_volume_data_for_H0(
-            "fake", {"Om0": 0.3}, [0], "linear", 0.3,
-            load_velocity=True, geometry="cube", cache_enabled=False,
-            return_cache_fields=True)
-    finally:
-        volume_density_mod.name2field_loader = original
-
-    assert FakeLoader.clear_calls == 1
-
-
-def test_h0_volume_uses_per_field_warmed_cache(
-        tmp_path, monkeypatch):
-    class FakeLoader:
-        def __init__(self, nsim, **kwargs):
-            self.nsim = nsim
-            self.boxsize = 16.0
-            self.ngrid = 4
-            self.coordinate_frame = "icrs"
-            self.observer_pos = np.array([8.0, 8.0, 8.0],
-                                         dtype=np.float32)
-
-        def load_density(self):
-            raise AssertionError("raw field should not be loaded")
-
-    payload = {
-        "kind": "volume_field_data",
-        "project": "TRGBH0",
-        "product": "h0_volume",
-        "loader_name": "fake_manticore",
-        "loader_kwargs": {"Om0": 0.3},
-        "field_indices": [1],
-        "subcube_radius": 50.0,
-        "geometry": "sphere",
-        "sources": [],
-        "downsample": 1,
-        "supersample": {
-            "factor": 4,
-            "radius": 15.0,
-            "method": "linear",
-        },
-        "load_velocity": False,
-    }
-    r_3d, _ = _expected_h0_volume_grid_from_loader(
-        FakeLoader(1), "sphere", 50.0, 4, 15.0)
-    payload["max_radius"] = float(np.max(r_3d))
-    cache_path = Path(_field_cache_path(
-        tmp_path, _VOLUME_FIELD_CACHE_PREFIX, payload))
-    assert cache_path.parent == (
-        tmp_path / "TRGBH0" / "fake_manticore"
-        / "selection_volume" / "field-1")
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
-    np.savez(
-        cache_path,
-        rho_3d_fields=np.full((1, len(r_3d)), 20.0, dtype=np.float32),
-        r_3d=r_3d,
-        log_dV_3d=np.asarray(0.0, dtype=np.float32),
-        log_volume_weight_3d=np.zeros(len(r_3d), dtype=np.float32),
-        **_h0_volume_supersampling_cache_arrays(4, 15.0))
-
-    monkeypatch.setattr(
-        volume_density_mod, "name2field_loader", lambda name: FakeLoader)
-    loaded = _load_volume_data_for_H0(
-        "fake_manticore", {"Om0": 0.3}, [1], "linear", 0.3,
-        subcube_radius=50.0, geometry="sphere", cache_dir=tmp_path,
-        cache_project="TRGBH0",
-        cache_enabled=True, supersample_radius=15.0,
-        supersample_target_dx=1.0)
-
-    np.testing.assert_allclose(
-        np.asarray(loaded["density_3d_fields"]),
-        np.full((1, len(r_3d)), 19.0, dtype=np.float32))
-    assert cache_path.exists()
 
 
 def test_h0_volume_target_dx_warmed_superset_matches_resolved_factor(
@@ -470,65 +211,3 @@ def test_h0_volume_target_dx_warmed_superset_matches_resolved_factor(
     np.testing.assert_allclose(
         np.asarray(loaded["density_3d_fields"]),
         np.full((1, len(r_3d)), 39.0, dtype=np.float32))
-
-
-def test_h0_volume_missing_warmed_cache_errors_before_raw_load(
-        tmp_path, monkeypatch):
-    class FakeLoader:
-        def __init__(self, nsim, **kwargs):
-            self.nsim = nsim
-            self.boxsize = 16.0
-            self.ngrid = 4
-            self.coordinate_frame = "icrs"
-            self.observer_pos = np.array([8.0, 8.0, 8.0],
-                                         dtype=np.float32)
-
-        def load_density(self):
-            raise AssertionError("raw field should not be loaded")
-
-    monkeypatch.setattr(
-        volume_density_mod, "name2field_loader", lambda name: FakeLoader)
-    monkeypatch.delenv("CANDEL_FIELD_CACHE_WARMUP", raising=False)
-
-    try:
-        _load_volume_data_for_H0(
-            "fake_manticore", {"Om0": 0.3}, [1], "linear", 0.3,
-            subcube_radius=50.0, geometry="sphere", cache_dir=tmp_path,
-            cache_project="TRGBH0",
-            cache_enabled=True, supersample_radius=15.0,
-            supersample_target_dx=1.0)
-    except RuntimeError as exc:
-        msg = str(exc)
-    else:
-        raise AssertionError("expected missing warmed-cache error")
-
-    assert "missing required warmed H0 3D volume data cache" in msg
-    assert "cache_sphere__field-1" in msg
-
-
-def test_h0_volume_raw_readable_field_builds_cache_on_miss(
-        tmp_path, monkeypatch):
-    class FakeLoader:
-        def __init__(self, nsim, **kwargs):
-            self.nsim = nsim
-            self.boxsize = 16.0
-            self.ngrid = 4
-            self.coordinate_frame = "icrs"
-            self.observer_pos = np.array([8.0, 8.0, 8.0],
-                                         dtype=np.float32)
-
-        def load_density(self):
-            return np.full((4, 4, 4), 2.0 + self.nsim, dtype=np.float32)
-
-    monkeypatch.setattr(
-        volume_density_mod, "name2field_loader", lambda name: FakeLoader)
-
-    loaded = _load_volume_data_for_H0(
-        "ManticoreLocalCOLA", {"Om0": 0.306}, [0], "linear", 0.306,
-        geometry="cube", cache_dir=tmp_path, cache_project="TRGBH0",
-        cache_enabled=True)
-
-    np.testing.assert_allclose(
-        np.asarray(loaded["density_3d_fields"]), np.ones((1, 4, 4, 4)))
-    assert list((tmp_path / "TRGBH0" / "ManticoreLocalCOLA"
-                 / "selection_volume" / "field-0").glob("*.npz"))

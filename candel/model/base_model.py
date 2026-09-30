@@ -1,17 +1,5 @@
 # Copyright (C) 2025 Richard Stiskalek
-# This program is free software; you can redistribute it and/or modify it
-# under the terms of the GNU General Public License as published by the
-# Free Software Foundation; either version 3 of the License, or (at your
-# option) any later version.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
-# Public License for more details.
-#
-# You should have received a copy of the GNU General Public License along
-# with this program; if not, write to the Free Software Foundation, Inc.,
-# 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+# Licensed under the MIT License; see LICENSE in the repository root.
 """
 Thin common base class for all forward models (PV and H0).
 
@@ -114,40 +102,27 @@ import jax.numpy as jnp
 import numpy as np
 from jax import checkpoint, lax
 from jax.scipy.special import logsumexp
-from numpyro import factor
+from numpyro import deterministic, factor
 
 from ..cosmo.cosmography import (Distance2Distmod, Distance2Redshift,
                                  Distmod2Distance, Distmod2Redshift,
                                  LogGrad_Distmod2ComovingDistance,
                                  Redshift2Distance)
-from ..util import (fprint, fsection, get_nested, load_config,
-                    radec_to_cartesian, replace_prior_with_delta)
+from ..util import (R_ICRS_TO_GAL, R_ICRS_TO_SUPERGAL, fprint, fsection,
+                    get_nested, load_config, radec_to_cartesian,
+                    replace_prior_with_delta)
 from .integration import ln_simpson_precomputed, simpson_log_weights
 from .interp import LOSInterpolator
 from .pv_utils import (GALAXY_BIAS_PRIOR_DEFAULTS, GALAXY_BIAS_REQUIRED_PRIORS,
                        galaxy_bias_needs_log_rho, lp_galaxy_bias,
                        octupole_radial, quadrupole_radial, rsample,
                        sample_octupole, sample_quadrupole,
-                       sigmoid_monopole_radial)
+                       sigma_v_from_density, sigmoid_monopole_radial)
 from .utils import (load_priors, log_prob_integrand_sel,
                     log_prob_integrand_window_sel, logmeanexp,
                     normal_logpdf_var, predict_cz, student_t_logpdf_var)
 
 LOG_4PI = jnp.log(4.0 * jnp.pi)
-
-# ICRS equatorial → Galactic Cartesian rotation matrix.
-# Computed via astropy: SkyCoord(basis, frame='icrs').galactic.
-_R_ICRS_TO_GAL = np.array([
-    [-0.05487565771259163, -0.87343705195561590, -0.48383507361671546],
-    [+0.49410943719272680, -0.44482972122329520, +0.74698218398666760],
-    [-0.86766613755965760, -0.19807633727300053, +0.45598381368730160]])
-
-# ICRS equatorial -> Supergalactic Cartesian rotation matrix.
-# Computed via astropy: SkyCoord(basis, frame='icrs').supergalactic.
-_R_ICRS_TO_SUPERGAL = np.array([
-    [+0.37501555570303163, +0.34135887185624750, +0.86188018516831910],
-    [-0.89832043772761380, -0.09572710024885137, +0.42878516000301936],
-    [+0.22887490937543750, -0.93504569026490690, +0.27075049949244600]])
 
 
 def make_adaptive_grid(r_min, r_max, delta_mu, dr_max):
@@ -276,37 +251,13 @@ class ModelBase(ABC):
             n = jnp.linalg.norm(x, axis=-1, keepdims=True)
             return x / jnp.where(n == 0.0, 1.0, n)
 
-        specs = [
-            ("rhat_host",
-             ("RA_host", "dec_host"), "host"),
-            ("rhat_rand_los",
-             ("rand_los_RA", "rand_los_dec"), "random LOS"),
-        ]
-        for attr, (ra_key, dec_key), label in specs:
-            if ra_key in data and dec_key in data:
-                ra, dec = data[ra_key], data[dec_key]
-                fprint(f"Converting {label} RA/dec to "
-                       "Cartesian coordinates.")
-                if ra.ndim == 1:
-                    assert dec.ndim == 1
-                    rhat = radec_to_cartesian(ra, dec)
-                elif ra.ndim == 2:
-                    # Per-realisation random LOS: (n_sims, n_gal) →
-                    # (n_sims, n_gal, 3)
-                    assert attr == "rhat_rand_los" and dec.ndim == 2
-                    ra_rad = np.deg2rad(ra)
-                    dec_rad = np.deg2rad(dec)
-                    cos_dec = np.cos(dec_rad)
-                    rhat = np.stack([
-                        cos_dec * np.cos(ra_rad),
-                        cos_dec * np.sin(ra_rad),
-                        np.sin(dec_rad),
-                    ], axis=-1)
-                else:
-                    raise ValueError(
-                        f"{ra_key} must be 1D or 2D, got {ra.ndim}D")
-                setattr(self, attr, _normalize_rows(rhat))
-                attrs_set.append(attr)
+        if "RA_host" in data and "dec_host" in data:
+            fprint("Converting host RA/dec to Cartesian coordinates.")
+            ra, dec = data["RA_host"], data["dec_host"]
+            if ra.ndim != 1 or dec.ndim != 1:
+                raise ValueError("`RA_host` and `dec_host` must be 1D.")
+            self.rhat_host = _normalize_rows(radec_to_cartesian(ra, dec))
+            attrs_set.append("rhat_host")
 
         fprint("set the following attributes: "
                f"{', '.join(attrs_set)}")
@@ -328,63 +279,27 @@ class ModelBase(ABC):
                 else:
                     setattr(self, key, value)
 
-    def _load_los_interpolator(self, data, which="host",
-                               r0_decay_scale=5.):
-        """Build LOS density/velocity interpolators."""
-        if which not in ("host", "rand"):
-            raise ValueError(
-                "`which` must be either 'host' or 'rand'.")
+    def _load_los_interpolator(self, data, r0_decay_scale=5.):
+        """Build host LOS density/velocity interpolators."""
+        los_delta = data["host_los_density"] - 1
+        los_velocity = data["host_los_velocity"]
+        los_r = data["host_los_r"]
 
-        los_delta = data[f"{which}_los_density"] - 1
-        los_velocity = data[f"{which}_los_velocity"]
-        los_r = data[f"{which}_los_r"]
-
-        if which == "host" and "mask_host" in data:
+        if "mask_host" in data:
             m = data["mask_host"]
             los_delta = los_delta[:, m, ...]
             los_velocity = los_velocity[:, m, ...]
 
-        # Optionally subsample random LOS
-        if which == "rand":
-            n_avail = los_delta.shape[1]
-            max_rand = get_nested(
-                self.config, "model/max_rand_los", None)
-            if max_rand is not None and max_rand > n_avail:
-                raise ValueError(
-                    f"max_rand_los={max_rand} exceeds available "
-                    f"random LOS ({n_avail}).")
-            if max_rand is not None and max_rand < n_avail:
-                gen = np.random.default_rng(42)
-                idx = gen.choice(n_avail, max_rand, replace=False)
-                idx.sort()
-                los_delta = los_delta[:, idx, ...]
-                los_velocity = los_velocity[:, idx, ...]
-                # Also subsample RA/dec in the data dict
-                for k in ("rand_los_RA", "rand_los_dec"):
-                    if k in data and data[k] is not None:
-                        if data[k].ndim == 1:
-                            data[k] = data[k][idx]
-                        else:
-                            # Per-realisation (n_sims, n_gal)
-                            data[k] = data[k][:, idx]
-                fprint(f"subsampled random LOS: {n_avail} -> {max_rand}.")
-
-        fprint(f"loaded {which} galaxy LOS interpolators "
+        fprint("loaded host galaxy LOS interpolators "
                f"for {los_delta.shape[1]} galaxies.")
 
-        kwargs = {"r0_decay_scale": r0_decay_scale}
-
-        setattr(self, f"has_{which}_los", True)
-        setattr(
-            self, f"f_{which}_los_delta",
-            LOSInterpolator(
-                los_r, los_delta,
-                extrap_constant=0., **kwargs))
-        setattr(
-            self, f"f_{which}_los_velocity",
-            LOSInterpolator(
-                los_r, los_velocity,
-                extrap_constant=0., **kwargs))
+        self.has_host_los = True
+        self.f_host_los_delta = LOSInterpolator(
+            los_r, los_delta, extrap_constant=0.,
+            r0_decay_scale=r0_decay_scale)
+        self.f_host_los_velocity = LOSInterpolator(
+            los_r, los_velocity, extrap_constant=0.,
+            r0_decay_scale=r0_decay_scale)
 
     # ------------------------------------------------------------------
     #  Shared data + grid setup (used by H0 models)
@@ -397,27 +312,16 @@ class ModelBase(ABC):
         stats) but should call ``super()._load_data(data)`` first.
         """
         self.has_host_los = False
-        self.has_rand_los = False
-        self.num_rand_los = 1
         self.num_fields = 1
 
         r0_decay_scale = get_nested(
             self.config, "io/los_r0_decay_scale", 5)
         use_recon = get_nested(
             self.config, "model/use_reconstruction", False)
-        use_3d_selection_integral = (
-            get_nested(self.config, "model/which_selection", None)
-            is not None)
         if use_recon and get_nested(
                 self.config, "io/load_host_los", use_recon):
             self._load_los_interpolator(
-                data, which="host",
-                r0_decay_scale=r0_decay_scale)
-        if (use_recon and not use_3d_selection_integral and get_nested(
-                self.config, "io/load_rand_los", use_recon)):
-            self._load_los_interpolator(
-                data, which="rand",
-                r0_decay_scale=r0_decay_scale)
+                data, r0_decay_scale=r0_decay_scale)
 
         self._set_data_arrays(data)
 
@@ -601,7 +505,7 @@ class ModelBase(ABC):
         zcosmo = self.distance2redshift(
             self.r_sel_range, h=H0 / 100)
         cz_r = predict_cz(zcosmo[None, None, :], Vpec)
-        sigma_v = jnp.asarray(sigma_v)
+        sigma_v = self._cz_sel_sigma(jnp.asarray(sigma_v))
         while sigma_v.ndim < cz_r.ndim:
             sigma_v = sigma_v[None, ...]
         sigma_v = jnp.broadcast_to(sigma_v, cz_r.shape)
@@ -978,6 +882,62 @@ class H0ModelBase(ModelBase):
             return jnp.broadcast_to(Vext_mono, jnp.shape(r))
         return None
 
+    def _validate_selection_width(self, name):
+        """Require fixed selection widths to be present and positive."""
+        if getattr(self, f"_infer_{name}", False):
+            return
+        value = getattr(self, name)
+        if value is None:
+            raise ValueError(
+                f"`{name}` must be set or 'infer' for "
+                f"{self.which_selection} selection.")
+        try:
+            value_arr = np.asarray(value, dtype=float)
+        except (TypeError, ValueError):
+            raise ValueError(f"`{name}` must be numeric, got {value!r}.")
+        if np.any(~np.isfinite(value_arr)) or np.any(value_arr <= 0):
+            raise ValueError(f"`{name}` must be positive, got {value!r}.")
+
+    def sigma_v_from_density(self, delta, sigma_v_low, sigma_v_high,
+                             log_rho_t, k):
+        """Map overdensity to sigma_v through a sigmoid in log density."""
+        return sigma_v_from_density(
+            delta, sigma_v_low, sigma_v_high, log_rho_t, k)
+
+    def _volume_sigma_v_fields(self, sigma_v_low, sigma_v_high,
+                               log_rho_t, k):
+        """Evaluate density-dependent sigma_v on the 3D selection grid."""
+        if self.which_bias == "uniform":
+            raise ValueError(
+                "Density-dependent sigma_v needs the 3D density, which is "
+                "not loaded for which_bias='uniform'.")
+        if self.density_3d_mode == "log_rho":
+            delta_3d = jnp.exp(self.density_3d_fields) - 1.0
+        else:
+            delta_3d = self.density_3d_fields
+        return self.sigma_v_from_density(
+            delta_3d, sigma_v_low, sigma_v_high, log_rho_t, k)
+
+    def _record_per_galaxy_log_likelihood(
+            self, ll_without_selection, ll_selection_observed,
+            log_selection_integral=0.0):
+        """Expose per-host likelihood terms as deterministic sites."""
+        if not self.save_log_likelihood_per_galaxy:
+            return
+
+        with_selection = (
+            ll_without_selection
+            + ll_selection_observed
+            - log_selection_integral
+        )
+        deterministic("log_likelihood_per_galaxy", ll_without_selection)
+        deterministic(
+            "log_observed_selection_per_galaxy",
+            ll_selection_observed)
+        deterministic("log_selection_integral", log_selection_integral)
+        deterministic(
+            "log_likelihood_per_galaxy_with_selection", with_selection)
+
     def _replace_bias_priors(self, config):
         """Inject delta priors for galaxy bias params if missing.
 
@@ -1123,9 +1083,9 @@ class H0ModelBase(ModelBase):
         if frame == "galactic":
             return z
         if frame == "icrs":
-            row = jnp.asarray(_R_ICRS_TO_GAL[2])
+            row = jnp.asarray(R_ICRS_TO_GAL[2])
         elif frame == "supergalactic":
-            row = jnp.asarray((_R_ICRS_TO_GAL @ _R_ICRS_TO_SUPERGAL.T)[2])
+            row = jnp.asarray((R_ICRS_TO_GAL @ R_ICRS_TO_SUPERGAL.T)[2])
         else:
             raise ValueError(
                 f"3D selection integrals do not support coordinate frame "
@@ -1157,9 +1117,9 @@ class H0ModelBase(ModelBase):
     def _vol_sel_Vext_rad_3d(self, Vext, Vext_mono, h):
         """Project Vext onto each voxel direction in the field frame."""
         if self.coordinate_frame_3d == "galactic":
-            Vext = jnp.asarray(_R_ICRS_TO_GAL) @ Vext
+            Vext = jnp.asarray(R_ICRS_TO_GAL) @ Vext
         elif self.coordinate_frame_3d == "supergalactic":
-            Vext = jnp.asarray(_R_ICRS_TO_SUPERGAL) @ Vext
+            Vext = jnp.asarray(R_ICRS_TO_SUPERGAL) @ Vext
         elif self.coordinate_frame_3d != "icrs":
             raise ValueError(
                 f"3D selection integrals do not support coordinate frame "
@@ -1177,9 +1137,18 @@ class H0ModelBase(ModelBase):
             Vext_rad = Vext_rad + Vext_mono
         return Vext_rad
 
+    def _cz_sel_sigma(self, sigma_v):
+        """Selection-kernel cz scatter: sigma_v and `e2_cz_sel` in quadrature.
+
+        `e2_cz_sel` is the typical squared cz measurement error of the sample,
+        set by the subclass; the observed cz scatters by both.
+        """
+        e2 = getattr(self, "e2_cz_sel", 0.0)
+        return sigma_v if e2 == 0.0 else jnp.sqrt(sigma_v**2 + e2)
+
     def _vol_sel_sigma_v_fields(self, sigma_v):
         """Broadcast scalar or voxel-level sigma_v to all 3D fields."""
-        sigma_v = jnp.asarray(sigma_v)
+        sigma_v = self._cz_sel_sigma(jnp.asarray(sigma_v))
         target_shape = self.density_3d_fields.shape
         if sigma_v.ndim == 0:
             return jnp.broadcast_to(sigma_v, target_shape)
@@ -1226,7 +1195,7 @@ class H0ModelBase(ModelBase):
         Vpec = self._no_recon_selection_Vpec(Vext, Vext_mono)
         cz_r = predict_cz(zcosmo[None, None, :], Vpec)
 
-        sigma_v = jnp.asarray(sigma_v)
+        sigma_v = self._cz_sel_sigma(jnp.asarray(sigma_v))
         while sigma_v.ndim < cz_r.ndim:
             sigma_v = sigma_v[None, ...]
         sigma_v = jnp.broadcast_to(sigma_v, cz_r.shape)
@@ -1321,6 +1290,10 @@ class H0ModelBase(ModelBase):
                 log_P_sel = log_prob_integrand_sel(
                     cz_pred, sigma_v_3d, cz_lim, cz_width, nu_cz=nu_cz)
             else:
+                if nu_cz is not None:
+                    raise NotImplementedError(
+                        "Windowed redshift selection has no Student-t "
+                        "normaliser; use cz_likelihood='gaussian'.")
                 log_P_sel = log_prob_integrand_window_sel(
                     cz_pred, sigma_v_3d, cz_low, cz_lim, cz_width)
             return logsumexp(log_P_sel + log_n + log_cell_weight)
@@ -1375,7 +1348,7 @@ class H0ModelBase(ModelBase):
         Vpec = self._no_recon_selection_Vpec(Vext, Vext_mono)
         cz_r = predict_cz(zcosmo[None, None, :], Vpec)
 
-        sigma_v = jnp.asarray(sigma_v)
+        sigma_v = self._cz_sel_sigma(jnp.asarray(sigma_v))
         while sigma_v.ndim < cz_r.ndim:
             sigma_v = sigma_v[None, ...]
         sigma_v = jnp.broadcast_to(sigma_v, cz_r.shape)

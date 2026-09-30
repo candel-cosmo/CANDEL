@@ -22,13 +22,10 @@ differentiation and JIT compilation throughout.
 Tutorials
 ---------
 
-For practical examples, please refer to the Jupyter notebooks in the
-`notebooks/ <https://github.com/Richard-Sti/CANDEL/tree/master/notebooks>`_
-directory. These notebooks demonstrate specific workflows, such as:
-
-- **example.ipynb**: A general overview of the package.
-- **paper_CH0**: Replicating the results from `Stiskalek et al. (2025) <https://arxiv.org/abs/2509.09665>`_.
-- **paper_CCHP**: Analysis of the CCHP TRGB calibration.
+For practical examples, see ``packages/candel-pv/notebooks/example.ipynb`` and
+the paper directories ``packages/*/papers/``, which hold the scripts and
+notebooks behind each publication, for example ``packages/candel-ch0/papers/CH0``
+for `Stiskalek et al. (2025) <https://arxiv.org/abs/2509.09665>`_.
 
 HPC and Batch Processing
 ------------------------

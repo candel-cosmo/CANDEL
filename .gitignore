@@ -30,10 +30,8 @@ scripts/runs/batch_*.sh*
 scripts/runs/generated_configs/
 scripts/runs/logs-*.tsv
 scripts/runs/logs
-scripts/runs/logs
-scripts/runs/generated_configs/
-scripts/mocks/logs/
-scripts/megamaser/logs/
+packages/candel-trgb/scripts/logs/
+packages/candel-maser/scripts/logs/
 scripts/H0_convergence/outputs/
 
 modules_arc.sh
@@ -45,6 +43,7 @@ local_config.toml
 
 *.png
 *.pdf
+*.egg-info/
 
 # Plot output directories.
 **/*plot*/*.png
@@ -60,16 +59,16 @@ background_info/
 background_info/fit_disk_Reid/
 docs/plans/
 remote_logs/
-notebooks/paper_S8/sr_interp_cache/
-notebooks/paper_TRGBH0/TRGBH0_variants_table.tex
-notebooks/paper_TRGBH0/output/
-notebooks/paper_VFO/output/
+packages/candel-pv/papers/S8/sr_interp_cache/
+packages/candel-trgb/papers/TRGBH0/TRGBH0_variants_table.tex
+packages/candel-trgb/papers/TRGBH0/output/
+packages/candel-pv/papers/VFO/output/
 notebooks/manticore_velocity_field/
 notebooks/manticore_velocity_field_cache.npz
-scripts/megamaser/check_reid/reidlik_build/
+packages/candel-maser/candel_maser/reid/reidlik_build/
 for_mark_reid/
 texput.log
-scripts/CH0_JWST_mock/logs/
+packages/candel-ch0/scripts/JWST_mock/logs/
 scripts/runs/generated_batch_scripts/
 findings/CANDIDATES.md
 findings/.organise-stamp

@@ -1,18 +1,10 @@
 candel.cosmo
 ============
 
-Growth rate
+Cosmography
 -----------
 
-.. automodule:: candel.cosmo.growth_rate
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-PV covariance
--------------
-
-.. automodule:: candel.cosmo.pv_covariance
+.. automodule:: candel.cosmo.cosmography
    :members:
    :undoc-members:
    :show-inheritance:

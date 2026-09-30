@@ -3,7 +3,7 @@
 **A GPU-accelerated, hierarchical Bayesian framework for the local distance ladder.**
 
 [![Documentation](https://readthedocs.org/projects/candel/badge/?version=latest)](https://candel.readthedocs.io/en/latest/)
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![Powered by JAX](https://img.shields.io/badge/powered%20by-JAX-orange.svg)](https://github.com/jax-ml/jax)
 
@@ -43,65 +43,79 @@ These models work in units of $h^{-1}\,\mathrm{Mpc}$ (i.e. assume $h = 1$). Mult
 
 - **Cepheid-calibrated $H_0$:** 35 Cepheid host galaxies from SH0ES
 - **Milky Way Cepheid calibration:** standalone Galactic Cepheid period-luminosity calibration via `model.which_run = "MWCepheids"`
-- **TRGB-calibrated $H_0$:** Tip of the Red Giant Branch distances from CCHP and EDD, including grouped EDD hosts
+- **TRGB-calibrated $H_0$:** Tip of the Red Giant Branch distances from EDD
 - **Megamaser disk $H_0$:** spot-level warped disk fits for NGC 5765b, NGC 6264, NGC 6323, UGC 3789, CGCG 074-064, and NGC 4258 using the BlackJAX explicit MCMC sampler.
 
-## Package structure
+## Repository structure
+
+CANDEL is a small core library plus one package per probe. The core library never
+imports a probe package: each package registers a `candel.Probe` under the
+`candel.probes` entry-point group, and the core scripts (`main.py`,
+`generate_tasks.py`, field preparation) look the probe up from the config's
+`model.which_run`.
 
 ```
-candel/
-  model/          Forward models for each distance indicator
-    mwcepheids/   Milky Way Cepheid calibration model
-  pvdata/         Data loaders for all supported catalogues
-  cosmo/          Cosmography, growth rate, PV covariance matrices
-  inference/      NUTS sampling, L-BFGS initialisation, evidence estimation
-  field/          3D density/velocity field loading and LOS interpolation
-  redshift2real/  Map observed redshift → cosmological redshift given a velocity field
-  mock/           Synthetic catalogue generation for testing
-  plotting/       Reusable posterior and diagnostic plotting helpers
-  util.py         Coordinate transforms, config I/O, plotting utilities
+candel/                    core library
+  field/                   field loaders, LOS interpolation, field caches, 3D volume grids
+  model/                   ModelBase/H0ModelBase, priors, quadrature, LOS and bias utilities
+  inference/               run_inference (NUTS + L-BFGS start), evidence
+  cosmo/, plotting/        cosmography and corner plots
+  configs/                 shared config fragments (data/field paths, common priors)
+  probe.py, tasks.py       probe registry and task-spec helpers
+
+packages/
+  candel-pv/               peculiar-velocity models (TFR, SN, FP, Pantheon+), redshift2real
+  candel-ch0/              Cepheid-calibrated H0 (SH0ES hosts), JWST forecast mocks
+  candel-trgb/             EDD TRGB two-rung H0, mocks and posterior predictive checks
+  candel-mwcepheids/       Milky Way Cepheid calibration
+  candel-maser/            megamaser disk model and the two-stage megamaser H0 pipeline
+    each with <module>/, configs/, scripts/, papers/ and tests/
 
 scripts/
-  runs/           PV and H0 model configs and main runner
-  megamaser/      Maser disk BlackJAX runner, DE initialiser, and quadrature diagnostics
-  H0_convergence/ H0 selection-integral convergence checks
-  BORG_fields/    Reconstruction-field product helpers
-  data/           EDD TRGB catalogue parsing and plots
-  diagnostics/    Standalone model-component diagnostics
-  mocks/          Mock TRGB inference runs
-  preprocess/     Precompute line-of-sight density/velocity data
-  sharing/        Posterior/data sharing utilities
-  sync/           Cluster sync helpers
+  runs/                    main.py, generate_tasks.py, submit.sh
+  preprocess/              LOS and 3D field-cache preparation
+  BORG_fields/, H0_convergence/, sync/
 ```
 
 ## Running inference
 
 All experiments are defined in TOML configuration files that specify data paths, model parameters, priors, and output locations.
 
-**Peculiar-velocity / $H_0$ models:**
+**Distance-ladder and peculiar-velocity models** (the probe is chosen by `model.which_run`):
 ```bash
 python scripts/runs/main.py --config path/to/config.toml
 ```
 
-To generate a batch of PV/$H_0$ configs from a template with a parameter grid:
+To generate a batch of configs from a named parameter grid (each package defines its grids in `specs.py`):
 ```bash
 python scripts/runs/generate_tasks.py list
 python scripts/runs/generate_tasks.py build test
+bash scripts/runs/submit.sh -q QUEUE --batch 8 --parallel 4 -n 8 test
 ```
+
+`--batch N` puts N tasks in one scheduler job and `--parallel P` runs P of them at once on a CPU job, which amortises queue waits for many short tasks.
 
 **Megamaser disk model:**
 ```bash
-python scripts/megamaser/run_maser.py NGC5765b
-bash scripts/megamaser/submit.sh -q cmbgpu --galaxy NGC5765b --sampler mcmc
+python -m candel_maser.run_maser NGC5765b
+bash packages/candel-maser/scripts/submit.sh -q cmbgpu --galaxy NGC5765b --sampler mcmc
 ```
-
-Megamaser jobs use the unified runner above; MCMC is the default sampler.
 
 ### Inference methods
 
 - **NUTS** (default for the non-maser distance-indicator models): No-U-Turn Sampler via NumPyro. Robust, gradient-based.
-- **BlackJAX explicit MCMC:** dedicated megamaser disk sampler in `scripts/megamaser/run_maser.py`.
+- **BlackJAX explicit MCMC:** dedicated megamaser disk sampler in `candel_maser.run_maser`.
 - **L-BFGS initialisation:** multi-start L-BFGS-B optimisation of the posterior to initialise NUTS chains, set by `init_maxiter` and `init_num_starts` in the `[inference]` section of the TOML config.
+
+### Adding a probe
+
+A new analysis (for example an SN Ia distance ladder) is a new package under
+`packages/`: a model and data loader built on the core, a `Probe` subclass
+implementing `load_data` and `build_model` (plus `task_specs` and
+`task_tag_parts` for batch runs), and an entry point
+`[project.entry-points."candel.probes"]` in its `pyproject.toml`. After
+`pip install -e packages/<name>`, `main.py` and `generate_tasks.py` pick it up
+without changes to the core.
 
 ## Results
 
@@ -119,16 +133,28 @@ CANDEL underpins a series of recent analyses:
 - **The Velocity Field Olympics:** a systematic comparison of velocity-field reconstructions against direct distance tracers.
   Stiskalek et al. (2025), [arXiv:2502.00121](https://arxiv.org/abs/2502.00121)
 
+- **Forward-modelling Milky Way Cepheids:** selection effects and physical priors in the Gaia--HST calibration.
+  Stiskalek et al. (2026), [arXiv:2603.09880](https://arxiv.org/abs/2603.09880)
+
+- **A reanalysis of the megamaser Hubble constant**, from spot catalogues to peculiar velocities.
+  Stiskalek & Desmond (2026), [arXiv:2609.17684](https://arxiv.org/abs/2609.17684)
+
+- **Two-rung ladder:** $H_0$ from the Tip of the Red Giant Branch and geometric anchors alone.
+  Stiskalek et al. (2026), [arXiv:2609.29996](https://arxiv.org/abs/2609.29996)
+
 ## Installation
 ```
-git clone https://github.com/Richard-Sti/CANDEL.git
+git clone https://github.com/candel-cosmo/CANDEL.git
 cd CANDEL
 
 python -m venv venv_candel
 source venv_candel/bin/activate
 python -m pip install --upgrade pip setuptools
 python -m pip install -e .
+for pkg in packages/*/; do python -m pip install -e "$pkg"; done
 ```
+
+Install only the probe packages you need; the core runs without any of them.
 
 For learned harmonic-mean evidence estimates, also install [harmonic](https://github.com/astro-informatics/harmonic).
 
@@ -160,8 +186,8 @@ for the full configuration schema.
 - **TODO:** some scripts and notebooks still hard-code machine-specific paths
   (e.g. `/mnt/users/...`, `/Users/...`) instead of resolving them through
   `local_config.toml`: `scripts/H0_convergence/posterior_selection_integral_subsample.{py,sh}`,
-  `scripts/sharing/load_zcosmo_posterior.py`, and many of the paper notebooks
-  under `notebooks/`. Adjust these paths before running them.
+  `packages/candel-pv/scripts/load_zcosmo_posterior.py`, and many of the paper
+  notebooks under `packages/*/papers/`. Adjust these paths before running them.
 
 ## Citation
 
@@ -169,4 +195,4 @@ If you use CANDEL, or find it useful, please cite the papers listed above.
 
 ## License
 
-GNU General Public License v3.0 -- see [LICENSE](LICENSE) for details.
+MIT License -- see [LICENSE](LICENSE) for details.

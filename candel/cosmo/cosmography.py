@@ -1,17 +1,5 @@
 # Copyright (C) 2024 Richard Stiskalek
-# This program is free software; you can redistribute it and/or modify it
-# under the terms of the GNU General Public License as published by the
-# Free Software Foundation; either version 3 of the License, or (at your
-# option) any later version.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
-# Public License for more details.
-#
-# You should have received a copy of the GNU General Public License along
-# with this program; if not, write to the Free Software Foundation, Inc.,
-# 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+# Licensed under the MIT License; see LICENSE in the repository root.
 """Various cosmography functions for converting between distance indicators."""
 import numpy as np
 from astropy.cosmology import FlatLambdaCDM
@@ -440,15 +428,3 @@ class Distance2Redshift_withOm:
 #                           Cosmographic expansion                            #
 ###############################################################################
 
-
-def redshift_to_dL_cosmography(z, H0, q0=-0.55, j0=1, s0=0.055):
-    """
-    Calculate the luminosity distance for a given redshift using cosmographic
-    expansion up to third order in redshift.
-    """
-    return (SPEED_OF_LIGHT * z) / H0 * (
-        1
-        + 0.5 * (1 - q0) * z
-        - (1 / 6) * (1 - q0 - 3 * q0**2 + j0) * z**2
-        + (1 / 24) * (2 - 2 * q0 - 15 * q0**2 - 15 * q0**3 + 5 * j0 + 10 * q0 *  j0 + s0) * z**3  # noqa
-        )

@@ -1,17 +1,5 @@
 # Copyright (C) 2025 Richard Stiskalek
-# This program is free software; you can redistribute it and/or modify it
-# under the terms of the GNU General Public License as published by the
-# Free Software Foundation; either version 3 of the License, or (at your
-# option) any later version.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
-# Public License for more details.
-#
-# You should have received a copy of the GNU General Public License along
-# with this program; if not, write to the Free Software Foundation, Inc.,
-# 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+# Licensed under the MIT License; see LICENSE in the repository root.
 """Various utility functions for candel."""
 
 try:
@@ -31,6 +19,22 @@ from astropy.coordinates import CartesianRepresentation, SkyCoord
 from h5py import File
 
 SPEED_OF_LIGHT = 299_792.458  # km / s
+# Config fragments shared by the probe packages (e.g. data and field paths).
+SHARED_CONFIG_DIR = join(Path(__file__).resolve().parent, "configs")
+
+# ICRS equatorial → Galactic Cartesian rotation matrix.
+# Computed via astropy: SkyCoord(basis, frame='icrs').galactic.
+R_ICRS_TO_GAL = np.array([
+    [-0.05487565771259163, -0.87343705195561590, -0.48383507361671546],
+    [+0.49410943719272680, -0.44482972122329520, +0.74698218398666760],
+    [-0.86766613755965760, -0.19807633727300053, +0.45598381368730160]])
+
+# ICRS equatorial -> Supergalactic Cartesian rotation matrix.
+# Computed via astropy: SkyCoord(basis, frame='icrs').supergalactic.
+R_ICRS_TO_SUPERGAL = np.array([
+    [+0.37501555570303163, +0.34135887185624750, +0.86188018516831910],
+    [-0.89832043772761380, -0.09572710024885137, +0.42878516000301936],
+    [+0.22887490937543750, -0.93504569026490690, +0.27075049949244600]])
 
 
 def fsection(title, width=60):
@@ -54,19 +58,6 @@ def file_last_edited(path):
         return None
     return datetime.fromtimestamp(timestamp).astimezone().isoformat(
         timespec="seconds")
-
-
-def patch_tqdm(mininterval=5):
-    """Monkey-patch tqdm to reduce output frequency for long-running jobs."""
-    import tqdm
-    _Orig = tqdm.tqdm
-
-    class _Slow(_Orig):
-        def __init__(self, *a, **kw):
-            kw.setdefault("mininterval", mininterval)
-            super().__init__(*a, **kw)
-
-    tqdm.tqdm = _Slow
 
 
 def convert_none_strings(d):
@@ -148,7 +139,6 @@ def convert_to_absolute_paths(config):
     path_keys_data = {
         "root",
         "los_file",
-        "los_file_random",
         "path_density",
         "path_velocity",
         "path_velocity_x",
@@ -173,24 +163,15 @@ def convert_to_absolute_paths(config):
     return config
 
 
-def _selected_reconstruction_names(config):
+def selected_reconstruction_names(config):
     """Return reconstruction names selected by the loaded config."""
     names = set()
     kind = get_nested(config, "pv_model/kind", "")
     if isinstance(kind, str) and kind.startswith("precomputed_los_"):
         names.add(kind.replace("precomputed_los_", ""))
 
-    for key_path in (
-            "io/SH0ES/reconstruction",
-            "io/CCHP/reconstruction"):
-        value = get_nested(config, key_path, None)
-        if isinstance(value, str) and value.lower() != "none":
-            names.add(value)
-
-    for key_path in (
-            "io/PV_main/EDD_TRGB/reconstruction",
-            "io/PV_main/EDD_TRGB_grouped/reconstruction",
-            "io/PV_main/EDD_2MTF/reconstruction"):
+    from .probe import reconstruction_keys
+    for key_path in reconstruction_keys():
         value = get_nested(config, key_path, None)
         if isinstance(value, str) and value.lower() != "none":
             names.add(value)
@@ -220,7 +201,7 @@ def _local_reconstruction_path_keys(name):
 def _validate_runtime_paths(config):
     """Catch machine-local reconstruction paths before expensive I/O."""
     recon_main = get_nested(config, "io/reconstruction_main", {})
-    selected = _selected_reconstruction_names(config)
+    selected = selected_reconstruction_names(config)
     for name in selected:
         section = recon_main.get(name, {})
         if not isinstance(section, dict):
@@ -281,43 +262,45 @@ def load_config(config_path, replace_none=True, fill_paths=True,
 
     Supports a ``base`` key (string or list of strings) pointing to base
     config files that are loaded first and deep-merged in order. Paths are
-    resolved relative to the directory containing the config file.
+    resolved relative to the directory containing the config file, falling
+    back to the shared fragments shipped in ``candel/configs``.
     """
     config_dir = str(Path(config_path).resolve().parent)
 
     with open(config_path, 'rb') as f:
         config = tomllib.load(f)
 
-    # Load and merge base configs if specified
+    # Precedence, lowest first: `base` fragments, local_config.toml, then
+    # the config itself. Machine-local nested values such as
+    # [io.reconstruction_main.<name>] thus override the shared fragments.
+    merged = {}
     base_paths = config.pop("base", None)
-    if base_paths is not None:
-        if isinstance(base_paths, str):
-            base_paths = [base_paths]
-        merged = {}
-        for bp in base_paths:
-            if not isabs(bp):
-                bp = join(config_dir, bp)
-            with open(bp, 'rb') as f:
-                merged = _deep_merge(merged, tomllib.load(f))
-        config = _deep_merge(merged, config)
+    if isinstance(base_paths, str):
+        base_paths = [base_paths]
+    for bp in base_paths or []:
+        if not isabs(bp):
+            local = join(config_dir, bp)
+            bp = local if exists(local) else join(SHARED_CONFIG_DIR, bp)
+        with open(bp, 'rb') as f:
+            merged = _deep_merge(merged, tomllib.load(f))
 
-    # Inject defaults from local_config.toml (config values take precedence).
-    # This is a deep merge so machine-local nested values such as
-    # [io.reconstruction_main.<name>] can live outside reusable configs.
     project_root = Path(__file__).resolve().parent.parent
     local_config_path = project_root / "local_config.toml"
     if local_config_path.exists():
         with open(local_config_path, 'rb') as f:
-            local_cfg = tomllib.load(f)
-        config = _deep_merge(local_cfg, config)
+            merged = _deep_merge(merged, tomllib.load(f))
+    config = _deep_merge(merged, config)
 
     # Convert "none" strings to None
     if replace_none:
         config = convert_none_strings(config)
 
-    # Assign delta priors if not using an underlying reconstruction.
-    kind = config.get("pv_model", {}).get("kind", "")
-    if replace_los_prior and not kind.startswith("precomputed_los"):
+    # PV runs without an underlying reconstruction get delta LOS priors. H0
+    # probes (`model/which_run` set) switch the reconstruction off themselves.
+    is_pv = config.get("model", {}).get("which_run") is None
+    kind = config.get("pv_model", {}).get("kind") or ""
+    if (replace_los_prior and is_pv
+            and not kind.startswith("precomputed_los")):
         config = replace_prior_with_delta(config, "alpha", 1.)
         config = replace_prior_with_delta(config, "beta", 0.)
         config = replace_prior_with_delta(config, "b1", 0.)
@@ -469,15 +452,6 @@ def galactic_to_radec_cartesian(ell, b):
     xyz = icrs.cartesian.xyz.value.T
 
     return xyz[0] if np.isscalar(ell) and np.isscalar(b) else xyz
-
-
-def supergalactic_to_radec(sgl, sgb):
-    """
-    Convert supergalactic coordinates (sgl, sgb) to equatorial
-    right ascension and declination (RA, Dec), all in degrees.
-    """
-    c = SkyCoord(sgl=sgl * u.deg, sgb=sgb * u.deg, frame="supergalactic")
-    return c.icrs.ra.deg, c.icrs.dec.deg
 
 
 def radec_to_supergalactic(ra, dec):
