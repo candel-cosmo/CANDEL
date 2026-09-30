@@ -64,4 +64,5 @@ machine     = "local"                            # local, arc or glamdring
 
 The submission scripts also read `use_frozen`, module lists and GPU library paths from it; the example file lists them.
 Probe repositories do not have their own `local_config.toml`: they read the core's.
-On a cluster where data and results live on another filesystem, set `root_data` and `root_results` to the folders holding `data/` and `results/`.
+Keep `data/`, `results/`, `plots/` and `remote_logs/` in `candel-cosmo/`, outside every checkout.
+Where they belong elsewhere, for example on a cluster's scratch or data filesystem to stay within the home quota, set `root_data` and `root_results` to the folders holding `data/` and `results/`, and symlink `plots/` and `remote_logs/` into `candel-cosmo/`.

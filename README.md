@@ -193,9 +193,12 @@ candel-cosmo/
   plots/  remote_logs/                    local figures, pulled cluster logs
 ```
 
-`data/` and `results/` are created by the first sync or run; on a cluster
-where they live on a separate filesystem, point `root_data`/`root_results`
-at the folders holding them (or symlink them into `candel-cosmo/`).
+Keep `data/`, `results/`, `plots/` and `remote_logs/` in `candel-cosmo/`, outside
+every checkout; they are created by the first sync or run. Where they belong
+elsewhere, for example on a cluster's scratch or data filesystem to stay within
+the home quota, set `root_data` and `root_results` to the folders holding
+`data/` and `results/`, and symlink `plots/` and `remote_logs/` into
+`candel-cosmo/`.
 
 For learned harmonic-mean evidence estimates, also install [harmonic](https://github.com/astro-informatics/harmonic).
 
