@@ -18,6 +18,8 @@ import numpy as np
 from astropy.coordinates import CartesianRepresentation, SkyCoord
 from h5py import File
 
+from .probe import PV_WHICH_RUN
+
 SPEED_OF_LIGHT = 299_792.458  # km / s
 # Core checkout holding local_config.toml, data/ and results/. Probe packages
 # live in their own repositories and locate these through it.
@@ -296,6 +298,10 @@ def load_config(config_path, replace_none=True, fill_paths=True,
     # Convert "none" strings to None
     if replace_none:
         config = convert_none_strings(config)
+
+    # `which_run = "PV"` is the explicit spelling of an unset PV run.
+    if config.get("model", {}).get("which_run") == PV_WHICH_RUN:
+        config["model"]["which_run"] = None
 
     # PV runs without an underlying reconstruction get delta LOS priors. H0
     # probes (`model/which_run` set) switch the reconstruction off themselves.

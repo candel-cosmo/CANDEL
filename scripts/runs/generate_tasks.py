@@ -72,7 +72,7 @@ except ModuleNotFoundError:
 
 import tomli_w
 
-from candel import (fprint, get_nested, get_probe, load_config, probes,
+from candel import (fprint, get_nested, get_probe, load_config,
                     replace_prior_with_delta)
 from candel.probe import reconstruction_keys, task_specs
 from candel.tasks import (is_active, is_delta_prior, is_manticore_los,
@@ -503,11 +503,7 @@ def apply_los_runtime_rules(config, override_set):
 
 def validate_generated_config(config):
     """Validate generated config values that commonly fail late at runtime."""
-    which_run = get_nested(config, "model/which_run", None)
-    if which_run not in probes():
-        raise ValueError(
-            f"Invalid which_run='{which_run}'. Installed probes handle "
-            f"{sorted(map(str, probes()))}.")
+    get_probe(get_nested(config, "model/which_run", None))
 
     bad_prefixes = ("/mnt/extraspace/", "/mnt/users/rstiskalek/")
     selected_reconstructions = {

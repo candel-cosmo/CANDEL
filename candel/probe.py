@@ -3,7 +3,8 @@
 """
 Registry of the probes that installed CANDEL packages provide.
 
-A probe is one `model.which_run` value (``None`` for peculiar-velocity runs)
+A probe is one `model.which_run` value (``"PV"`` or unset for peculiar-velocity
+runs, stored as ``None``)
 together with its data loader, model, task specs and filename tags. Packages
 register a `Probe` subclass under the ``candel.probes`` entry-point group, so
 core scripts (`main.py`, `generate_tasks.py`, field preparation) never name a
@@ -11,6 +12,9 @@ probe themselves.
 """
 from functools import lru_cache
 from importlib.metadata import entry_points
+
+# Explicit `model/which_run` of PV runs; the registry keys them under None.
+PV_WHICH_RUN = "PV"
 
 
 class Probe:
@@ -76,6 +80,8 @@ def probes():
 
 def get_probe(which_run):
     """Return the installed probe for a `model/which_run` value."""
+    if which_run == PV_WHICH_RUN:
+        which_run = None
     try:
         return probes()[which_run]
     except KeyError:

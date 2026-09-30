@@ -4,14 +4,6 @@ site_url: https://candel.readthedocs.io/en/latest/
 repo_url: https://github.com/candel-cosmo/CANDEL
 repo_name: candel-cosmo/CANDEL
 edit_uri: edit/master/docs/
-exclude_docs: |
-  *.rst
-  api/
-  conf.py
-  Makefile
-  make.bat
-  probe-requirements.txt
-
 theme:
   name: material
   font: false

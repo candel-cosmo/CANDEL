@@ -55,7 +55,7 @@ repository plus one **probe package** per analysis.
 | Repository | Contents | `model.which_run` |
 |---|---|---|
 | [CANDEL](https://github.com/candel-cosmo/CANDEL) | core library, run scripts, docs, `data/`, `results/`, `local_config.toml` | — |
-| [candel-pv](https://github.com/candel-cosmo/candel-pv) | peculiar-velocity models (TFR, SN, FP, Pantheon+), S8, redshift2real | unset (peculiar-velocity runs) |
+| [candel-pv](https://github.com/candel-cosmo/candel-pv) | peculiar-velocity models (TFR, SN, FP, Pantheon+), S8, redshift2real | `PV` (or unset) |
 | [candel-ch0](https://github.com/candel-cosmo/candel-ch0) | Cepheid-calibrated H0 (SH0ES hosts), JWST forecast mocks | `CH0` |
 | [candel-trgb](https://github.com/candel-cosmo/candel-trgb) | EDD TRGB two-rung H0, mocks and posterior predictive checks | `EDD_TRGB` |
 | [candel-mwcepheids](https://github.com/candel-cosmo/candel-mwcepheids) | Milky Way Cepheid calibration | `MWCepheids` |

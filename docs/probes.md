@@ -8,7 +8,7 @@ Each probe package is described briefly here; its README and `papers/` directory
 
 [candel-pv](https://github.com/candel-cosmo/candel-pv) jointly calibrates distance-indicator relations and a reconstructed density and velocity field: amplitude $\beta$, external bulk flow $\mathbf{V}_\mathrm{ext}$, galaxy bias, and a density-dependent velocity dispersion.
 These models work in units of $h^{-1}\,\mathrm{Mpc}$, and several catalogues can be fitted jointly with shared parameters.
-Runs leave `which_run` unset and choose the model with `inference.model`.
+Runs set `which_run = "PV"` (or leave it unset) and choose the model with `inference.model`.
 
 - Tully--Fisher: 2MTF, SFI++, CF4-TFR
 - Type Ia supernovae (SALT2): LOSS, Foundation, Pantheon+
