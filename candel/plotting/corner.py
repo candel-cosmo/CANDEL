@@ -506,10 +506,11 @@ def plot_corner_getdist(samples_list, labels=None, cols=None, show_fig=True,
     settings = plots.GetDistPlotSettings()
     if fontsize is not None:
         settings.lab_fontsize = fontsize
-        settings.legend_fontsize = (
-            legend_fontsize if legend_fontsize is not None else fontsize)
+        settings.legend_fontsize = fontsize
         settings.axes_fontsize = fontsize - 1
         settings.title_limit_fontsize = fontsize - 1
+    if legend_fontsize is not None:
+        settings.legend_fontsize = legend_fontsize
 
     line_args = [{"color": c} for c in cols] if cols is not None else None
 
