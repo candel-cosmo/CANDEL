@@ -413,11 +413,13 @@ def plot_corner_getdist(samples_list, labels=None, cols=None, show_fig=True,
                         legend_fontsize=None, filled=True,
                         apply_ell_offset=False, mag_range=None,
                         ell_range=None, b_range=None, points=None,
-                        ranges=None, truths=None, param_limits=None):
+                        ranges=None, truths=None, param_limits=None,
+                        analysis_settings=None):
     """Plot a GetDist triangle plot for one or more posterior samples.
 
     `ranges` are hard prior boundaries used by the KDE; `param_limits` only
-    sets the plotted axis range and does not affect the density estimate."""
+    sets the plotted axis range and does not affect the density estimate.
+    `analysis_settings` goes to each MCSamples (e.g. smooth_scale_2D)."""
     if mag_range is None:
         mag_range = [0, None]
     if ell_range is None:
@@ -497,6 +499,7 @@ def plot_corner_getdist(samples_list, labels=None, cols=None, show_fig=True,
             names=present_params,
             labels=present_labels,
             ranges={k: ranges[k] for k in present_params if k in ranges},
+            settings=analysis_settings,
         )
         gdsamples_list.append(gds)
 
